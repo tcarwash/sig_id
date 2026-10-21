@@ -116,8 +116,11 @@ validation remain open.
   tentative output; trials require an active live capture and external audio routing.
 - Provisional automatic candidates from persistent spectral peaks, shown as amber
   dashed waterfall overlays with frequency/time, tone-count hypothesis, occupancy
-  and peak SNR. Review selects an editable region and leaves all label fields blank;
-  heuristic predictions are not stored as ground truth.
+  and peak SNR. Saved-capture track analysis adapts FFT size to sample rate and
+  suppresses nearby sidelobe peaks; regular observed tone grids expose provisional
+  spacing estimates and a `Use tone estimates` action that prefills the M-FSK bank,
+  timing search and bounded baud search. Review selects an editable region and leaves
+  all label fields blank; heuristic predictions are not stored as ground truth.
 - Manual protocol-independent 2-FSK demodulation for a saved capture or selected
   region. Operator supplies symbol rate and bit-to-tone mapping; timing phase can be
   entered manually or acquired with a 32-phase soft/energy search. Results include raw

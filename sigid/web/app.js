@@ -658,6 +658,17 @@ function selectTrack(track) {
   el("selection-summary").scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
+function applyTrackToneEstimate(track) {
+  selectTrack(track);
+  el("mfsk-count").value = String(track.tone_count_candidate);
+  el("mfsk-base").value = String(track.tone_centers_hz[0]);
+  el("mfsk-spacing").value = String(track.tone_spacing_hz_candidate);
+  el("mfsk-auto-timing").checked = true;
+  el("mfsk-auto-rate").checked = true;
+  el("mfsk-output").textContent = `Applied provisional tone bank: ${track.tone_centers_hz.map((tone) => tone.toFixed(1)).join(", ")} Hz · spacing ${track.tone_spacing_hz_candidate.toFixed(1)} Hz · grid residual ${track.tone_grid_residual_hz.toFixed(1)} Hz. Review these estimates, then run M-FSK analysis.`;
+  el("mfsk-form").scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
 function renderTracks() {
   const list = el("track-list");
   el("track-count").textContent = String(state.tracks.length);
@@ -692,6 +703,13 @@ function renderTracks() {
       button.textContent = "Review region";
       button.addEventListener("click", () => selectTrack(track));
       row.append(summary, detail, button);
+      if (track.tone_grid_regular && track.tone_count_candidate >= 2 && track.tone_count_candidate <= 64) {
+        const toneButton = document.createElement("button");
+        toneButton.type = "button";
+        toneButton.textContent = "Use tone estimates";
+        toneButton.addEventListener("click", () => applyTrackToneEstimate(track));
+        row.append(toneButton);
+      }
       if (state.liveView && track.track_id) {
         const tryButton = document.createElement("button");
         tryButton.className = "track-auto-button";

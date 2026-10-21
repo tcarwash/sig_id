@@ -5,7 +5,7 @@ import asyncio
 import httpx
 import pytest
 
-from sigid.api import create_app
+from sigid.api import create_app, default_track_fft_size
 from sigid.synthetic import generate_2fsk_wav
 
 
@@ -19,6 +19,12 @@ def make_fixture(path):
         tone_high_hz=1500,
     )
     return path.read_bytes()
+
+
+def test_track_fft_size_scales_to_sample_rate():
+    assert default_track_fft_size(8_000) == 512
+    assert default_track_fft_size(48_000) == 2048
+    assert default_track_fft_size(192_000) == 8192
 
 
 def test_upload_waterfall_manual_label_audio_and_jsonl_export(tmp_path):
@@ -39,6 +45,7 @@ def test_upload_waterfall_manual_label_audio_and_jsonl_export(tmp_path):
             assert 'id="mfsk-rate-min"' in page
             assert "time on the vertical axis and audio frequency on the horizontal axis" in page
             assert "drawWaterfall" in (await client.get("/app.js")).text
+            assert "Use tone estimates" in (await client.get("/app.js")).text
             assert (await client.get("/waterfall-window.mjs")).status_code == 200
             assert (await client.get("/demod-export.mjs")).status_code == 200
             assert "Provisional signal candidates" in (await client.get("/")).text
@@ -66,8 +73,12 @@ def test_upload_waterfall_manual_label_audio_and_jsonl_export(tmp_path):
             assert candidates.status_code == 200, candidates.text
             result = candidates.json()
             assert result["analysis"]["method"] == "row-median threshold with persistent peak clusters"
+            assert result["analysis"]["fft_size"] == 512
             assert any(candidate["modulation_hypothesis"] == "FSK-like" for candidate in result["tracks"])
             assert all(candidate["protocol"] is None for candidate in result["tracks"])
+            fsk_candidate = next(candidate for candidate in result["tracks"] if candidate["modulation_hypothesis"] == "FSK-like")
+            assert fsk_candidate["tone_grid_regular"] is True
+            assert fsk_candidate["tone_spacing_hz_candidate"] == pytest.approx(500, abs=20)
 
             saved = await client.post(
                 f"/api/captures/{capture['id']}/regions",

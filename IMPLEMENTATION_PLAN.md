@@ -140,6 +140,10 @@ Ship this as soon as the gate passes. No classifier is required for 0.1.
   sample-position observations. This persistence is spectral evidence only.
 - Estimate bandwidth, tone structure, spacing/rate candidates and drift. Start
   with interpretable family hypotheses; do not force a protocol on every track.
+- Implemented first-pass tone-bank evidence on spectral candidates: sample-rate-aware
+  FFT resolution, local sidelobe suppression, regular-grid residual checks, and a
+  manual-review action that prefills M-FSK tone count/base/spacing before bounded rate
+  search. Missing-tone grids and overlapping signals can still defeat this estimate.
 - Associate RSID announcements with tracks. Validate the event interface instead
   of assuming a selected-modem change is a complete RSID event feed.
 - Add bounded candidate scheduler, trial timeouts, worker resets, minimum dwell,

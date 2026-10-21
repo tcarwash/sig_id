@@ -32,6 +32,12 @@ WEB_DIR = Path(__file__).resolve().parent / "web"
 MAX_MFSK_RATE_SEARCH_WORK = 200_000_000
 
 
+def default_track_fft_size(sample_rate: int) -> int:
+    """Choose a track-analysis window near 42 ms, capped by the API FFT limit."""
+    target = max(32, int(np.ceil(sample_rate / 24)))
+    return min(8192, 1 << int(np.ceil(np.log2(target))))
+
+
 class RegionCreate(BaseModel):
     sample_start: int = Field(ge=0)
     sample_count: int = Field(gt=0)
@@ -594,8 +600,8 @@ def create_app(
     @app.get("/api/captures/{capture_id}/tracks")
     def get_signal_tracks(
         capture_id: str,
-        fft_size: int = Query(default=128, ge=32, le=8192),
-        hop_size: int = Query(default=32, ge=1, le=8192),
+        fft_size: int | None = Query(default=None, ge=32, le=8192),
+        hop_size: int | None = Query(default=None, ge=1, le=8192),
         max_rows: int = Query(default=2048, ge=1, le=8192),
         threshold_db: float = Query(default=18.0, ge=1.0, le=60.0),
     ) -> dict[str, Any]:
@@ -604,6 +610,8 @@ def create_app(
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="capture not found") from exc
         try:
+            fft_size = fft_size or default_track_fft_size(int(capture["sample_rate"]))
+            hop_size = hop_size or max(1, fft_size // 8)
             spectrum = waterfall(
                 capture["audio_path"],
                 fft_size=fft_size,

@@ -5,7 +5,7 @@ import wave
 import numpy as np
 import pytest
 
-from sigid.detection import detect_tracks
+from sigid.detection import detect_tracks, estimate_tone_grid
 from sigid.spectrum import waterfall
 from sigid.synthetic import generate_2fsk_wav, generate_mfsk_wav
 
@@ -27,6 +27,8 @@ def test_detector_reports_provisional_fsk_and_mfsk_tone_evidence(tmp_path):
     assert candidate["modulation_hypothesis"] == "MFSK-like"
     assert candidate["tone_count_candidate"] == 4
     assert candidate["tone_centers_hz"] == pytest.approx([1000, 1200, 1400, 1600], abs=30)
+    assert candidate["tone_grid_regular"] is True
+    assert candidate["tone_spacing_hz_candidate"] == pytest.approx(200, abs=30)
     assert candidate["identification_state"] == "provisional"
     assert candidate["protocol"] is None
     assert candidate["sample_start"] == 0
@@ -49,6 +51,16 @@ def test_detector_reports_provisional_fsk_and_mfsk_tone_evidence(tmp_path):
     assert fsk_result[0]["tone_count_candidate"] == 2
     assert fsk_result[0]["tone_centers_hz"] == pytest.approx([1000, 1500], abs=1)
     assert fsk_result[0]["drift_hz_per_second"] == pytest.approx(0.0, abs=1.0)
+
+
+def test_tone_grid_estimator_rejects_nonuniform_spacing():
+    regular = estimate_tone_grid([1000, 1200, 1400, 1600], frequency_resolution_hz=10)
+    assert regular["tone_grid_regular"] is True
+    assert regular["tone_spacing_hz_candidate"] == 200
+
+    irregular = estimate_tone_grid([1000, 1200, 1600, 1800], frequency_resolution_hz=10)
+    assert irregular["tone_grid_regular"] is False
+    assert irregular["tone_grid_residual_hz"] > irregular["tone_grid_tolerance_hz"]
 
 
 def test_detector_estimates_linear_carrier_drift(tmp_path):

@@ -8,6 +8,31 @@ from typing import Any
 import numpy as np
 
 
+def estimate_tone_grid(
+    tone_centers_hz: list[float] | tuple[float, ...],
+    *,
+    frequency_resolution_hz: float,
+) -> dict[str, Any]:
+    """Estimate spacing for an observed, contiguous equally-spaced tone set."""
+    centers = np.asarray(tone_centers_hz, dtype=np.float64)
+    if centers.ndim != 1 or centers.size < 2 or not np.all(np.isfinite(centers)):
+        raise ValueError("tone_centers_hz must contain at least two finite frequencies")
+    if np.any(np.diff(centers) <= 0):
+        raise ValueError("tone_centers_hz must be strictly increasing")
+    if not np.isfinite(frequency_resolution_hz) or frequency_resolution_hz <= 0:
+        raise ValueError("frequency_resolution_hz must be positive and finite")
+    differences = np.diff(centers)
+    spacing = float(np.median(differences))
+    residual = float(np.max(np.abs(differences - spacing)))
+    tolerance = max(2.0 * frequency_resolution_hz, 0.15 * spacing)
+    return {
+        "tone_spacing_hz_candidate": spacing,
+        "tone_grid_residual_hz": residual,
+        "tone_grid_tolerance_hz": tolerance,
+        "tone_grid_regular": residual <= tolerance,
+    }
+
+
 def detect_tracks(
     spectrum: Mapping[str, Any],
     *,
@@ -58,6 +83,12 @@ def detect_tracks(
         )
         bins = np.flatnonzero(local_maxima) + 1
         bins = bins[bins >= first_bin]
+        ranked_bins = sorted(bins.tolist(), key=lambda index: float(row[index]), reverse=True)
+        selected_bins: list[int] = []
+        for index in ranked_bins:
+            if all(abs(index - selected) >= 4 for selected in selected_bins):
+                selected_bins.append(index)
+        bins = np.asarray(sorted(selected_bins), dtype=np.int64)
         for index in bins:
             peaks.append(
                 {
@@ -138,6 +169,12 @@ def detect_tracks(
         sample_start = int(sample_starts[first_row])
         sample_end = min(sample_count, int(sample_starts[last_row]) + fft_size)
         tone_count = len(centers)
+        tone_grid = estimate_tone_grid(centers, frequency_resolution_hz=bin_hz) if tone_count >= 2 else {
+            "tone_spacing_hz_candidate": None,
+            "tone_grid_residual_hz": None,
+            "tone_grid_tolerance_hz": None,
+            "tone_grid_regular": False,
+        }
         hypothesis = "single-tone / unknown" if tone_count == 1 else "FSK-like" if tone_count == 2 else "MFSK-like"
         candidates.append(
             {
@@ -156,6 +193,8 @@ def detect_tracks(
                 "active_rows": len(rows_in_group),
                 "tone_centers_hz": centers,
                 "tone_count_candidate": tone_count,
+                **tone_grid,
+                "frequency_resolution_hz": bin_hz,
                 "modulation_hypothesis": hypothesis,
                 "identification_state": "provisional",
                 "protocol": None,
