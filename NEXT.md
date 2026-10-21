@@ -110,7 +110,7 @@ Verified: Fldigi 4.2.13 and its XML-RPC method catalog are installed; unit tests
 cover receive-only client semantics, PCM WAV block indexing/normalization and
 synthetic 2-FSK/MFSK metadata, exact symbols/bits and tone frequencies, SQLite
 capture hashes/regions/label history, JSONL export, spectrogram peak detection, upload/region APIs, and Fldigi
-status/catalog/mode/output APIs. Current full suite: 102 passed, 4 skipped;
+status/catalog/mode/output APIs. Current full suite: 103 passed, 4 skipped;
 `node --check sigid/web/app.js` and `git diff --check` pass. The generic text-backend
 contract is exercised by the Fldigi adapter and trial-runner tests. Deterministic fake-device tests
 exercise WAV writing, capture indexing, API start/status/stop and rolling live

@@ -160,3 +160,15 @@ protocol waveform.
 Generated waveforms, saved captures, and curated external reference examples will
 remain distinguishable in provenance and label confidence. See the dataset and
 Signal Identification Wiki guidance in [DESIGN.md](DESIGN.md).
+
+Create a bounded metadata catalog from [Signal Identification Wiki](https://www.sigidwiki.com/wiki/Signal_Identification_Guide) pages without
+downloading their audio or images:
+
+```sh
+sig-id-import-sigidwiki --output data/references/sigidwiki.json --limit-per-category 25
+```
+
+The catalog preserves the page URL, revision, source-reported fields and media links.
+Wiki labels remain unreviewed references, not accepted training labels; media stays
+link-only until reuse rights are reviewed per asset. Use `--categories Signal` to
+catalog only identified entries, or add a different category explicitly.

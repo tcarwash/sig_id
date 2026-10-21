@@ -224,6 +224,10 @@ Learning track:
   retrieval date, fields/assets sourced, attribution and rights status. Treat these
   as real reference recordings, not synthetic ground truth; use them in training or
   evaluation only when rights and labels permit, with lineage-preserving splits.
+- Metadata-only importer implemented against the public MediaWiki API for identified
+  and unidentified categories. It records revision/content hashes, source fields, page
+  and file-page links, and retrieval time; it does not fetch media or assign accepted
+  labels. Per-asset reuse rights and actual reference-audio ingestion remain open.
 
 Acceptance: one documented command creates a small corpus, another trains and
 evaluates the baseline, and the exported artifact runs in the application. The
