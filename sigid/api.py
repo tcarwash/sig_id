@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from .dataset import CaptureStore, SignalLabel
-from .demod import demodulate_2fsk, demodulate_bpsk, demodulate_mfsk
+from .demod import demodulate_2fsk, demodulate_bpsk, demodulate_mfsk, demodulate_qpsk
 from .detection import detect_tracks
 from .fldigi import FldigiClient
 from .live_audio import LiveCaptureManager
@@ -72,6 +72,15 @@ class MfskDemodRequest(BaseModel):
 
 
 class BpskDemodRequest(BaseModel):
+    sample_start: int = Field(default=0, ge=0)
+    sample_count: int = Field(default=120_000, ge=1, le=1_000_000)
+    symbol_rate: float = Field(default=100, gt=0, le=20_000)
+    carrier_hz: float = Field(default=1500, gt=0, le=96_000)
+    timing_offset_samples: float = Field(default=0, ge=0)
+    integration_fraction: float = Field(default=0.8, ge=0.2, le=1.0)
+
+
+class QpskDemodRequest(BaseModel):
     sample_start: int = Field(default=0, ge=0)
     sample_count: int = Field(default=120_000, ge=1, le=1_000_000)
     symbol_rate: float = Field(default=100, gt=0, le=20_000)
@@ -491,6 +500,43 @@ def create_app(
                 right = min(block.sample_count, end - block.first_sample)
                 values.extend(block.samples[left:right])
             result = demodulate_bpsk(
+                values,
+                int(capture["sample_rate"]),
+                symbol_rate=settings.symbol_rate,
+                carrier_hz=settings.carrier_hz,
+                timing_offset_samples=settings.timing_offset_samples,
+                sample_offset=start,
+                integration_fraction=settings.integration_fraction,
+            )
+            result["capture_id"] = capture_id
+            result["sample_start"] = start
+            result["sample_count"] = len(values)
+            return result
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/captures/{capture_id}/demod/qpsk")
+    def demodulate_capture_qpsk(capture_id: str, settings: QpskDemodRequest) -> dict[str, Any]:
+        try:
+            capture = store.capture(capture_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="capture not found") from exc
+        start = settings.sample_start
+        end = min(int(capture["sample_count"]), start + settings.sample_count)
+        if start >= int(capture["sample_count"]):
+            raise HTTPException(status_code=422, detail="sample_start is outside the capture")
+        try:
+            values: list[float] = []
+            for block in WavSource(capture["audio_path"]).blocks():
+                block_end = block.first_sample + block.sample_count
+                if block_end <= start:
+                    continue
+                if block.first_sample >= end:
+                    break
+                left = max(0, start - block.first_sample)
+                right = min(block.sample_count, end - block.first_sample)
+                values.extend(block.samples[left:right])
+            result = demodulate_qpsk(
                 values,
                 int(capture["sample_rate"]),
                 symbol_rate=settings.symbol_rate,

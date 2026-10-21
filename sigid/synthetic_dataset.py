@@ -117,6 +117,28 @@ def _validate_manifest(manifest: dict[str, Any], wav_path: Path) -> None:
             or len(bits) * (sample_rate // symbol_rate) != manifest.get("sample_count")
         ):
             raise ValueError("BPSK reference bits do not match the waveform dimensions")
+    elif generator == "sig-id-qpsk":
+        if manifest.get("generator_version") != "0.1.0":
+            raise ValueError("unsupported QPSK generator version")
+        expected_family = "PSK"
+        expected_method = "quadrature phase-shift keying"
+        bits = manifest.get("reference_bits")
+        if not isinstance(bits, str) or not bits or len(bits) % 2 or any(bit not in "01" for bit in bits):
+            raise ValueError("QPSK manifest must contain an even-length exact reference bit sequence")
+        sample_rate = manifest.get("sample_rate")
+        symbol_rate = parameters.get("symbol_rate")
+        if (
+            not isinstance(sample_rate, int)
+            or isinstance(sample_rate, bool)
+            or not isinstance(symbol_rate, int)
+            or isinstance(symbol_rate, bool)
+            or symbol_rate <= 0
+            or sample_rate % symbol_rate
+            or len(bits) // 2 * (sample_rate // symbol_rate) != manifest.get("sample_count")
+        ):
+            raise ValueError("QPSK reference bits do not match the waveform dimensions")
+        if manifest.get("reference_symbols") != [bits[index : index + 2] for index in range(0, len(bits), 2)]:
+            raise ValueError("QPSK symbols do not match the reference bit mapping")
     else:
         raise ValueError(f"unsupported synthetic generator: {generator!r}")
 
@@ -134,7 +156,7 @@ def _validate_manifest(manifest: dict[str, Any], wav_path: Path) -> None:
     # Recreate from the reference symbols with the shipped deterministic
     # generator. This prevents a hand-edited sidecar from turning arbitrary
     # audio into accepted synthetic ground truth.
-    from .synthetic import generate_2fsk_wav, generate_bpsk_wav, generate_mfsk_wav
+    from .synthetic import generate_2fsk_wav, generate_bpsk_wav, generate_mfsk_wav, generate_qpsk_wav
 
     try:
         with tempfile.TemporaryDirectory(prefix="sig-id-validate-") as temporary:
@@ -160,8 +182,18 @@ def _validate_manifest(manifest: dict[str, Any], wav_path: Path) -> None:
                     tone_spacing_hz=parameters["tone_spacing_hz"],
                     amplitude=parameters["amplitude"],
                 )
-            else:
+            elif generator == "sig-id-bpsk":
                 generate_bpsk_wav(
+                    regenerated,
+                    manifest["reference_bits"],
+                    sample_rate=manifest["sample_rate"],
+                    symbol_rate=parameters["symbol_rate"],
+                    carrier_hz=parameters["carrier_hz"],
+                    amplitude=parameters["amplitude"],
+                    initial_phase_radians=parameters["initial_phase_radians"],
+                )
+            else:
+                generate_qpsk_wav(
                     regenerated,
                     manifest["reference_bits"],
                     sample_rate=manifest["sample_rate"],

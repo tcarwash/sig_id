@@ -5,7 +5,7 @@ import wave
 
 import pytest
 
-from sigid.synthetic import bpsk_main, generate_2fsk_wav, generate_bpsk_wav, generate_mfsk_wav, mfsk_main
+from sigid.synthetic import bpsk_main, generate_2fsk_wav, generate_bpsk_wav, generate_mfsk_wav, generate_qpsk_wav, mfsk_main, qpsk_main
 from sigid.wav import WavSource
 
 
@@ -165,6 +165,27 @@ def test_bpsk_generator_and_cli_preserve_exact_bits_and_unknown_protocol(tmp_pat
 def test_bpsk_generator_rejects_invalid_parameters(tmp_path, kwargs):
     with pytest.raises(ValueError):
         generate_bpsk_wav(tmp_path / "invalid.wav", "101", **kwargs)
+
+
+def test_qpsk_generator_and_cli_preserve_gray_mapped_bits(tmp_path, monkeypatch, capsys):
+    path = tmp_path / "qpsk.wav"
+    manifest = generate_qpsk_wav(path, "00110110", initial_phase_radians=0.5)
+    assert json.loads(path.with_suffix(".wav.json").read_text()) == manifest
+    assert manifest["reference_symbols"] == ["00", "11", "01", "10"]
+    assert manifest["labels"]["modulation_family"] == "PSK"
+    assert manifest["labels"]["protocol"] is None
+
+    cli_path = tmp_path / "cli-qpsk.wav"
+    monkeypatch.setattr("sys.argv", ["sig-id-generate-qpsk", str(cli_path), "0011"])
+    qpsk_main()
+    cli_manifest = json.loads(capsys.readouterr().out)
+    assert cli_manifest["reference_bits"] == "0011"
+
+
+@pytest.mark.parametrize("bits", ["", "0", "001"])
+def test_qpsk_generator_rejects_empty_or_odd_bit_sequences(tmp_path, bits):
+    with pytest.raises(ValueError, match="even-length"):
+        generate_qpsk_wav(tmp_path / "bad-qpsk.wav", bits)
 
 
 @pytest.mark.parametrize(

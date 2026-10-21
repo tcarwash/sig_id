@@ -109,9 +109,11 @@ el("live-start").addEventListener("click", async () => {
     el("demod-run").disabled = true;
     el("mfsk-run").disabled = true;
     el("bpsk-run").disabled = true;
+    el("qpsk-run").disabled = true;
     el("demod-output").textContent = "Stop and save the capture before running protocol-independent demodulation.";
     el("mfsk-output").textContent = el("demod-output").textContent;
     el("bpsk-output").textContent = el("demod-output").textContent;
+    el("qpsk-output").textContent = el("demod-output").textContent;
     el("empty-state").classList.add("hidden");
     el("workspace").classList.remove("hidden");
     el("capture-title").textContent = "Live passband";
@@ -233,6 +235,7 @@ async function loadCapture() {
   el("demod-run").disabled = false;
   el("mfsk-run").disabled = false;
   el("bpsk-run").disabled = false;
+  el("qpsk-run").disabled = false;
   el("empty-state").classList.add("hidden");
   el("workspace").classList.remove("hidden");
   state.tracks = [];
@@ -607,6 +610,40 @@ el("bpsk-form").addEventListener("submit", async (event) => {
   } finally {
     button.disabled = !state.capture || state.liveView;
     button.textContent = "Recover BPSK bits";
+  }
+});
+
+el("qpsk-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!state.capture || state.liveView) return;
+  clearError();
+  const button = el("qpsk-run");
+  button.disabled = true;
+  button.textContent = "Recovering…";
+  el("qpsk-output").textContent = "Analyzing selected audio…";
+  try {
+    const selection = state.selection;
+    const result = await request(`/api/captures/${state.capture.id}/demod/qpsk`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sample_start: selection?.sample_start ?? 0,
+        sample_count: Math.min(1_000_000, selection?.sample_count ?? Math.min(120_000, state.capture.sample_count)),
+        symbol_rate: Number(el("qpsk-rate").value),
+        carrier_hz: Number(el("qpsk-carrier").value),
+        timing_offset_samples: Number(el("qpsk-offset").value),
+      }),
+    });
+    const grouped = (bits) => bits.match(/.{1,64}/g)?.join("\n") || "(no complete symbols)";
+    const hypotheses = result.symbol_hypotheses.map((item, index) =>
+      `Hypothesis ${index + 1} · rotation ${(item.rotation_radians * 180 / Math.PI).toFixed(0)}°\nSymbols: ${item.symbols.join(" ")}\nBits:\n${grouped(item.bits)}`
+    ).join("\n\n");
+    el("qpsk-output").textContent = `${result.demodulator} · ${result.symbol_count} symbols · absolute rotation unknown\nProtocol: unknown\n\n${hypotheses}`;
+  } catch (error) {
+    el("qpsk-output").textContent = `Demodulation failed: ${error.message}`;
+  } finally {
+    button.disabled = !state.capture || state.liveView;
+    button.textContent = "Recover QPSK symbols";
   }
 });
 

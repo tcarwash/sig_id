@@ -18,9 +18,11 @@ to Fldigi remains an external setup and is not yet validated. Saved recordings a
 have a manual, protocol-independent 2-FSK demodulator that exposes uncoded bits,
 symbol timing and soft tone metrics; symbol rate, tone mapping and timing offset must
 be supplied by the operator. A corresponding M-FSK analyzer returns hard tone indices,
-soft margins and natural-binary bits only for power-of-two tone counts. The BPSK
-analysis returns both global polarity hypotheses because an unknown capture has no
-inherent absolute bit polarity.
+soft margins and natural-binary bits only for power-of-two tone counts. BPSK analysis
+returns both global polarity hypotheses, while QPSK analysis returns four possible
+90-degree rotation hypotheses because an unknown capture has no inherent absolute
+phase reference. These are protocol-independent symbol/bit observations, not complete
+protocol decoders.
 
 ## Development
 
@@ -88,6 +90,13 @@ Generate an uncoded BPSK fixture with its exact reference bits and carrier param
 sig-id-generate-bpsk data/fixtures/bpsk.wav 001101101001 --carrier-hz 1500
 ```
 
+Generate an uncoded Gray-mapped QPSK fixture with its exact reference bits and carrier
+parameters:
+
+```sh
+sig-id-generate-qpsk data/fixtures/qpsk.wav 001101101001 --carrier-hz 1500
+```
+
 Register the waveform and validated sidecar in the local dataset from the command
 line, or choose both files in the workbench's **Synthetic Dataset** panel:
 
@@ -95,8 +104,8 @@ line, or choose both files in the workbench's **Synthetic Dataset** panel:
 sig-id-import-synthetic data/fixtures/mfsk4.wav
 ```
 
-The importer verifies that the WAV exactly matches the deterministic FSK, M-FSK or
-BPSK generator manifest, then stores a full-capture modulation label and the source
+The importer verifies that the WAV exactly matches a deterministic 2-FSK, M-FSK,
+BPSK or QPSK generator manifest, then stores a full-capture modulation label and the source
 manifest. It does not invent a named protocol.
 
 Replay it blockwise from Python with `sigid.wav.WavSource`; blocks carry exact sample

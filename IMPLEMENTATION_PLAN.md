@@ -233,9 +233,9 @@ automatic recognition alone does not block manual decoding coverage.
 Begin after sample/annotation contracts stabilize. Reuse waveform generation,
 replay, filtering, and exports; keep this separate from Fldigi text APIs.
 
-- Add protocol-independent 2-FSK and BPSK source generators with exact symbol/bit
-  references, then M-FSK and QPSK. The first deterministic BPSK source now carries
-  exact bits and has importer/demodulator coverage; add impairment and rate diversity.
+- Add protocol-independent 2-FSK, M-FSK, BPSK and QPSK source generators with exact
+  symbol/bit references. Deterministic fixtures and importer/demodulator coverage
+  exist for all four; add impairment and rate diversity.
 - Implement or integrate demodulators with frequency/timing recovery and explicit
   lock diagnostics. Prefer proven DSP components where practical after a small
   integration benchmark; avoid adding a second large runtime without need.
@@ -245,10 +245,11 @@ replay, filtering, and exports; keep this separate from Fldigi text APIs.
 - Export timestamped observations, hard symbols, candidate bits, soft outputs and
   complete recovery recipes. Preserve unknown protocol status.
 - Implemented first: manual noncoherent 2-FSK/M-FSK tone-bank and phase-estimated
-  BPSK analysis with operator-supplied rate, tone/carrier and timing parameters. APIs
+  BPSK/QPSK analysis with operator-supplied rate, tone/carrier and timing parameters. APIs
   expose raw decisions, soft metrics and absolute sample bounds; M-FSK bits are emitted
-  only for power-of-two mappings, and BPSK returns both polarity hypotheses. Automatic
-  rate/offset acquisition, differential methods and QPSK demodulation remain open.
+  only for power-of-two mappings, BPSK returns both polarity hypotheses and QPSK returns
+  four carrier-rotation hypotheses. Automatic rate/offset acquisition and differential
+  methods remain open.
 - Add complex-IQ file input for analysis using an explicit data type/sample rate
   and SigMF metadata where available; live SDR hardware integration follows later.
 

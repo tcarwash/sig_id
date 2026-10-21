@@ -5,7 +5,7 @@ import asyncio
 import httpx
 
 from sigid.api import create_app
-from sigid.synthetic import generate_2fsk_wav, generate_bpsk_wav, generate_mfsk_wav
+from sigid.synthetic import generate_2fsk_wav, generate_bpsk_wav, generate_mfsk_wav, generate_qpsk_wav
 
 
 def test_api_demodulates_saved_region_to_raw_bits_without_protocol_label(tmp_path):
@@ -130,6 +130,42 @@ def test_api_bpsk_preserves_both_global_polarity_hypotheses(tmp_path):
             result = decoded.json()
             assert result["bits"] == bits or result["inverted_bits"] == bits
             assert result["polarity_ambiguous"] is True
+            assert result["protocol"] is None
+
+    asyncio.run(exercise())
+
+
+def test_api_qpsk_preserves_all_rotation_hypotheses(tmp_path):
+    bits = "000111100110" * 8
+    wav_path = tmp_path / "known-qpsk.wav"
+    generate_qpsk_wav(
+        wav_path,
+        bits,
+        sample_rate=12000,
+        symbol_rate=100,
+        carrier_hz=1500,
+        initial_phase_radians=0.3,
+    )
+    app = create_app(tmp_path / "app-data")
+
+    async def exercise():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            uploaded = await client.post(
+                "/api/captures",
+                files={"file": ("known-qpsk.wav", wav_path.read_bytes(), "audio/wav")},
+            )
+            capture_id = uploaded.json()["id"]
+            decoded = await client.post(
+                f"/api/captures/{capture_id}/demod/qpsk",
+                json={"sample_count": len(bits) // 2 * 120, "carrier_hz": 1500},
+            )
+            assert decoded.status_code == 200, decoded.text
+            result = decoded.json()
+            assert bits in [item["bits"] for item in result["symbol_hypotheses"]]
+            assert len(result["symbol_hypotheses"]) == 4
+            assert result["rotation_ambiguous"] is True
             assert result["protocol"] is None
 
     asyncio.run(exercise())

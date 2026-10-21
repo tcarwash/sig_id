@@ -274,3 +274,95 @@ def demodulate_bpsk(
         "symbol_sample_bounds": sample_bounds,
         "protocol": None,
     }
+
+
+def demodulate_qpsk(
+    samples: Any,
+    sample_rate: int,
+    *,
+    symbol_rate: float,
+    carrier_hz: float,
+    timing_offset_samples: float = 0.0,
+    sample_offset: int = 0,
+    integration_fraction: float = 0.8,
+) -> dict[str, Any]:
+    """Recover Gray-mapped QPSK symbols, retaining all four rotation hypotheses."""
+    values = np.asarray(samples, dtype=np.float64)
+    if values.ndim != 1 or values.size == 0 or not np.all(np.isfinite(values)):
+        raise ValueError("samples must be a non-empty finite mono array")
+    if not isinstance(sample_rate, int) or isinstance(sample_rate, bool) or sample_rate <= 0:
+        raise ValueError("sample_rate must be a positive integer")
+    if not math.isfinite(symbol_rate) or symbol_rate <= 0 or sample_rate / symbol_rate < 8:
+        raise ValueError("symbol_rate must provide at least eight samples per symbol")
+    if not math.isfinite(carrier_hz) or not 0 < carrier_hz < sample_rate / 2:
+        raise ValueError("carrier_hz must be above 0 Hz and below Nyquist")
+    if sample_offset < 0:
+        raise ValueError("sample_offset must be non-negative")
+    samples_per_symbol = sample_rate / symbol_rate
+    if not math.isfinite(timing_offset_samples) or not 0 <= timing_offset_samples < samples_per_symbol:
+        raise ValueError("timing_offset_samples must be within one symbol")
+    if not 0.2 <= integration_fraction <= 1.0:
+        raise ValueError("integration_fraction must be between 0.2 and 1.0")
+
+    correlations: list[complex] = []
+    sample_bounds: list[list[int]] = []
+    symbol_index = 0
+    while True:
+        boundary_start = timing_offset_samples + symbol_index * samples_per_symbol
+        boundary_end = timing_offset_samples + (symbol_index + 1) * samples_per_symbol
+        if boundary_end > values.size:
+            break
+        integration_length = max(8, int(math.floor(samples_per_symbol * integration_fraction)))
+        center = (boundary_start + boundary_end) / 2
+        first = max(0, int(math.ceil(center - integration_length / 2)))
+        last = min(values.size, first + integration_length)
+        segment = values[first:last]
+        if segment.size < 8:
+            break
+        window = np.hanning(segment.size)
+        times = np.arange(first, last, dtype=np.float64) / sample_rate
+        correlations.append(complex(np.sum(segment * window * np.exp(-2j * np.pi * carrier_hz * times))))
+        sample_bounds.append([
+            sample_offset + int(round(boundary_start)),
+            sample_offset + int(round(boundary_end)),
+        ])
+        symbol_index += 1
+
+    if correlations:
+        correlation_values = np.asarray(correlations, dtype=np.complex128)
+        phase = float(0.25 * np.angle(np.sum(correlation_values**4)))
+        mapping = ["00", "01", "11", "10"]
+        hypotheses = []
+        for rotation_index in range(4):
+            rotation = rotation_index * math.pi / 2
+            corrected = correlation_values * np.exp(-1j * (phase + rotation))
+            angles = np.mod(np.angle(corrected), 2 * math.pi)
+            symbols = (np.rint(angles / (math.pi / 2)).astype(np.int64) % 4).tolist()
+            bits = "".join(mapping[index] for index in symbols)
+            hypotheses.append({"rotation_radians": rotation, "symbols": symbols, "bits": bits})
+        base_angles = np.mod(np.angle(correlation_values * np.exp(-1j * phase)), 2 * math.pi)
+        residual = np.abs((base_angles + math.pi / 4) % (math.pi / 2) - math.pi / 4)
+        soft_confidence = np.clip(1.0 - residual / (math.pi / 4), 0.0, 1.0).tolist()
+    else:
+        phase = 0.0
+        hypotheses = [{"rotation_radians": index * math.pi / 2, "symbols": [], "bits": ""} for index in range(4)]
+        soft_confidence = []
+    return {
+        "schema_version": 1,
+        "demodulator": "phase-estimated-qpsk-correlator",
+        "status": "complete" if correlations else "no_symbols",
+        "sample_rate": sample_rate,
+        "symbol_rate": symbol_rate,
+        "samples_per_symbol": samples_per_symbol,
+        "carrier_hz": carrier_hz,
+        "estimated_phase_radians": phase,
+        "timing_offset_samples": timing_offset_samples,
+        "integration_fraction": integration_fraction,
+        "symbol_count": len(correlations),
+        "bits_per_symbol": 2,
+        "rotation_ambiguous": bool(correlations),
+        "symbol_hypotheses": hypotheses,
+        "soft_confidence": soft_confidence,
+        "symbol_sample_bounds": sample_bounds,
+        "protocol": None,
+    }

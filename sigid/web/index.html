@@ -140,6 +140,15 @@
             <button id="bpsk-run" type="submit" disabled>Recover BPSK bits</button>
           </form>
           <pre id="bpsk-output" class="decoded-text" aria-live="polite">Select a saved capture or region to analyze.</pre>
+          <h3>QPSK raw symbols and bits</h3>
+          <p class="subhead">Four 90° rotation hypotheses are shown because absolute constellation rotation is unknown.</p>
+          <form id="qpsk-form" class="demod-form">
+            <label>Symbol rate<input id="qpsk-rate" type="number" min="1" step="any" value="100" required /></label>
+            <label>Carrier frequency (Hz)<input id="qpsk-carrier" type="number" min="1" step="any" value="1500" required /></label>
+            <label>Timing offset (samples)<input id="qpsk-offset" type="number" min="0" step="any" value="0" required /></label>
+            <button id="qpsk-run" type="submit" disabled>Recover QPSK symbols</button>
+          </form>
+          <pre id="qpsk-output" class="decoded-text" aria-live="polite">Select a saved capture or region to analyze.</pre>
         </section>
 
         <section class="panel tracks-panel">

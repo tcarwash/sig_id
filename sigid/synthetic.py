@@ -177,6 +177,92 @@ def generate_bpsk_wav(
     return manifest
 
 
+def generate_qpsk_wav(
+    output: str | Path,
+    bits: str,
+    *,
+    sample_rate: int = 12_000,
+    symbol_rate: int = 100,
+    carrier_hz: float = 1_500.0,
+    amplitude: float = 0.6,
+    initial_phase_radians: float = 0.0,
+) -> dict[str, object]:
+    """Generate uncoded Gray-mapped QPSK passband audio with exact source bits."""
+    output = Path(output)
+    if not bits or any(bit not in "01" for bit in bits) or len(bits) % 2:
+        raise ValueError("bits must be a non-empty even-length binary string")
+    if (
+        not isinstance(sample_rate, int)
+        or isinstance(sample_rate, bool)
+        or not isinstance(symbol_rate, int)
+        or isinstance(symbol_rate, bool)
+        or sample_rate <= 0
+        or symbol_rate <= 0
+        or sample_rate % symbol_rate
+    ):
+        raise ValueError("sample_rate must be a positive integer multiple of symbol_rate")
+    if not math.isfinite(carrier_hz) or not (0 < carrier_hz < sample_rate / 2):
+        raise ValueError("carrier_hz must be finite and between 0 and Nyquist")
+    if not (0.0 < amplitude <= 1.0) or not math.isfinite(initial_phase_radians):
+        raise ValueError("amplitude must be in (0, 1] and phase must be finite")
+
+    mapping = {"00": 0.0, "01": math.pi / 2, "11": math.pi, "10": 3 * math.pi / 2}
+    samples_per_symbol = sample_rate // symbol_rate
+    phase = initial_phase_radians
+    phase_step = 2.0 * math.pi * carrier_hz / sample_rate
+    pcm = bytearray()
+    for index in range(0, len(bits), 2):
+        symbol = bits[index : index + 2]
+        symbol_phase = mapping[symbol]
+        for _ in range(samples_per_symbol):
+            value = round(math.sin(phase + symbol_phase) * amplitude * 32767)
+            pcm.extend(int(value).to_bytes(2, "little", signed=True))
+            phase = (phase + phase_step) % (2.0 * math.pi)
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(output), "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(sample_rate)
+        wav.writeframes(pcm)
+
+    manifest: dict[str, object] = {
+        "schema_version": 1,
+        "source_kind": "synthetic",
+        "generator": "sig-id-qpsk",
+        "generator_version": "0.1.0",
+        "deterministic": True,
+        "waveform": output.name,
+        "sample_rate": sample_rate,
+        "sample_count": len(bits) // 2 * samples_per_symbol,
+        "sample_width_bytes": 2,
+        "channels": 1,
+        "labels": {
+            "modulation_family": "PSK",
+            "modulation_method": "quadrature phase-shift keying",
+            "protocol": None,
+            "variant": None,
+        },
+        "parameters": {
+            "symbol_rate": symbol_rate,
+            "bits_per_symbol": 2,
+            "carrier_hz": carrier_hz,
+            "amplitude": amplitude,
+            "phase_mapping": mapping,
+            "initial_phase_radians": initial_phase_radians,
+            "phase_continuous_carrier": True,
+            "protocol_framing": None,
+        },
+        "reference_bits": bits,
+        "reference_symbols": [bits[index : index + 2] for index in range(0, len(bits), 2)],
+        "impairments": [],
+    }
+    output.with_suffix(output.suffix + ".json").write_text(
+        json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+    )
+    return manifest
+
+
 def generate_mfsk_wav(
     output: str | Path,
     symbols: Sequence[int],
@@ -349,6 +435,28 @@ def bpsk_main() -> None:
     parser.add_argument("--initial-phase-radians", type=float, default=0.0)
     args = parser.parse_args()
     manifest = generate_bpsk_wav(
+        args.output,
+        args.bits,
+        sample_rate=args.sample_rate,
+        symbol_rate=args.symbol_rate,
+        carrier_hz=args.carrier_hz,
+        amplitude=args.amplitude,
+        initial_phase_radians=args.initial_phase_radians,
+    )
+    print(json.dumps(manifest, indent=2))
+
+
+def qpsk_main() -> None:
+    parser = argparse.ArgumentParser(description="Generate a clean labeled quadrature-PSK WAV fixture")
+    parser.add_argument("output", type=Path)
+    parser.add_argument("bits", help="even-length reference bit sequence, for example 00110110")
+    parser.add_argument("--sample-rate", type=int, default=12_000)
+    parser.add_argument("--symbol-rate", type=int, default=100)
+    parser.add_argument("--carrier-hz", type=float, default=1_500.0)
+    parser.add_argument("--amplitude", type=float, default=0.6)
+    parser.add_argument("--initial-phase-radians", type=float, default=0.0)
+    args = parser.parse_args()
+    manifest = generate_qpsk_wav(
         args.output,
         args.bits,
         sample_rate=args.sample_rate,
