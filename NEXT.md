@@ -126,7 +126,9 @@ validation remain open.
   hard tone indices and confidence margins; natural-binary bits are emitted only for
   power-of-two tone counts, with protocol unknown. Timing phase can be entered manually
   or acquired through a 32-phase confidence/energy search; estimated phase and candidate
-  scores are included in both the UI and exported result.
+  scores are included in both the UI and exported result. An optional bounded logarithmic
+  symbol-rate search ranks operator-supplied baud bounds, searches timing at each rate,
+  and displays the strongest rate candidates while preserving the full score list.
 - Manual BPSK analysis for a saved capture or selected region. It returns raw bits,
   soft metrics and both global polarity hypotheses because framing/preamble is unknown.
 - Manual QPSK analysis for a saved capture or selected region. It returns raw symbols,
@@ -180,8 +182,9 @@ unverified. Current heuristic candidates pass clean 2-FSK/MFSK, quiet-noise reje
 and two separated simultaneous 2-FSK signals; real-capture performance is unknown.
 The tested Fldigi modes are a three-family sample, not full-catalog validation.
 2-FSK/M-FSK/BPSK/QPSK recovery is verified against generated source symbols/bits;
-2-FSK and BPSK also pass seeded AWGN cases. Independent-capture performance and
-automatic rate/tone/carrier acquisition remain unverified.
+2-FSK and BPSK also pass seeded AWGN cases. M-FSK rate search is verified on a small
+synthetic 4-FSK grid. Independent-capture performance and automatic tone/carrier
+acquisition remain unverified.
 The baseline trainer and inference path are tested end to end. Live candidate inference
 uses a bounded two-second snippet for up to four strongest tracks and returns auditable
 model/sample provenance. An opt-in automatic trial starts only for persistent tracks

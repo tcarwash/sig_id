@@ -863,6 +863,10 @@ el("mfsk-form").addEventListener("submit", async (event) => {
       tone_spacing_hz: Number(el("mfsk-spacing").value),
       timing_offset_samples: Number(el("mfsk-offset").value),
       auto_timing: el("mfsk-auto-timing").checked,
+      auto_rate_search: el("mfsk-auto-rate").checked,
+      rate_search_min: Number(el("mfsk-rate-min").value),
+      rate_search_max: Number(el("mfsk-rate-max").value),
+      rate_search_steps: Number(el("mfsk-rate-steps").value),
     };
     const result = await request(`/api/captures/${state.capture.id}/demod/mfsk`, {
       method: "POST",
@@ -875,10 +879,21 @@ el("mfsk-form").addEventListener("submit", async (event) => {
       : 0;
     const groupedSymbols = result.symbols.join(" ");
     const bits = result.bits === null ? "Bits: unavailable for non-power-of-two tone count" : `Bits:\n${result.bits.match(/.{1,64}/g)?.join("\n") || ""}`;
+    const rate = result.symbol_rate_estimated
+      ? `estimated ${result.symbol_rate.toFixed(2)} baud (${result.rate_search.candidate_rates.length} hypotheses)`
+      : `${result.symbol_rate.toFixed(2)} baud`;
+    const bestRates = result.rate_search
+      ? `\nBest rate hypotheses: ${result.rate_search.candidate_rates
+        .map((candidate, index) => ({ candidate, score: result.rate_search.candidate_scores[index] }))
+        .sort((left, right) => right.score - left.score)
+        .slice(0, 3)
+        .map(({ candidate, score }) => `${candidate.toFixed(2)} baud (${score.toFixed(3)})`)
+        .join(", ")}`
+      : "";
     const timing = result.timing_offset_estimated
       ? ` · estimated timing ${result.timing_offset_samples.toFixed(2)} samples (${result.timing_search.phase_count} phases)`
       : ` · timing ${result.timing_offset_samples.toFixed(2)} samples`;
-    el("mfsk-output").textContent = `${result.demodulator} · ${result.tone_count} tones · ${result.symbol_count} symbols${timing} · mean soft confidence ${confidence.toFixed(3)}\nProtocol: unknown\n\nTone indices:\n${groupedSymbols}\n\n${bits}`;
+    el("mfsk-output").textContent = `${result.demodulator} · ${result.tone_count} tones · ${result.symbol_count} symbols · ${rate}${timing} · mean soft confidence ${confidence.toFixed(3)}${bestRates}\nProtocol: unknown\n\nTone indices:\n${groupedSymbols}\n\n${bits}`;
   } catch (error) {
     el("mfsk-output").textContent = `Demodulation failed: ${error.message}`;
   } finally {

@@ -139,6 +139,36 @@ def test_mfsk_auto_timing_recovers_delayed_noisy_raw_symbols(tmp_path):
     assert len(result["correlator_energy"]) == result["symbol_count"]
 
 
+def test_mfsk_rate_search_ranks_the_true_rate_and_recovers_symbols(tmp_path):
+    symbols = [0, 3, 1, 2, 3, 0, 2, 1] * 4
+    path = tmp_path / "mfsk4-rate-search.wav"
+    generate_mfsk_wav(
+        path,
+        symbols,
+        tone_count=4,
+        sample_rate=12000,
+        symbol_rate=100,
+        base_tone_hz=1000,
+        tone_spacing_hz=200,
+    )
+    result = demodulate_mfsk(
+        read_samples(path),
+        12000,
+        symbol_rate=100,
+        tone_frequencies_hz=[1000, 1200, 1400, 1600],
+        auto_rate_search=True,
+        rate_search_min=90,
+        rate_search_max=110,
+        rate_search_steps=5,
+    )
+    assert result["symbol_rate"] == pytest.approx(100)
+    assert result["symbol_rate_estimated"] is True
+    assert result["symbols"] == symbols
+    assert result["rate_search"]["candidate_rates"][
+        int(np.argmax(result["rate_search"]["candidate_scores"]))
+    ] == pytest.approx(100)
+
+
 def test_mfsk_non_power_of_two_returns_symbols_without_invented_bits():
     samples = np.tile(np.sin(2 * np.pi * 1000 * np.arange(120) / 12000), 12)
     result = demodulate_mfsk(

@@ -29,6 +29,7 @@ from .wav import WavSource
 
 MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 WEB_DIR = Path(__file__).resolve().parent / "web"
+MAX_MFSK_RATE_SEARCH_WORK = 200_000_000
 
 
 class RegionCreate(BaseModel):
@@ -79,6 +80,10 @@ class MfskDemodRequest(BaseModel):
     tone_spacing_hz: float = Field(default=200, gt=0, le=96_000)
     timing_offset_samples: float = Field(default=0, ge=0)
     auto_timing: bool = False
+    auto_rate_search: bool = False
+    rate_search_min: float = Field(default=20, gt=0, le=20_000)
+    rate_search_max: float = Field(default=500, gt=0, le=20_000)
+    rate_search_steps: int = Field(default=9, ge=3, le=24)
     integration_fraction: float = Field(default=0.8, ge=0.2, le=1.0)
 
 
@@ -711,6 +716,12 @@ def create_app(
         end = min(int(capture["sample_count"]), start + settings.sample_count)
         if start >= int(capture["sample_count"]):
             raise HTTPException(status_code=422, detail="sample_start is outside the capture")
+        estimated_work = (end - start) * settings.tone_count * settings.rate_search_steps * 32
+        if settings.auto_rate_search and estimated_work > MAX_MFSK_RATE_SEARCH_WORK:
+            raise HTTPException(
+                status_code=422,
+                detail="M-FSK rate search is too large; select a shorter region, fewer tones, or fewer rate hypotheses",
+            )
         try:
             values: list[float] = []
             for block in WavSource(capture["audio_path"]).blocks():
@@ -730,6 +741,10 @@ def create_app(
                 tone_frequencies_hz=frequencies,
                 timing_offset_samples=settings.timing_offset_samples,
                 auto_timing=settings.auto_timing,
+                auto_rate_search=settings.auto_rate_search,
+                rate_search_min=settings.rate_search_min,
+                rate_search_max=settings.rate_search_max,
+                rate_search_steps=settings.rate_search_steps,
                 sample_offset=start,
                 integration_fraction=settings.integration_fraction,
             )

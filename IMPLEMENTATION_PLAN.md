@@ -307,9 +307,10 @@ replay, filtering, and exports; keep this separate from Fldigi text APIs.
   only for power-of-two mappings, BPSK returns both polarity hypotheses and QPSK returns
   four carrier-rotation hypotheses. The UI exports results, settings, capture hash and
   sample bounds as a protocol-unknown JSON artifact. Uniform-grid 2-FSK and M-FSK
-  timing-phase searches report candidate scores and selected phase; automatic
-  symbol-rate acquisition, wider fractional timing recovery and differential methods
-  remain open.
+  timing-phase searches report candidate scores and selected phase. M-FSK can search a
+  bounded logarithmic symbol-rate grid with timing acquisition per candidate and returns
+  ranked evidence. Automatic tone/carrier acquisition, unrestricted symbol-rate
+  acquisition, wider fractional timing recovery and differential methods remain open.
 - Add complex-IQ file input for analysis using an explicit data type/sample rate
   and SigMF metadata where available; live SDR hardware integration follows later.
 

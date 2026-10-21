@@ -117,6 +117,29 @@ def test_api_demodulates_mfsk_symbols_and_power_of_two_bits(tmp_path):
             assert acquired_result["timing_offset_estimated"] is True
             assert acquired_result["timing_search"]["phase_count"] == 32
 
+            rate_searched = await client.post(
+                f"/api/captures/{capture_id}/demod/mfsk",
+                json={
+                    "sample_count": len(symbols) * 240,
+                    "auto_rate_search": True,
+                    "rate_search_min": 12.5,
+                    "rate_search_max": 200,
+                    "rate_search_steps": 9,
+                },
+            )
+            assert rate_searched.status_code == 200, rate_searched.text
+            rate_result = rate_searched.json()
+            assert abs(rate_result["symbol_rate"] - 50) < 1e-9
+            assert rate_result["symbols"] == symbols
+            assert rate_result["symbol_rate_estimated"] is True
+
+            bounded = await client.post(
+                f"/api/captures/{capture_id}/demod/mfsk",
+                json={"tone_count": 64, "rate_search_steps": 24, "auto_rate_search": True},
+            )
+            assert bounded.status_code == 422
+            assert "shorter region" in bounded.json()["detail"]
+
             unsupported_mapping = await client.post(
                 f"/api/captures/{capture_id}/demod/mfsk",
                 json={"tone_count": 3, "tone_spacing_hz": 150},

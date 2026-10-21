@@ -35,6 +35,8 @@ def test_upload_waterfall_manual_label_audio_and_jsonl_export(tmp_path):
             assert '<span>Time</span><span id="time-end"' in page
             assert 'class="axis-x"><span id="freq-low"' in page
             assert '<span>Audio frequency →</span><span id="freq-high"' in page
+            assert 'id="mfsk-auto-rate"' in page
+            assert 'id="mfsk-rate-min"' in page
             assert "time on the vertical axis and audio frequency on the horizontal axis" in page
             assert "drawWaterfall" in (await client.get("/app.js")).text
             assert (await client.get("/waterfall-window.mjs")).status_code == 200

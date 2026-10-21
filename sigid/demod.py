@@ -156,6 +156,10 @@ def demodulate_mfsk(
     tone_frequencies_hz: list[float] | tuple[float, ...],
     timing_offset_samples: float = 0.0,
     auto_timing: bool = False,
+    auto_rate_search: bool = False,
+    rate_search_min: float = 20.0,
+    rate_search_max: float = 500.0,
+    rate_search_steps: int = 9,
     sample_offset: int = 0,
     integration_fraction: float = 0.8,
 ) -> dict[str, Any]:
@@ -166,7 +170,9 @@ def demodulate_mfsk(
         raise ValueError("samples must be a non-empty finite mono array")
     if not isinstance(sample_rate, int) or isinstance(sample_rate, bool) or sample_rate <= 0:
         raise ValueError("sample_rate must be a positive integer")
-    if not math.isfinite(symbol_rate) or symbol_rate <= 0 or sample_rate / symbol_rate < 8:
+    if not math.isfinite(symbol_rate) or symbol_rate <= 0:
+        raise ValueError("symbol_rate must be positive and finite")
+    if not auto_rate_search and sample_rate / symbol_rate < 8:
         raise ValueError("symbol_rate must provide at least eight samples per symbol")
     if frequencies.ndim != 1 or not 2 <= frequencies.size <= 64 or not np.all(np.isfinite(frequencies)):
         raise ValueError("tone_frequencies_hz must contain 2 to 64 finite frequencies")
@@ -176,13 +182,64 @@ def demodulate_mfsk(
         raise ValueError("tone frequencies must be distinct")
     if not isinstance(auto_timing, bool):
         raise ValueError("auto_timing must be a boolean")
+    if not isinstance(auto_rate_search, bool):
+        raise ValueError("auto_rate_search must be a boolean")
     if sample_offset < 0:
         raise ValueError("sample_offset must be non-negative")
     samples_per_symbol = sample_rate / symbol_rate
-    if not math.isfinite(timing_offset_samples) or (not auto_timing and not 0 <= timing_offset_samples < samples_per_symbol):
+    if not math.isfinite(timing_offset_samples) or (not (auto_timing or auto_rate_search) and not 0 <= timing_offset_samples < samples_per_symbol):
         raise ValueError("timing_offset_samples must be within one symbol")
     if not 0.2 <= integration_fraction <= 1.0:
         raise ValueError("integration_fraction must be between 0.2 and 1.0")
+
+    if auto_rate_search:
+        if not math.isfinite(rate_search_min) or not math.isfinite(rate_search_max):
+            raise ValueError("rate search bounds must be finite")
+        if rate_search_min <= 0 or rate_search_max <= rate_search_min:
+            raise ValueError("rate_search_max must be greater than a positive rate_search_min")
+        if sample_rate / rate_search_max < 8:
+            raise ValueError("every searched symbol rate must provide at least eight samples per symbol")
+        if not isinstance(rate_search_steps, int) or isinstance(rate_search_steps, bool) or not 3 <= rate_search_steps <= 24:
+            raise ValueError("rate_search_steps must be an integer from 3 to 24")
+        candidate_rates = np.geomspace(rate_search_min, rate_search_max, rate_search_steps)
+        if rate_search_min <= symbol_rate <= rate_search_max:
+            candidate_rates = np.unique(np.append(candidate_rates, symbol_rate))
+        trials = [
+            demodulate_mfsk(
+                values,
+                sample_rate,
+                symbol_rate=float(candidate_rate),
+                tone_frequencies_hz=frequencies.tolist(),
+                auto_timing=True,
+                sample_offset=sample_offset,
+                integration_fraction=integration_fraction,
+            )
+            for candidate_rate in candidate_rates
+        ]
+        confidence_scores = [
+            float(np.mean(trial["soft_confidence"])) if trial["soft_confidence"] else 0.0
+            for trial in trials
+        ]
+        power_scores = [
+            float(np.mean(np.log10(np.asarray(trial["correlator_power"]) + np.finfo(float).tiny)))
+            if trial["correlator_power"] else -300.0
+            for trial in trials
+        ]
+        power_center = float(np.median(power_scores))
+        scores = [confidence + 0.1 * (power - power_center) for confidence, power in zip(confidence_scores, power_scores, strict=True)]
+        best_index = int(np.argmax(scores))
+        return {
+            **trials[best_index],
+            "symbol_rate_estimated": True,
+            "rate_search": {
+                "method": "log-grid-soft-confidence-and-normalized-correlator-power",
+                "candidate_rates": candidate_rates.tolist(),
+                "candidate_scores": scores,
+                "candidate_confidence_scores": confidence_scores,
+                "candidate_log_power_scores": power_scores,
+                "selected_score": scores[best_index],
+            },
+        }
 
     if auto_timing:
         phase_count = min(32, max(8, int(math.ceil(samples_per_symbol))))
@@ -233,6 +290,7 @@ def demodulate_mfsk(
     tone_indices: list[int] = []
     confidence: list[float] = []
     correlator_energy: list[float] = []
+    correlator_power: list[float] = []
     sample_bounds: list[list[int]] = []
     integration_length = max(8, int(math.floor(samples_per_symbol * integration_fraction)))
     window = np.hanning(integration_length)
@@ -259,6 +317,7 @@ def demodulate_mfsk(
         second_power = float(powers[ranking[-2]])
         confidence.append(float((powers[best] - second_power) / (powers[best] + np.finfo(np.float64).tiny)))
         correlator_energy.append(float(powers[best]))
+        correlator_power.append(float(powers[best] / max(float(window.sum()) ** 2, np.finfo(float).tiny)))
         tone_indices.append(best)
         sample_bounds.append([
             sample_offset + max(0, min(values.size, int(round(boundary_start)))),
@@ -278,6 +337,7 @@ def demodulate_mfsk(
         "status": "complete" if tone_indices else "no_symbols",
         "sample_rate": sample_rate,
         "symbol_rate": symbol_rate,
+        "symbol_rate_estimated": False,
         "samples_per_symbol": samples_per_symbol,
         "tone_frequencies_hz": frequencies.tolist(),
         "timing_offset_samples": timing_offset_samples,
@@ -290,6 +350,7 @@ def demodulate_mfsk(
         "bits_per_symbol": bits_per_symbol,
         "soft_confidence": confidence,
         "correlator_energy": correlator_energy,
+        "correlator_power": correlator_power,
         "symbol_sample_bounds": sample_bounds,
         "protocol": None,
     }
