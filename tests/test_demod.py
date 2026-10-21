@@ -107,6 +107,38 @@ def test_mfsk_demodulator_recovers_tone_symbols_bits_and_confidence(tmp_path):
     assert result["protocol"] is None
 
 
+def test_mfsk_auto_timing_recovers_delayed_noisy_raw_symbols(tmp_path):
+    symbols = [0, 3, 1, 2, 3, 0, 2, 1] * 8
+    path = tmp_path / "mfsk4-delayed.wav"
+    generate_mfsk_wav(
+        path,
+        symbols,
+        tone_count=4,
+        sample_rate=12000,
+        symbol_rate=100,
+        base_tone_hz=1000,
+        tone_spacing_hz=200,
+    )
+    source = read_samples(path)
+    rng = np.random.default_rng(91)
+    delayed_noisy = np.concatenate((np.zeros(13), source, np.zeros(7)))
+    delayed_noisy += rng.normal(0, 0.025, size=delayed_noisy.size)
+    result = demodulate_mfsk(
+        delayed_noisy,
+        12000,
+        symbol_rate=100,
+        tone_frequencies_hz=[1000, 1200, 1400, 1600],
+        auto_timing=True,
+    )
+    assert result["symbols"] == symbols
+    assert result["bits"] == "".join(f"{symbol:02b}" for symbol in symbols)
+    assert result["timing_offset_estimated"] is True
+    assert 0 <= result["timing_offset_samples"] < result["samples_per_symbol"]
+    assert result["timing_search"]["phase_count"] == 32
+    assert len(result["timing_search"]["candidate_scores"]) == 32
+    assert len(result["correlator_energy"]) == result["symbol_count"]
+
+
 def test_mfsk_non_power_of_two_returns_symbols_without_invented_bits():
     samples = np.tile(np.sin(2 * np.pi * 1000 * np.arange(120) / 12000), 12)
     result = demodulate_mfsk(
@@ -118,6 +150,17 @@ def test_mfsk_non_power_of_two_returns_symbols_without_invented_bits():
     assert result["symbols"] == [0] * 12
     assert result["bits"] is None
     assert result["bits_per_symbol"] is None
+
+    automatic = demodulate_mfsk(
+        samples,
+        12000,
+        symbol_rate=100,
+        tone_frequencies_hz=[1000, 1500, 2000],
+        auto_timing=True,
+    )
+    assert automatic["symbols"] == [0] * 12
+    assert automatic["bits"] is None
+    assert automatic["timing_offset_estimated"] is True
 
 
 def test_bpsk_demodulator_recovers_bits_with_explicit_polarity_hypothesis(tmp_path):

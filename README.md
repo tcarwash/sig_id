@@ -23,7 +23,8 @@ recovered text remains tentative until reviewed. Saved recordings
 have a manual, protocol-independent 2-FSK demodulator that exposes uncoded bits,
 symbol timing and soft tone metrics; symbol rate and tone mapping are operator-supplied,
 with an optional 32-phase timing search. A corresponding M-FSK analyzer returns hard tone indices,
-soft margins and natural-binary bits only for power-of-two tone counts. BPSK analysis
+soft margins and natural-binary bits only for power-of-two tone counts, with the same
+optional 32-phase timing search. BPSK analysis
 returns both global polarity hypotheses, while QPSK analysis returns four possible
 90-degree rotation hypotheses because an unknown capture has no inherent absolute
 phase reference. These are protocol-independent symbol/bit observations, not complete

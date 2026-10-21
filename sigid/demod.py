@@ -155,6 +155,7 @@ def demodulate_mfsk(
     symbol_rate: float,
     tone_frequencies_hz: list[float] | tuple[float, ...],
     timing_offset_samples: float = 0.0,
+    auto_timing: bool = False,
     sample_offset: int = 0,
     integration_fraction: float = 0.8,
 ) -> dict[str, Any]:
@@ -173,42 +174,95 @@ def demodulate_mfsk(
         raise ValueError("tone frequencies must be above 0 Hz and below Nyquist")
     if np.unique(frequencies).size != frequencies.size:
         raise ValueError("tone frequencies must be distinct")
+    if not isinstance(auto_timing, bool):
+        raise ValueError("auto_timing must be a boolean")
     if sample_offset < 0:
         raise ValueError("sample_offset must be non-negative")
     samples_per_symbol = sample_rate / symbol_rate
-    if not math.isfinite(timing_offset_samples) or not 0 <= timing_offset_samples < samples_per_symbol:
+    if not math.isfinite(timing_offset_samples) or (not auto_timing and not 0 <= timing_offset_samples < samples_per_symbol):
         raise ValueError("timing_offset_samples must be within one symbol")
     if not 0.2 <= integration_fraction <= 1.0:
         raise ValueError("integration_fraction must be between 0.2 and 1.0")
 
+    if auto_timing:
+        phase_count = min(32, max(8, int(math.ceil(samples_per_symbol))))
+        offsets = np.arange(phase_count, dtype=np.float64) * samples_per_symbol / phase_count
+        trials = [
+            demodulate_mfsk(
+                values,
+                sample_rate,
+                symbol_rate=symbol_rate,
+                tone_frequencies_hz=frequencies.tolist(),
+                timing_offset_samples=float(offset),
+                auto_timing=False,
+                sample_offset=sample_offset,
+                integration_fraction=integration_fraction,
+            )
+            for offset in offsets
+        ]
+        confidence_scores = [
+            float(np.mean(trial["soft_confidence"])) if trial["soft_confidence"] else 0.0
+            for trial in trials
+        ]
+        energy_scores = [
+            float(np.mean(np.log10(np.asarray(trial["correlator_energy"]) + np.finfo(float).tiny)))
+            if trial["correlator_energy"] else 0.0
+            for trial in trials
+        ]
+        symbol_counts = [int(trial["symbol_count"]) for trial in trials]
+        energy_center = float(np.median(energy_scores))
+        scores = [confidence + 0.25 * (energy - energy_center) for confidence, energy in zip(confidence_scores, energy_scores, strict=True)]
+        max_symbols = max(symbol_counts)
+        eligible = [index for index, count in enumerate(symbol_counts) if count == max_symbols]
+        best_index = max(eligible, key=lambda index: scores[index])
+        return {
+            **trials[best_index],
+            "timing_offset_estimated": True,
+            "timing_search": {
+                "method": "uniform-grid-soft-confidence-and-correlator-energy",
+                "phase_count": phase_count,
+                "candidate_offsets_samples": offsets.tolist(),
+                "candidate_scores": scores,
+                "candidate_confidence_scores": confidence_scores,
+                "candidate_log_energy_scores": energy_scores,
+                "candidate_symbol_counts": symbol_counts,
+                "selected_score": scores[best_index],
+            },
+        }
+
     tone_indices: list[int] = []
     confidence: list[float] = []
+    correlator_energy: list[float] = []
     sample_bounds: list[list[int]] = []
+    integration_length = max(8, int(math.floor(samples_per_symbol * integration_fraction)))
+    window = np.hanning(integration_length)
+    local_times = np.arange(integration_length, dtype=np.float64) / sample_rate
+    correlations = np.exp(-2j * np.pi * frequencies[:, None] * local_times[None, :])
     symbol_index = 0
     while True:
         boundary_start = timing_offset_samples + symbol_index * samples_per_symbol
         boundary_end = timing_offset_samples + (symbol_index + 1) * samples_per_symbol
-        if boundary_end > values.size:
+        if boundary_start >= values.size:
             break
-        integration_length = max(8, int(math.floor(samples_per_symbol * integration_fraction)))
         center = (boundary_start + boundary_end) / 2
         first = max(0, int(math.ceil(center - integration_length / 2)))
-        last = min(values.size, first + integration_length)
+        last = first + integration_length
+        if last > values.size:
+            break
         segment = values[first:last]
         if segment.size < 8:
             break
-        window = np.hanning(segment.size)
-        times = np.arange(first, last, dtype=np.float64) / sample_rate
-        correlations = np.exp(-2j * np.pi * frequencies[:, None] * times[None, :])
-        powers = np.abs(correlations @ (segment * window)) ** 2
+        # Starting each local kernel at t=0 changes only correlation phase, not power.
+        powers = np.abs(np.sum(correlations * (segment * window)[None, :], axis=1)) ** 2
         ranking = np.argsort(powers)
         best = int(ranking[-1])
         second_power = float(powers[ranking[-2]])
         confidence.append(float((powers[best] - second_power) / (powers[best] + np.finfo(np.float64).tiny)))
+        correlator_energy.append(float(powers[best]))
         tone_indices.append(best)
         sample_bounds.append([
-            sample_offset + int(round(boundary_start)),
-            sample_offset + int(round(boundary_end)),
+            sample_offset + max(0, min(values.size, int(round(boundary_start)))),
+            sample_offset + max(0, min(values.size, int(round(boundary_end)))),
         ])
         symbol_index += 1
 
@@ -227,6 +281,7 @@ def demodulate_mfsk(
         "samples_per_symbol": samples_per_symbol,
         "tone_frequencies_hz": frequencies.tolist(),
         "timing_offset_samples": timing_offset_samples,
+        "timing_offset_estimated": False,
         "integration_fraction": integration_fraction,
         "tone_count": int(frequencies.size),
         "symbol_count": len(tone_indices),
@@ -234,6 +289,7 @@ def demodulate_mfsk(
         "bits": bits,
         "bits_per_symbol": bits_per_symbol,
         "soft_confidence": confidence,
+        "correlator_energy": correlator_energy,
         "symbol_sample_bounds": sample_bounds,
         "protocol": None,
     }

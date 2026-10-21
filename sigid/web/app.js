@@ -862,6 +862,7 @@ el("mfsk-form").addEventListener("submit", async (event) => {
       base_tone_hz: Number(el("mfsk-base").value),
       tone_spacing_hz: Number(el("mfsk-spacing").value),
       timing_offset_samples: Number(el("mfsk-offset").value),
+      auto_timing: el("mfsk-auto-timing").checked,
     };
     const result = await request(`/api/captures/${state.capture.id}/demod/mfsk`, {
       method: "POST",
@@ -874,7 +875,10 @@ el("mfsk-form").addEventListener("submit", async (event) => {
       : 0;
     const groupedSymbols = result.symbols.join(" ");
     const bits = result.bits === null ? "Bits: unavailable for non-power-of-two tone count" : `Bits:\n${result.bits.match(/.{1,64}/g)?.join("\n") || ""}`;
-    el("mfsk-output").textContent = `${result.demodulator} · ${result.tone_count} tones · ${result.symbol_count} symbols · mean soft confidence ${confidence.toFixed(3)}\nProtocol: unknown\n\nTone indices:\n${groupedSymbols}\n\n${bits}`;
+    const timing = result.timing_offset_estimated
+      ? ` · estimated timing ${result.timing_offset_samples.toFixed(2)} samples (${result.timing_search.phase_count} phases)`
+      : ` · timing ${result.timing_offset_samples.toFixed(2)} samples`;
+    el("mfsk-output").textContent = `${result.demodulator} · ${result.tone_count} tones · ${result.symbol_count} symbols${timing} · mean soft confidence ${confidence.toFixed(3)}\nProtocol: unknown\n\nTone indices:\n${groupedSymbols}\n\n${bits}`;
   } catch (error) {
     el("mfsk-output").textContent = `Demodulation failed: ${error.message}`;
   } finally {

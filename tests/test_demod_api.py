@@ -107,6 +107,16 @@ def test_api_demodulates_mfsk_symbols_and_power_of_two_bits(tmp_path):
             assert result["tone_frequencies_hz"] == [1000, 1200, 1400, 1600]
             assert result["protocol"] is None
 
+            acquired = await client.post(
+                f"/api/captures/{capture_id}/demod/mfsk",
+                json={"sample_count": len(symbols) * 240, "auto_timing": True},
+            )
+            assert acquired.status_code == 200, acquired.text
+            acquired_result = acquired.json()
+            assert acquired_result["symbols"] == symbols
+            assert acquired_result["timing_offset_estimated"] is True
+            assert acquired_result["timing_search"]["phase_count"] == 32
+
             unsupported_mapping = await client.post(
                 f"/api/captures/{capture_id}/demod/mfsk",
                 json={"tone_count": 3, "tone_spacing_hz": 150},

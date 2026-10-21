@@ -113,7 +113,7 @@
         <section class="panel raw-demod-panel">
           <p class="eyebrow">PROTOCOL-INDEPENDENT ANALYSIS</p>
           <h2>Protocol-independent demodulators</h2>
-          <p class="subhead">Supply modulation parameters to recover uncoded symbols and bits. 2-FSK can search timing phase automatically; these tools do not identify framing or a protocol.</p>
+          <p class="subhead">Supply modulation parameters to recover uncoded symbols and bits. 2-FSK and M-FSK can search timing phase automatically; these tools do not identify framing or a protocol.</p>
           <h3>2-FSK raw bits</h3>
           <form id="demod-form" class="demod-form">
             <label>Symbol rate<input id="demod-rate" type="number" min="1" step="any" value="100" required /></label>
@@ -133,6 +133,7 @@
             <label>Base tone (Hz)<input id="mfsk-base" type="number" min="1" step="any" value="1000" required /></label>
             <label>Tone spacing (Hz)<input id="mfsk-spacing" type="number" min="1" step="any" value="200" required /></label>
             <label>Timing offset (samples)<input id="mfsk-offset" type="number" min="0" step="any" value="0" required /></label>
+            <label class="demod-check"><input id="mfsk-auto-timing" type="checkbox" /> Estimate timing phase automatically</label>
             <button id="mfsk-run" type="submit" disabled>Recover tone symbols</button>
           </form>
           <pre id="mfsk-output" class="decoded-text" aria-live="polite">Select a saved capture or region to analyze.</pre>

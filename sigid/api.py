@@ -78,6 +78,7 @@ class MfskDemodRequest(BaseModel):
     base_tone_hz: float = Field(default=1000, gt=0, le=96_000)
     tone_spacing_hz: float = Field(default=200, gt=0, le=96_000)
     timing_offset_samples: float = Field(default=0, ge=0)
+    auto_timing: bool = False
     integration_fraction: float = Field(default=0.8, ge=0.2, le=1.0)
 
 
@@ -728,6 +729,7 @@ def create_app(
                 symbol_rate=settings.symbol_rate,
                 tone_frequencies_hz=frequencies,
                 timing_offset_samples=settings.timing_offset_samples,
+                auto_timing=settings.auto_timing,
                 sample_offset=start,
                 integration_fraction=settings.integration_fraction,
             )
