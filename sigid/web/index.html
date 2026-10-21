@@ -107,6 +107,20 @@
           </section>
         </div>
 
+        <section class="panel raw-demod-panel">
+          <p class="eyebrow">PROTOCOL-INDEPENDENT ANALYSIS</p>
+          <h2>2-FSK raw symbols and bits</h2>
+          <p class="subhead">Enter the tone frequencies and symbol rate. This recovers uncoded tone decisions; it does not identify framing or a protocol.</p>
+          <form id="demod-form" class="demod-form">
+            <label>Symbol rate<input id="demod-rate" type="number" min="1" step="any" value="100" required /></label>
+            <label>Tone for bit 0 (Hz)<input id="demod-tone0" type="number" min="1" step="any" value="1000" required /></label>
+            <label>Tone for bit 1 (Hz)<input id="demod-tone1" type="number" min="1" step="any" value="1200" required /></label>
+            <label>Timing offset (samples)<input id="demod-offset" type="number" min="0" step="any" value="0" required /></label>
+            <button id="demod-run" type="submit" disabled>Recover raw bits</button>
+          </form>
+          <pre id="demod-output" class="decoded-text" aria-live="polite">Select a saved capture or region to analyze.</pre>
+        </section>
+
         <section class="panel tracks-panel">
           <div class="panel-heading"><div><p class="eyebrow">AUTOMATIC SCAN</p><h2>Provisional signal candidates</h2><p id="track-status" class="subhead">Analyzing spectral activity…</p></div><span id="track-count" class="count">0</span></div>
           <p class="track-disclaimer">Tone-count hypotheses are heuristic evidence only. They do not identify a protocol or guarantee a decoded message.</p>

@@ -42,14 +42,18 @@ the workbench API; radio-input routing and independent-signal validation remain 
   dashed waterfall overlays with frequency/time, tone-count hypothesis, occupancy
   and peak SNR. Review selects an editable region and leaves all label fields blank;
   heuristic predictions are not stored as ground truth.
+- Manual protocol-independent 2-FSK demodulation for a saved capture or selected
+  region. Operator supplies symbol rate, bit-to-tone mapping and timing offset; results
+  include raw bits, per-symbol soft metrics and sample bounds, with protocol unknown.
 
 ## Next action
 
 Continue automatic identification in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md):
 measure candidate recall and false alarms across synthetic and mixed scenes, improve
 tone grouping and burst segmentation, and build the bounded decoder-trial scheduler.
-The current candidate hypotheses are heuristic-only and have not been validated on
-live captures.
+In parallel, add timing/frequency acquisition and M-FSK/BPSK/QPSK symbol analysis.
+Current candidate hypotheses are heuristic-only and have not been validated on live
+captures.
 
 ## Evidence boundary
 
@@ -57,7 +61,7 @@ Verified: Fldigi 4.2.13 and its XML-RPC method catalog are installed; unit tests
 cover receive-only client semantics, PCM WAV block indexing/normalization and
 synthetic 2-FSK/MFSK metadata, exact symbols/bits and tone frequencies, SQLite
 capture hashes/regions/label history, JSONL export, spectrogram peak detection, upload/region APIs, and Fldigi
-status/catalog/mode/output APIs. Current full suite: 56 passed, 4 skipped;
+status/catalog/mode/output APIs. Current full suite: 65 passed, 4 skipped;
 `node --check sigid/web/app.js` and `git diff --check` pass. Deterministic fake-device tests
 exercise WAV writing, capture indexing, API start/status/stop and rolling live
 analysis. The live analysis ring is capped at ten seconds and absolute sample
@@ -76,3 +80,5 @@ capture, radio audio routing, trained identification model, and RF validation re
 unverified. Current heuristic candidates pass clean 2-FSK/MFSK, quiet-noise rejection
 and two separated simultaneous 2-FSK signals; real-capture performance is unknown.
 The tested Fldigi modes are a three-family sample, not full-catalog validation.
+2-FSK bit recovery is verified against generated source bits and AWGN; independent
+capture performance and automatic rate/tone acquisition remain unverified.

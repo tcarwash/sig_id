@@ -3,7 +3,8 @@
 Status: implementation in progress. WAV replay, live capture, the manual dataset
 workflow, and the first provisional spectral candidate pass are implemented. Fldigi's
 receive-only UI/API is connected, with isolated audio-loopback evidence for BPSK31,
-RTTY and THOR16; see [NEXT.md](NEXT.md) for verified gates. Automatic
+RTTY and THOR16. A manual protocol-independent 2-FSK demodulator also exposes raw
+bits and soft tone metrics; see [NEXT.md](NEXT.md) for verified gates. Automatic
 protocol identification, model training and RF validation remain open. A BPSK31
 software audio loopback decodes through Fldigi; routing a real radio input remains open.
 
@@ -242,6 +243,10 @@ replay, filtering, and exports; keep this separate from Fldigi text APIs.
   and optional soft metrics. Retain phase/polarity/mapping ambiguities explicitly.
 - Export timestamped observations, hard symbols, candidate bits, soft outputs and
   complete recovery recipes. Preserve unknown protocol status.
+- Implemented first: manual 2-FSK noncoherent tone correlation with operator-supplied
+  tone pair, symbol rate, timing offset and integration fraction; API returns raw bit
+  decisions, soft tone metrics and absolute sample bounds. Rate/offset acquisition,
+  differential/coherent methods and M-FSK/BPSK/QPSK demodulators remain open.
 - Add complex-IQ file input for analysis using an explicit data type/sample rate
   and SigMF metadata where available; live SDR hardware integration follows later.
 

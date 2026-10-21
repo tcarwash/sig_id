@@ -106,6 +106,8 @@ el("live-start").addEventListener("click", async () => {
     state.tracks = [];
     baseCanvas.getContext("2d").clearRect(0, 0, baseCanvas.width, baseCanvas.height);
     overlayCanvas.getContext("2d").clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    el("demod-run").disabled = true;
+    el("demod-output").textContent = "Stop and save the capture before running protocol-independent demodulation.";
     el("empty-state").classList.add("hidden");
     el("workspace").classList.remove("hidden");
     el("capture-title").textContent = "Live passband";
@@ -224,6 +226,7 @@ el("synthetic-form").addEventListener("submit", async (event) => {
 async function loadCapture() {
   state.liveView = false;
   state.selection = null;
+  el("demod-run").disabled = false;
   el("empty-state").classList.add("hidden");
   el("workspace").classList.remove("hidden");
   state.tracks = [];
@@ -492,6 +495,41 @@ el("save-region").addEventListener("click", async () => {
   } catch (error) {
     showError(error.message);
     button.disabled = false;
+  }
+});
+
+el("demod-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!state.capture || state.liveView) return;
+  clearError();
+  const button = el("demod-run");
+  button.disabled = true;
+  button.textContent = "Recovering…";
+  el("demod-output").textContent = "Analyzing selected audio…";
+  try {
+    const selection = state.selection;
+    const result = await request(`/api/captures/${state.capture.id}/demod/2fsk`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sample_start: selection?.sample_start ?? 0,
+        sample_count: Math.min(1_000_000, selection?.sample_count ?? Math.min(120_000, state.capture.sample_count)),
+        symbol_rate: Number(el("demod-rate").value),
+        tone_0_hz: Number(el("demod-tone0").value),
+        tone_1_hz: Number(el("demod-tone1").value),
+        timing_offset_samples: Number(el("demod-offset").value),
+      }),
+    });
+    const confidence = result.soft_metrics.length
+      ? result.soft_metrics.reduce((sum, value) => sum + Math.abs(value), 0) / result.soft_metrics.length
+      : 0;
+    const groupedBits = result.bits.match(/.{1,64}/g)?.join("\n") || "(no complete symbols)";
+    el("demod-output").textContent = `${result.demodulator} · ${result.symbol_count} symbols · mean |soft metric| ${confidence.toFixed(3)}\nProtocol: unknown\n\n${groupedBits}`;
+  } catch (error) {
+    el("demod-output").textContent = `Demodulation failed: ${error.message}`;
+  } finally {
+    button.disabled = !state.capture || state.liveView;
+    button.textContent = "Recover raw bits";
   }
 });
 
