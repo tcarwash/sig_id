@@ -58,7 +58,12 @@ SIGID_TEST_FLDIGI_CATALOG=1 pytest -s tests/test_fldigi_audio_integration.py -k 
 
 The reference Fldigi 4.2.13 selection results are in
 [`reports/fldigi-4.2.13-catalog-selection.json`](reports/fldigi-4.2.13-catalog-selection.json).
-This tests mode selection only; it does not establish audio routing or decode support.
+Of the 168 actual modem entries, 165 select through XML-RPC. The three OFDM entries
+are documented Fldigi modes, but this installed backend stays on BPSK31 when asked to
+select them; see the [Fldigi OFDM manual](https://www.w1hkj.org/files/fldigi/fldigi_help.pdf).
+`RSID_EOT` is a catalog marker, not a receive mode, and is omitted from the workbench's
+selectable list. The audit tests selection only; it does not establish audio routing or
+decode support.
 
 Then open <http://127.0.0.1:8010>, choose a PCM WAV, and mark a signal region on
 the waterfall. The local service stores audio under `~/.local/share/sig-id` by

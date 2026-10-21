@@ -141,6 +141,9 @@ def test_fldigi_manual_selection_status_and_incremental_receive_output(tmp_path)
         def modem_names(self):
             return ["PSK31", "THOR16"]
 
+        def mode_names(self):
+            return self.modem_names()
+
         def select_modem(self, name):
             if name not in self.modem_names():
                 raise ValueError("mode is not present in the Fldigi catalog")

@@ -234,23 +234,38 @@ def test_every_installed_catalog_entry_is_selectable_in_isolated_fldigi(tmp_path
             process = _isolated_profile(tmp_path, "catalog", sink, port)
         except RuntimeError as exc:
             pytest.skip(str(exc))
-        client, _ = _connect(f"http://127.0.0.1:{port}/RPC2", process)
+        client, rpc = _connect(f"http://127.0.0.1:{port}/RPC2", process)
         original = client.current_modem()
-        modes = client.mode_names()
+        modes = client.modem_names()
         failures = []
         results = []
         for mode in modes:
             try:
                 selected = client.select_mode(mode)
+                started = time.monotonic()
+                while selected != mode and time.monotonic() - started < 1.0:
+                    time.sleep(0.05)
+                    selected = client.current_modem()
                 if selected != mode:
                     result = {"mode": mode, "selectable": False, "selected": selected, "reason": "backend reported a different current mode"}
                     failures.append(result)
                 else:
-                    result = {"mode": mode, "selectable": True}
+                    result = {"mode": mode, "selectable": True, "selection_latency_ms": round((time.monotonic() - started) * 1000)}
             except Exception as exc:
                 result = {"mode": mode, "selectable": False, "reason": f"{type(exc).__name__}: {exc}"}
                 failures.append(result)
             results.append(result)
+        failed_names = {result["mode"] for result in failures}
+        id_candidates = {name: [] for name in failed_names}
+        max_mode_id = int(rpc.modem.get_max_id())
+        for mode_id in range(max_mode_id + 1):
+            try:
+                rpc.modem.set_by_id(mode_id)
+                selected = client.current_modem()
+            except Exception:
+                continue
+            if selected in id_candidates:
+                id_candidates[selected].append(mode_id)
         report = {
             "backend": "fldigi",
             "version": client.version().version,
@@ -258,6 +273,7 @@ def test_every_installed_catalog_entry_is_selectable_in_isolated_fldigi(tmp_path
             "catalog_count": len(modes),
             "selectable_count": len(modes) - len(failures),
             "selection_failures": failures,
+            "id_candidates_after_name_selection_failure": id_candidates,
             "results": results,
             "original_mode": original,
             "scope": "mode selection only; audio routing, decode, generation, and specialized output are not tested",

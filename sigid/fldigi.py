@@ -8,6 +8,9 @@ from typing import Any
 from xmlrpc.client import ServerProxy, Transport
 
 
+NON_MODE_CATALOG_ENTRIES = frozenset({"RSID_EOT"})
+
+
 class _TimeoutTransport(Transport):
     def __init__(self, timeout: float) -> None:
         super().__init__()
@@ -58,8 +61,8 @@ class FldigiClient:
             return [str(name) for name in self._rpc.modem.get_names()]
 
     def mode_names(self) -> list[str]:
-        """Return the receive-mode catalog through the generic backend contract."""
-        return self.modem_names()
+        """Return selectable decoder modes, excluding Fldigi's RSID end marker."""
+        return [name for name in self.modem_names() if name not in NON_MODE_CATALOG_ENTRIES]
 
     def current_modem(self) -> str:
         with self._lock:
@@ -70,9 +73,14 @@ class FldigiClient:
         catalog = self.modem_names()
         if name not in catalog:
             raise ValueError(f"mode is not present in the Fldigi catalog: {name}")
+        if name in NON_MODE_CATALOG_ENTRIES:
+            raise ValueError(f"catalog entry is not a receive mode and cannot be selected: {name}")
         with self._lock:
             self._rpc.modem.set_by_name(name)
-            return str(self._rpc.modem.get_name())
+            selected = str(self._rpc.modem.get_name())
+            if selected != name:
+                raise RuntimeError(f"Fldigi did not switch to requested mode {name!r}; current mode is {selected!r}")
+            return selected
 
     def select_mode(self, name: str) -> str:
         """Select a receive mode through the generic backend contract."""

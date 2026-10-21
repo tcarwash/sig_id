@@ -372,7 +372,7 @@ def create_app(
     @app.get("/api/fldigi/modes")
     def fldigi_modes() -> list[str]:
         try:
-            return fldigi.modem_names()
+            return fldigi.mode_names()
         except Exception as exc:
             raise HTTPException(status_code=503, detail=f"Fldigi is unavailable: {exc}") from exc
 

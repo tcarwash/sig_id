@@ -1,719 +1,882 @@
 {
   "backend": "fldigi",
   "version": "4.2.13",
-  "tested_at_utc": "2026-10-21T20:51:57.464737+00:00",
+  "tested_at_utc": "2026-10-21T20:58:39.281625+00:00",
   "catalog_count": 169,
   "selectable_count": 165,
   "selection_failures": [
     {
       "mode": "OFDM500F",
       "selectable": false,
-      "selected": "BPSK31",
-      "reason": "backend reported a different current mode"
+      "reason": "RuntimeError: Fldigi did not switch to requested mode 'OFDM500F'; current mode is 'BPSK31'"
     },
     {
       "mode": "OFDM750F",
       "selectable": false,
-      "selected": "BPSK31",
-      "reason": "backend reported a different current mode"
+      "reason": "RuntimeError: Fldigi did not switch to requested mode 'OFDM750F'; current mode is 'BPSK31'"
     },
     {
       "mode": "OFDM3500",
       "selectable": false,
-      "selected": "BPSK31",
-      "reason": "backend reported a different current mode"
+      "reason": "RuntimeError: Fldigi did not switch to requested mode 'OFDM3500'; current mode is 'BPSK31'"
     },
     {
       "mode": "RSID_EOT",
       "selectable": false,
-      "selected": "BPSK31",
-      "reason": "backend reported a different current mode"
+      "reason": "ValueError: catalog entry is not a receive mode and cannot be selected: RSID_EOT"
     }
   ],
+  "id_candidates_after_name_selection_failure": {
+    "RSID_EOT": [],
+    "OFDM3500": [],
+    "OFDM500F": [],
+    "OFDM750F": []
+  },
   "results": [
     {
       "mode": "NULL",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "CW",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "CONTESTIA",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "Cont-4/125",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "Cont-4/250",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "Cont-4/500",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "Cont-4/1K",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "Cont-4/2K",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "Cont-8/125",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "Cont-8/250",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "Cont-8/500",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "Cont-8/1K",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "Cont-8/2K",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "Cont-16/250",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "Cont-16/500",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "Cont-16/1K",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "Cont-16/2K",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "Cont-32/1K",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "Cont-32/2K",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "Cont-64/500",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "Cont-64/1K",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "Cont-64/2K",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "DOMEXM",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "DOMEX4",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "DOMEX5",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "DOMEX8",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "DOMX11",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "DOMX16",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "DOMX22",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "DOMX44",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "DOMX88",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "FELDHELL",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "SLOWHELL",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "HELLX5",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "HELLX9",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "FSKH245",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "FSKH105",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "HELL80",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "MFSK8",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "MFSK16",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "MFSK32",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "MFSK4",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "MFSK11",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "MFSK22",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "MFSK31",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "MFSK64",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "MFSK128",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "MFSK64L",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "MFSK128L",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "WEFAX576",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "WEFAX288",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "NAVTEX",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "SITORB",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "MT63-500S",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "MT63-500L",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "MT63-1KS",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "MT63-1KL",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "MT63-2KS",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "MT63-2KL",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "BPSK31",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "BPSK63",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "BPSK63F",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "BPSK125",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "BPSK250",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "BPSK500",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "BPSK1000",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "PSK125C12",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "PSK250C6",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "PSK500C2",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "PSK500C4",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "PSK800C2",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "PSK1000C2",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "QPSK31",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "QPSK63",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "QPSK125",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "QPSK250",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "QPSK500",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "8PSK125",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "8PSK125FL",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "8PSK125F",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "8PSK250",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "8PSK250FL",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "8PSK250F",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "8PSK500",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "8PSK500F",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "8PSK1000",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "8PSK1000F",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "8PSK1200F",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "OFDM500F",
       "selectable": false,
-      "selected": "BPSK31",
-      "reason": "backend reported a different current mode"
+      "reason": "RuntimeError: Fldigi did not switch to requested mode 'OFDM500F'; current mode is 'BPSK31'"
     },
     {
       "mode": "OFDM750F",
       "selectable": false,
-      "selected": "BPSK31",
-      "reason": "backend reported a different current mode"
+      "reason": "RuntimeError: Fldigi did not switch to requested mode 'OFDM750F'; current mode is 'BPSK31'"
     },
     {
       "mode": "OFDM3500",
       "selectable": false,
-      "selected": "BPSK31",
-      "reason": "backend reported a different current mode"
+      "reason": "RuntimeError: Fldigi did not switch to requested mode 'OFDM3500'; current mode is 'BPSK31'"
     },
     {
       "mode": "OLIVIA",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "OLIVIA-4/125",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "OLIVIA-4/250",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "OLIVIA-4/500",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "OLIVIA-4/1K",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "OLIVIA-4/2K",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "OLIVIA-8/125",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "OLIVIA-8/250",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "OLIVIA-8/500",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "OLIVIA-8/1K",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "OLIVIA-8/2K",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "OLIVIA-16/500",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "OLIVIA-16/1K",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "OLIVIA-16/2K",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "OLIVIA-32/1K",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "OLIVIA-32/2K",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "OLIVIA-64/500",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "OLIVIA-64/1K",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "OLIVIA-64/2K",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "RTTY",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "SCAMPFSK",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "SCAMPOOK",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "SCFSKFST",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "SCFSKSLW",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "SCOOKSLW",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "SCFSKVSL",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "THORM",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "THOR4",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "THOR5",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "THOR8",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "THOR11",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "THOR16",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "THOR22",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "THOR25",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "THOR32",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "THOR44",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "THOR56",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "THOR25x4",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "THOR50x1",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "THOR50x2",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "THOR100",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "THROB1",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "THROB2",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "THROB4",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "THRBX1",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "THRBX2",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "THRBX4",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "PSK125R",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "PSK250R",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "PSK500R",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "PSK1000R",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "PSK63RC4",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "PSK63RC5",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "PSK63RC10",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "PSK63RC20",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "PSK63RC32",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "PSK125RC4",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "PSK125RC5",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "PSK125RC10",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "PSK125RC12",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "PSK125RC16",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "PSK250RC2",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "PSK250RC3",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "PSK250RC5",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "PSK250RC6",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "PSK250RC7",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "PSK500RC2",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "PSK500RC3",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "PSK500RC4",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "PSK800RC2",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "PSK1000RC2",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "FSQ",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "IFKP",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "SSB",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "WWV",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "ANALYSIS",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "FMT",
-      "selectable": true
+      "selectable": true,
+      "selection_latency_ms": 0
     },
     {
       "mode": "RSID_EOT",
       "selectable": false,
-      "selected": "BPSK31",
-      "reason": "backend reported a different current mode"
+      "reason": "ValueError: catalog entry is not a receive mode and cannot be selected: RSID_EOT"
     }
   ],
   "original_mode": "FELDHELL",

@@ -73,10 +73,13 @@ the workbench API; radio-input routing and independent-signal validation remain 
   candidate persistent; this is spectral continuity evidence, not mode confirmation.
 - Receive-only Fldigi API/UI: connection status, catalog list, manual mode selection
   and incremental decoded-text polling. Transmit, rig and macro calls are not exposed.
-- A mode-by-mode isolated Fldigi 4.2.13 selection audit now records all 169 catalog
-  entries: 165 select as named; OFDM500F, OFDM750F, OFDM3500 and RSID_EOT return
-  BPSK31. This is selection evidence only, not decode support. See the report in
-  `reports/fldigi-4.2.13-catalog-selection.json`.
+- A mode-by-mode isolated Fldigi 4.2.13 selection audit records all 169 catalog
+  entries: 165 of 168 actual modem modes select by name. OFDM500F, OFDM750F and
+  OFDM3500 remain listed in Fldigi but selecting them through XML-RPC leaves the
+  backend on BPSK31. The official Fldigi manual documents them as real OFDM modes.
+  `RSID_EOT` is not a receive mode and is now omitted from the workbench selector.
+  The client rejects silent mode-switch failures. This is selection evidence only,
+  not decode support. See `reports/fldigi-4.2.13-catalog-selection.json`.
 - Live waterfall follow mode expands from available startup history to ten seconds,
   then keeps the trailing ten seconds in view.
 - Fldigi WEFAX receive products can be polled, validated as bounded supported image
@@ -125,7 +128,7 @@ Verified: Fldigi 4.2.13 and its XML-RPC method catalog are installed; unit tests
 cover receive-only client semantics, PCM WAV block indexing/normalization and
 synthetic 2-FSK/MFSK metadata, exact symbols/bits and tone frequencies, SQLite
 capture hashes/regions/label history, JSONL export, spectrogram peak detection, upload/region APIs, and Fldigi
-status/catalog/mode/output APIs, WEFAX product import and image delivery. Current full suite: 108 passed, 5 skipped;
+status/catalog/mode/output APIs, WEFAX product import and image delivery. Current full suite: 109 passed, 5 skipped;
 the opt-in isolated selection audit checks all 169 entries (165 selectable, four unresolved),
 and `node --test tests/test_waterfall_window.mjs`, module syntax validation, headless
 Chromium loading, and `git diff --check` pass. The generic text-backend

@@ -45,6 +45,25 @@ def test_client_rejects_unknown_modes_and_invalid_offsets(client):
         client.receive_text(start=-1)
 
 
+def test_client_excludes_end_marker_and_rejects_silent_mode_switch_failure():
+    current = {"name": "BPSK31"}
+    rpc = SimpleNamespace(
+        modem=SimpleNamespace(
+            get_names=lambda: ["BPSK31", "OFDM500F", "RSID_EOT"],
+            get_name=lambda: current["name"],
+            set_by_name=lambda name: "BPSK31" if name == "OFDM500F" else current.update(name=name),
+        ),
+    )
+    client = FldigiClient(rpc_proxy=rpc)
+
+    assert client.modem_names() == ["BPSK31", "OFDM500F", "RSID_EOT"]
+    assert client.mode_names() == ["BPSK31", "OFDM500F"]
+    with pytest.raises(ValueError, match="not a receive mode"):
+        client.select_mode("RSID_EOT")
+    with pytest.raises(RuntimeError, match="did not switch"):
+        client.select_mode("OFDM500F")
+
+
 def test_probe_marks_catalog_presence_as_pending_validation(client, monkeypatch):
     client, _ = client
     monkeypatch.setattr("sigid.fldigi_probe.FldigiClient", lambda _: client)
