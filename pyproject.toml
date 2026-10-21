@@ -25,6 +25,8 @@ sig-id-build-corpus = "sigid.corpus:main"
 sig-id-split-corpus = "sigid.splits:main"
 sig-id-train-method-model = "sigid.training:main"
 sig-id-import-synthetic = "sigid.synthetic_dataset:main"
+sig-id-mix-scene = "sigid.scenes:create_main"
+sig-id-import-scene = "sigid.scenes:import_main"
 sig-id-import-sigidwiki = "sigid.sigidwiki:main"
 sig-id-serve = "sigid.server:main"
 

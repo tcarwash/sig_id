@@ -131,6 +131,28 @@ The importer verifies that the WAV exactly matches a deterministic 2-FSK, M-FSK,
 BPSK or QPSK generator manifest, then stores a full-capture modulation label and the source
 manifest. It does not invent a named protocol.
 
+Combine already imported, accepted synthetic captures into a deterministic scene.
+Put their capture IDs in a JSON recipe; offsets and lengths are in samples at the
+source sample rate, and overlapping components retain separate labels on import:
+
+```json
+{
+  "components": [
+    {"capture_id": "CAPTURE_ID_A", "sample_count": 48000, "scene_start_sample": 0, "gain": 0.7},
+    {"capture_id": "CAPTURE_ID_B", "sample_count": 48000, "scene_start_sample": 24000, "gain": 0.4}
+  ]
+}
+```
+
+```sh
+sig-id-mix-scene --data-dir ~/.local/share/sig-id scene-recipe.json data/scenes/mix.wav
+sig-id-import-scene --data-dir ~/.local/share/sig-id data/scenes/mix.wav data/scenes/mix.wav.json
+```
+
+Scene imports re-render against the original accepted synthetic captures before
+storing, so edited samples or recipe fields cannot pass as synthetic ground truth.
+These scene labels are not yet included by the current corpus split/training commands.
+
 Create a deterministic noisy child from an imported clean source. Import the clean
 source first; the child manifest records its hashes and recipe, and the importer checks
 the parent lineage and regenerates the samples before accepting inherited labels:

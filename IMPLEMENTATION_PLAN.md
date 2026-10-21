@@ -187,7 +187,10 @@ Synthetic track:
 - A deterministic AWGN child generator now records the SNR convention, transform
   order, seed, gain, clipping and measured SNR. Import requires an exact imported
   clean parent, regenerates the child for verification, and keeps parent lineage;
-  frequency offsets, filtering, clock error and mixtures remain open.
+  deterministic mixed scenes now combine accepted synthetic captures at explicit
+  sample offsets/gains, preserve overlapping constituent labels, and verify exact
+  rendering on import. Frequency offsets, filtering, clock error, scene split
+  inclusion and held-out mixed-scene evaluation remain open.
 - A resumable command now creates and imports six modulation methods across clean
   and configurable AWGN variants, atomically indexing capture IDs and a shared
   lineage group for future split-safe evaluation. Cancellation UI, quotas and richer
