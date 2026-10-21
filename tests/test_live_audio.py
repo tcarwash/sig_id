@@ -175,3 +175,78 @@ def test_live_capture_api_flow(tmp_path, monkeypatch):
             assert (await client.get("/api/live/analysis")).status_code == 409
 
     asyncio.run(exercise())
+
+
+def test_application_shutdown_finalizes_an_active_recording(tmp_path):
+    app = create_app(tmp_path / "data", audio_backend=FakeAudio(), fldigi_client=FakeFldigi())
+
+    async def exercise():
+        async with app.router.lifespan_context(app):
+            app.state.live_capture.start(sample_rate=8000)
+            assert app.state.live_capture.status()["active"]
+        captures = app.state.capture_store.list_captures()
+        assert len(captures) == 1
+        assert captures[0]["sample_count"] == 1024
+        assert app.state.live_capture.status() == {"active": False}
+        assert app.state.live_capture.shutdown() is None
+
+    asyncio.run(exercise())
+
+
+def test_writer_failure_preserves_completed_blocks_as_a_partial_capture(tmp_path, monkeypatch):
+    import time
+
+    class TwoBlockStream(FakeStream):
+        def start(self):
+            for _ in range(2):
+                self.kwargs["callback"](struct.pack("<h", 2345) * 1024, 1024, None, None)
+
+    class TwoBlockAudio(FakeAudio):
+        def InputStream(self, **kwargs):
+            return TwoBlockStream(self, kwargs)
+
+    original = wave.Wave_write.writeframesraw
+    writes = 0
+
+    def fail_second_write(writer, data):
+        nonlocal writes
+        writes += 1
+        if writes > 1:
+            raise OSError("simulated full disk")
+        return original(writer, data)
+
+    monkeypatch.setattr(wave.Wave_write, "writeframesraw", fail_second_write)
+    store = CaptureStore(tmp_path / "data.sqlite3")
+    manager = LiveCaptureManager(store, tmp_path / "captures", TwoBlockAudio())
+    manager.start(sample_rate=8000)
+    deadline = time.monotonic() + 2
+    while manager.status()["state"] != "error" and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert manager.status()["state"] == "error"
+    result = manager.shutdown()
+    assert result["truncated_reason"] == "audio_writer_error"
+    capture = result["capture"]
+    assert capture["sample_count"] == 1024
+    assert "simulated full disk" in " ".join(capture["source_metadata"]["status_messages"])
+    with wave.open(capture["audio_path"], "rb") as wav:
+        assert wav.readframes(1024) == struct.pack("<h", 2345) * 1024
+
+
+def test_index_failure_keeps_a_readable_file_and_releases_the_capture_slot(tmp_path, monkeypatch):
+    import pytest
+
+    store = CaptureStore(tmp_path / "data.sqlite3")
+    manager = LiveCaptureManager(store, tmp_path / "captures", FakeAudio())
+    started = manager.start(sample_rate=8000)
+
+    def fail_index(*args, **kwargs):
+        raise OSError("simulated metadata storage failure")
+
+    monkeypatch.setattr(store, "add_wav_capture", fail_index)
+    with pytest.raises(RuntimeError, match="audio retained at"):
+        manager.stop()
+    assert manager.status() == {"active": False}
+    files = list((tmp_path / "captures").glob("*.wav"))
+    assert len(files) == 1
+    with wave.open(str(files[0]), "rb") as wav:
+        assert wav.getnframes() == 1024

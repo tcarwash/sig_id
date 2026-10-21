@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import os
+import asyncio
+from contextlib import asynccontextmanager
+import logging
 from pathlib import Path
 import wave
 from typing import Any
@@ -162,7 +165,18 @@ def create_app(
         except Exception as exc:
             classifier_error = str(exc)
 
-    app = FastAPI(title="Signal ID Workbench", version="0.1.0")
+    @asynccontextmanager
+    async def lifespan(application: FastAPI):
+        try:
+            yield
+        finally:
+            application.state.fldigi_trials.cancel()
+            try:
+                await asyncio.to_thread(live_capture.shutdown)
+            except Exception:
+                logging.getLogger(__name__).exception("Could not finalize live capture during shutdown; inspect retained audio files")
+
+    app = FastAPI(title="Signal ID Workbench", version="0.1.0", lifespan=lifespan)
     app.state.data_dir = root
     app.state.capture_dir = capture_dir
     app.state.capture_store = store

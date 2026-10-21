@@ -18,6 +18,9 @@ updates appear as gaps. See [browser verification](tests/GUI.md) for repeatable 
 Saved annotation markers open their label and revision history in the inspector.
 Save revision preserves earlier labels and rejects stale concurrent edits. Hover or
 focus a signal tag for frequency, SNR, tone-spacing and drift evidence when available.
+Graceful server shutdown finalizes live audio. A writer failure preserves completed
+blocks as a partial capture; if metadata cannot be saved, the error reports the retained
+WAV path so it can be recovered through Open recording.
 
 Current code includes WAV upload/playback with a fixed 0–3 kHz browser waterfall
 (4096-point FFT at the default 48 kHz capture rate, about 11.7 Hz per bin), manual

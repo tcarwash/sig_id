@@ -55,6 +55,7 @@ class LiveCaptureManager:
         self.audio_backend = audio_backend
         self._session: _Session | None = None
         self._lock = threading.Lock()
+        self._stop_lock = threading.Lock()
 
     def _backend(self) -> Any:
         if self.audio_backend is None:
@@ -175,6 +176,7 @@ class LiveCaptureManager:
             if status:
                 with session.lock:
                     session.status_messages.append(str(status))
+                    del session.status_messages[:-64]
             if time.monotonic() - session.started_at_monotonic >= max_duration_seconds:
                 with session.lock:
                     session.state = "limit_reached"
@@ -261,41 +263,62 @@ class LiveCaptureManager:
                 session.state = "error"
 
     def stop(self) -> dict[str, Any]:
+        with self._stop_lock:
+            return self._finish_session()
+
+    def shutdown(self) -> dict[str, Any] | None:
+        """Finalize an outstanding recording during a graceful service shutdown."""
+        with self._stop_lock:
+            with self._lock:
+                if self._session is None:
+                    return None
+            return self._finish_session()
+
+    def _finish_session(self) -> dict[str, Any]:
         with self._lock:
             session = self._session
         if session is None:
             raise RuntimeError("there is no active live capture")
 
-        try:
-            session.stream.stop()
-        finally:
-            session.stream.close()
+        for operation in (session.stream.stop, session.stream.close):
+            try:
+                operation()
+            except Exception as exc:
+                session.truncated_reason = "input_close_error"
+                session.status_messages.append(f"Input shutdown: {exc}")
         session.stop_worker.set()
         assert session.writer_thread is not None
         session.writer_thread.join(timeout=5)
         if session.writer_thread.is_alive():
-            raise RuntimeError("audio writer did not stop within five seconds")
+            raise RuntimeError(f"audio writer did not stop within five seconds; partial audio retained at {session.path}")
         if session.worker_error:
-            session.path.unlink(missing_ok=True)
-            with self._lock:
-                self._session = None
-            raise RuntimeError(f"audio writer failed: {session.worker_error}")
+            session.truncated_reason = "audio_writer_error"
+            session.status_messages.append(f"Audio writer: {session.worker_error}")
+            if session.frames_written <= 0:
+                with self._lock:
+                    self._session = None
+                raise RuntimeError(f"audio writer failed: {session.worker_error}; partial audio retained at {session.path}")
         if session.frames_written <= 0:
             session.path.unlink(missing_ok=True)
             with self._lock:
                 self._session = None
             raise RuntimeError("capture stopped before any audio samples were written")
 
-        capture_id = self.store.add_wav_capture(
-            session.path,
-            source_kind="live",
-            source_metadata={
-                "device_id": session.device_id,
-                "device_name": session.device_name,
-                "truncated_reason": session.truncated_reason,
-                "status_messages": session.status_messages,
-            },
-        )
+        try:
+            capture_id = self.store.add_wav_capture(
+                session.path,
+                source_kind="live",
+                source_metadata={
+                    "device_id": session.device_id,
+                    "device_name": session.device_name,
+                    "truncated_reason": session.truncated_reason,
+                    "status_messages": list(session.status_messages[-64:]),
+                },
+            )
+        except Exception as exc:
+            with self._lock:
+                self._session = None
+            raise RuntimeError(f"could not index capture; audio retained at {session.path}: {exc}") from exc
         capture = self.store.capture(capture_id)
         with session.lock:
             session.state = "saved"

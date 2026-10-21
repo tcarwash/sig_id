@@ -36,6 +36,11 @@ validation remain open.
   capture/sample ranges and received-image library products. Delayed raw results are
   discarded after source changes. Hover/focus details and collision leader lines keep
   measurements available on the waterfall without permanently expanding every signal.
+- Graceful application shutdown finalizes an outstanding capture. Writer faults retain
+  completed audio blocks and mark the indexed recording partial; metadata-index failures
+  retain the readable WAV and report its path. Input close failures still drain the
+  writer, and callback status messages are bounded. Fault-injection tests cover writer
+  and index failures; browser tests verify Stop-error recovery leaves Start usable.
 
 - WAV upload/playback, sample-indexed audio replay, bounded spectrogram, drag-selected
   time/frequency regions, manual hierarchical labels, saved-region list and JSONL
@@ -234,7 +239,7 @@ Verified: Fldigi 4.2.13 and its XML-RPC method catalog are installed; unit tests
 cover receive-only client semantics, PCM WAV block indexing/normalization and
 synthetic 2-FSK/MFSK metadata, exact symbols/bits and tone frequencies, SQLite
 capture hashes/regions/label history, JSONL export, spectrogram peak detection, upload/region APIs, and Fldigi
-status/catalog/mode/output APIs, WEFAX product import and image delivery. Current full suite: 174 passed, 7 skipped;
+status/catalog/mode/output APIs, WEFAX product import and image delivery. Current full suite: 177 passed, 7 skipped;
 the opt-in isolated selection audit checks all 169 entries (165 selectable, four unresolved),
 and `node --test tests/test_waterfall_window.mjs`, module syntax validation, headless
 Chromium loading, and `git diff --check` pass. The generic text-backend

@@ -239,6 +239,23 @@ try {
       assert.ok(await page.locator("#live-start").isEnabled());
       assert.ok(await page.locator("#freeze-view").isDisabled());
     }
+    let failedStop = false;
+    await page.route("**/api/live/stop", async route => {
+      if (failedStop) { await route.continue(); return; }
+      failedStop = true;
+      await route.fetch();
+      await route.fulfill({status:500,json:{detail:"Simulated metadata failure; audio retained in the capture directory"}});
+    });
+    await page.locator("#live-start").click();
+    await page.waitForFunction(()=>document.getElementById("waterfall-state").textContent.includes("30 s display"));
+    await page.locator("#live-stop").click();
+    await page.waitForFunction(()=>document.getElementById("live-status").textContent.includes("Input stopped"));
+    assert.ok(await page.locator("#live-start").isEnabled());
+    assert.ok(await page.locator("#empty-state").isVisible());
+    await page.locator("#live-start").click();
+    await page.waitForFunction(()=>document.getElementById("waterfall-state").textContent.includes("30 s display"));
+    await page.locator("#live-stop").click();
+    await page.waitForFunction(()=>document.getElementById("live-status").textContent.includes("Saved live capture"));
   }
   await page.keyboard.press("Escape");
   assert.ok(await page.locator("#inspector").isHidden());

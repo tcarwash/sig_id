@@ -28,6 +28,8 @@ verify 48/96/192 kHz capture, fixed startup history, freeze/resume and stopping/
 The test verifies the synthetic device identity before starting capture.
 It also verifies editing a saved annotation creates a second revision on the same
 region, and an intentionally delayed raw result cannot be exported as a new source.
+It simulates a failed Stop response after the input has stopped, checks that Start
+becomes usable again, and starts and stops another synthetic recording.
 Decoder requests are intercepted so the test does not change a running Fldigi instance.
 It prints a temporary artifact directory containing desktop/mobile screenshots and
 exported results. This is browser and synthetic validation; it does not test hardware

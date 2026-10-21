@@ -382,8 +382,27 @@ el("live-stop").addEventListener("click", async () => {
     if (spectrumPoll) clearTimeout(spectrumPoll);
     state.capture = result.capture;
     await loadCapture();
-    el("live-status").textContent = `Saved live capture · ${result.frames_written.toLocaleString()} samples`;
-  } catch (error) { showError(error.message); }
+    el("live-status").textContent = result.truncated_reason
+      ? `Saved partial live capture · ${result.truncated_reason} · ${result.frames_written.toLocaleString()} samples`
+      : `Saved live capture · ${result.frames_written.toLocaleString()} samples`;
+  } catch (error) {
+    showError(error.message);
+    const status = await request("/api/live").catch(() => null);
+    if (status && !status.active) {
+      state.liveView = false;
+      state.liveGeneration = (state.liveGeneration || 0) + 1;
+      if (livePoll) clearInterval(livePoll);
+      if (spectrumPoll) clearTimeout(spectrumPoll);
+      resetOutputSession();
+      state.waterfall = null;
+      state.view = null;
+      state.tracks = [];
+      state.regions = [];
+      el("workspace").classList.add("hidden");
+      el("empty-state").classList.remove("hidden");
+      el("live-status").textContent = "Input stopped · review saved or retained audio";
+    }
+  }
   finally {
     if (!state.liveView) livePoll = null;
     el("live-start").disabled = state.liveView;
