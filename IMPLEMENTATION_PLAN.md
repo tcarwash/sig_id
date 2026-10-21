@@ -243,10 +243,11 @@ replay, filtering, and exports; keep this separate from Fldigi text APIs.
   and optional soft metrics. Retain phase/polarity/mapping ambiguities explicitly.
 - Export timestamped observations, hard symbols, candidate bits, soft outputs and
   complete recovery recipes. Preserve unknown protocol status.
-- Implemented first: manual 2-FSK noncoherent tone correlation with operator-supplied
-  tone pair, symbol rate, timing offset and integration fraction; API returns raw bit
-  decisions, soft tone metrics and absolute sample bounds. Rate/offset acquisition,
-  differential/coherent methods and M-FSK/BPSK/QPSK demodulators remain open.
+- Implemented first: manual noncoherent 2-FSK and M-FSK tone-bank correlation with
+  operator-supplied tone/rate/timing parameters; API returns tone decisions, soft
+  margins, absolute sample bounds, and natural-binary bits only when the M-FSK mapping
+  supports them. Automatic rate/offset acquisition, differential/coherent methods and
+  BPSK/QPSK demodulators remain open.
 - Add complex-IQ file input for analysis using an explicit data type/sample rate
   and SigMF metadata where available; live SDR hardware integration follows later.
 

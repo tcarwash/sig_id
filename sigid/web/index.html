@@ -119,6 +119,17 @@
             <button id="demod-run" type="submit" disabled>Recover raw bits</button>
           </form>
           <pre id="demod-output" class="decoded-text" aria-live="polite">Select a saved capture or region to analyze.</pre>
+          <h2>M-FSK tone and bit analysis</h2>
+          <p class="subhead">Natural-binary bits are reported only when the tone count is a power of two; otherwise the recovered tone indices remain available.</p>
+          <form id="mfsk-form" class="demod-form">
+            <label>Symbol rate<input id="mfsk-rate" type="number" min="1" step="any" value="50" required /></label>
+            <label>Tone count<input id="mfsk-count" type="number" min="2" max="64" step="1" value="4" required /></label>
+            <label>Base tone (Hz)<input id="mfsk-base" type="number" min="1" step="any" value="1000" required /></label>
+            <label>Tone spacing (Hz)<input id="mfsk-spacing" type="number" min="1" step="any" value="200" required /></label>
+            <label>Timing offset (samples)<input id="mfsk-offset" type="number" min="0" step="any" value="0" required /></label>
+            <button id="mfsk-run" type="submit" disabled>Recover tone symbols</button>
+          </form>
+          <pre id="mfsk-output" class="decoded-text" aria-live="polite">Select a saved capture or region to analyze.</pre>
         </section>
 
         <section class="panel tracks-panel">

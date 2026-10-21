@@ -3,8 +3,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from sigid.demod import demodulate_2fsk
-from sigid.synthetic import generate_2fsk_wav
+from sigid.demod import demodulate_2fsk, demodulate_mfsk
+from sigid.synthetic import generate_2fsk_wav, generate_mfsk_wav
 from sigid.wav import WavSource
 
 
@@ -65,6 +65,45 @@ def test_2fsk_demodulator_handles_timing_offset_and_awgn(tmp_path):
         integration_fraction=0.7,
     )
     assert result["bits"] == bits
+
+
+def test_mfsk_demodulator_recovers_tone_symbols_bits_and_confidence(tmp_path):
+    symbols = [0, 3, 1, 2, 3, 0, 2, 1] * 8
+    path = tmp_path / "mfsk4.wav"
+    generate_mfsk_wav(
+        path,
+        symbols,
+        tone_count=4,
+        sample_rate=12000,
+        symbol_rate=50,
+        base_tone_hz=1000,
+        tone_spacing_hz=200,
+    )
+    result = demodulate_mfsk(
+        read_samples(path),
+        12000,
+        symbol_rate=50,
+        tone_frequencies_hz=[1000, 1200, 1400, 1600],
+    )
+    expected_bits = "".join(f"{symbol:02b}" for symbol in symbols)
+    assert result["symbols"] == symbols
+    assert result["bits"] == expected_bits
+    assert result["tone_count"] == 4
+    assert min(result["soft_confidence"]) > 0.8
+    assert result["protocol"] is None
+
+
+def test_mfsk_non_power_of_two_returns_symbols_without_invented_bits():
+    samples = np.tile(np.sin(2 * np.pi * 1000 * np.arange(120) / 12000), 12)
+    result = demodulate_mfsk(
+        samples,
+        12000,
+        symbol_rate=100,
+        tone_frequencies_hz=[1000, 1500, 2000],
+    )
+    assert result["symbols"] == [0] * 12
+    assert result["bits"] is None
+    assert result["bits_per_symbol"] is None
 
 
 @pytest.mark.parametrize(

@@ -17,7 +17,8 @@ through temporary virtual audio into the workbench API. Routing actual radio inp
 to Fldigi remains an external setup and is not yet validated. Saved recordings also
 have a manual, protocol-independent 2-FSK demodulator that exposes uncoded bits,
 symbol timing and soft tone metrics; symbol rate, tone mapping and timing offset must
-be supplied by the operator.
+be supplied by the operator. A corresponding M-FSK analyzer returns hard tone indices,
+soft margins and natural-binary bits only for power-of-two tone counts.
 
 ## Development
 

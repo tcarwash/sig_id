@@ -99,3 +99,94 @@ def demodulate_2fsk(
         "tone_1_energy": tone_1_energy,
         "symbol_sample_bounds": symbol_samples,
     }
+
+
+def demodulate_mfsk(
+    samples: Any,
+    sample_rate: int,
+    *,
+    symbol_rate: float,
+    tone_frequencies_hz: list[float] | tuple[float, ...],
+    timing_offset_samples: float = 0.0,
+    sample_offset: int = 0,
+    integration_fraction: float = 0.8,
+) -> dict[str, Any]:
+    """Recover M-FSK tone indices and natural-binary bits when representable."""
+    values = np.asarray(samples, dtype=np.float64)
+    frequencies = np.asarray(tone_frequencies_hz, dtype=np.float64)
+    if values.ndim != 1 or values.size == 0 or not np.all(np.isfinite(values)):
+        raise ValueError("samples must be a non-empty finite mono array")
+    if not isinstance(sample_rate, int) or isinstance(sample_rate, bool) or sample_rate <= 0:
+        raise ValueError("sample_rate must be a positive integer")
+    if not math.isfinite(symbol_rate) or symbol_rate <= 0 or sample_rate / symbol_rate < 8:
+        raise ValueError("symbol_rate must provide at least eight samples per symbol")
+    if frequencies.ndim != 1 or not 2 <= frequencies.size <= 64 or not np.all(np.isfinite(frequencies)):
+        raise ValueError("tone_frequencies_hz must contain 2 to 64 finite frequencies")
+    if np.any(frequencies <= 0) or np.any(frequencies >= sample_rate / 2):
+        raise ValueError("tone frequencies must be above 0 Hz and below Nyquist")
+    if np.unique(frequencies).size != frequencies.size:
+        raise ValueError("tone frequencies must be distinct")
+    if sample_offset < 0:
+        raise ValueError("sample_offset must be non-negative")
+    samples_per_symbol = sample_rate / symbol_rate
+    if not math.isfinite(timing_offset_samples) or not 0 <= timing_offset_samples < samples_per_symbol:
+        raise ValueError("timing_offset_samples must be within one symbol")
+    if not 0.2 <= integration_fraction <= 1.0:
+        raise ValueError("integration_fraction must be between 0.2 and 1.0")
+
+    tone_indices: list[int] = []
+    confidence: list[float] = []
+    sample_bounds: list[list[int]] = []
+    symbol_index = 0
+    while True:
+        boundary_start = timing_offset_samples + symbol_index * samples_per_symbol
+        boundary_end = timing_offset_samples + (symbol_index + 1) * samples_per_symbol
+        if boundary_end > values.size:
+            break
+        integration_length = max(8, int(math.floor(samples_per_symbol * integration_fraction)))
+        center = (boundary_start + boundary_end) / 2
+        first = max(0, int(math.ceil(center - integration_length / 2)))
+        last = min(values.size, first + integration_length)
+        segment = values[first:last]
+        if segment.size < 8:
+            break
+        window = np.hanning(segment.size)
+        times = np.arange(first, last, dtype=np.float64) / sample_rate
+        correlations = np.exp(-2j * np.pi * frequencies[:, None] * times[None, :])
+        powers = np.abs(correlations @ (segment * window)) ** 2
+        ranking = np.argsort(powers)
+        best = int(ranking[-1])
+        second_power = float(powers[ranking[-2]])
+        confidence.append(float((powers[best] - second_power) / (powers[best] + np.finfo(np.float64).tiny)))
+        tone_indices.append(best)
+        sample_bounds.append([
+            sample_offset + int(round(boundary_start)),
+            sample_offset + int(round(boundary_end)),
+        ])
+        symbol_index += 1
+
+    bits_per_symbol = int(math.log2(frequencies.size)) if frequencies.size & (frequencies.size - 1) == 0 else None
+    bits = (
+        "".join(f"{index:0{bits_per_symbol}b}" for index in tone_indices)
+        if bits_per_symbol is not None
+        else None
+    )
+    return {
+        "schema_version": 1,
+        "demodulator": "noncoherent-mfsk-tone-correlator",
+        "status": "complete" if tone_indices else "no_symbols",
+        "sample_rate": sample_rate,
+        "symbol_rate": symbol_rate,
+        "samples_per_symbol": samples_per_symbol,
+        "tone_frequencies_hz": frequencies.tolist(),
+        "timing_offset_samples": timing_offset_samples,
+        "integration_fraction": integration_fraction,
+        "tone_count": int(frequencies.size),
+        "symbol_count": len(tone_indices),
+        "symbols": tone_indices,
+        "bits": bits,
+        "bits_per_symbol": bits_per_symbol,
+        "soft_confidence": confidence,
+        "symbol_sample_bounds": sample_bounds,
+        "protocol": None,
+    }
