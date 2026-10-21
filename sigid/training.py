@@ -12,7 +12,7 @@ from typing import Any
 
 import numpy as np
 
-from .classifier import FEATURE_VERSION, extract_features, fit_softmax, predict_probabilities
+from .classifier import FEATURE_VERSION, NOISE_CLASS, extract_features, fit_softmax, predict_probabilities
 from .corpus import MODES
 from .dataset import CaptureStore
 from .splits import FAMILY_BY_MODE, METHOD_BY_MODE
@@ -120,7 +120,7 @@ def _features_for(rows: list[dict[str, Any]]) -> tuple[np.ndarray, np.ndarray, l
     for row in rows:
         values = np.asarray([sample for block in WavSource(row["audio_path"]).blocks() for sample in block.samples])
         feature_rows.append(extract_features(values, int(row["sample_rate"])))
-        labels.append(row["mode"])
+        labels.append(NOISE_CLASS if row["mode"] == "noise" else row["mode"])
     return np.asarray(feature_rows, dtype=np.float32), np.asarray(labels, dtype=object), [row["lineage_group"] for row in rows]
 
 
@@ -222,17 +222,28 @@ def _mixed_scene_test_features(
     return feature_array, label_array, details
 
 
-def _calibrate_threshold(probabilities: np.ndarray, labels: np.ndarray) -> dict[str, Any]:
+def _calibrate_threshold(
+    probabilities: np.ndarray,
+    labels: np.ndarray,
+    *,
+    noise_class_index: int | None = None,
+) -> dict[str, Any]:
     top = np.argmax(probabilities, axis=1)
     confidence = probabilities[np.arange(len(top)), top]
     correct = top == labels
-    known = labels >= 0
-    negatives = labels < 0
+    if noise_class_index is None:
+        known = labels >= 0
+        negatives = labels < 0
+        positive_predictions = np.ones(len(top), dtype=bool)
+    else:
+        known = labels != noise_class_index
+        negatives = labels == noise_class_index
+        positive_predictions = top != noise_class_index
     candidates = sorted(set(float(value) for value in confidence))
     valid = []
     for threshold in candidates:
-        selected_known = (confidence >= threshold) & known
-        selected_negative = (confidence >= threshold) & negatives
+        selected_known = (confidence >= threshold) & known & positive_predictions
+        selected_negative = (confidence >= threshold) & negatives & positive_predictions
         count = int(selected_known.sum())
         precision = float(np.mean(correct[selected_known])) if count else 0.0
         noise_fpr = float(np.mean(selected_negative[negatives])) if np.any(negatives) else None
@@ -270,27 +281,29 @@ def _evaluate(
     threshold: float,
     family_threshold: float,
 ) -> dict[str, Any]:
+    noise_index = classes.index(NOISE_CLASS)
     top = np.argmax(probabilities, axis=1)
     confidence = probabilities[np.arange(len(top)), top]
-    accepted = confidence >= threshold
+    accepted = (confidence >= threshold) & (top != noise_index)
     correct = top == labels
-    confusion = {truth: {prediction: 0 for prediction in [*classes, "unknown"]} for truth in [*classes, "unknown"]}
-    raw_confusion = {truth: {prediction: 0 for prediction in classes} for truth in [*classes, "unknown"]}
+    confusion = {truth: {prediction: 0 for prediction in [*classes, "unknown"]} for truth in classes}
+    raw_confusion = {truth: {prediction: 0 for prediction in classes} for truth in classes}
     family_names = ("FSK", "MFSK", "PSK")
     family_probabilities = np.asarray([
-        probabilities[:, [i for i, name in enumerate(classes) if FAMILY_BY_MODE[name] == family]].sum(axis=1)
+        probabilities[:, [i for i, name in enumerate(classes) if name in FAMILY_BY_MODE and FAMILY_BY_MODE[name] == family]].sum(axis=1)
         for family in family_names
     ]).T
     family_top = np.argmax(family_probabilities, axis=1)
     family_labels = np.asarray([
-        family_names.index(FAMILY_BY_MODE[classes[int(label)]]) if int(label) >= 0 else -1 for label in labels
+        family_names.index(FAMILY_BY_MODE[classes[int(label)]])
+        if int(label) >= 0 and classes[int(label)] in FAMILY_BY_MODE else -1 for label in labels
     ])
     family_confidence = family_probabilities[np.arange(len(family_top)), family_top]
     family_correct = family_top == family_labels
     family_accepted = family_confidence >= family_threshold
     family_confusion = {truth: {prediction: 0 for prediction in [*family_names, "unknown"]} for truth in [*family_names, "unknown"]}
     for truth, guess, is_accepted in zip(labels, top, accepted, strict=True):
-        truth_name = classes[int(truth)] if int(truth) >= 0 else "unknown"
+        truth_name = classes[int(truth)]
         confusion[truth_name][classes[int(guess)] if is_accepted else "unknown"] += 1
         raw_confusion[truth_name][classes[int(guess)]] += 1
     for truth, guess, is_accepted in zip(family_labels, family_top, family_accepted, strict=True):
@@ -310,9 +323,10 @@ def _evaluate(
         "family_coverage": float(np.mean(family_accepted)) if len(labels) else 0.0,
         "family_accepted_accuracy": float(np.mean(family_correct[family_accepted])) if family_accepted.any() else None,
         "family_confusion": family_confusion,
-        "unknown_examples": int(np.sum(labels < 0)),
-        "unknown_accepted": int(np.sum((labels < 0) & accepted)),
-        "unknown_false_positive_rate": float(np.mean(accepted[labels < 0])) if np.any(labels < 0) else None,
+        "noise_examples": int(np.sum(labels == noise_index)),
+        "noise_class_correct": int(np.sum((labels == noise_index) & (top == noise_index))),
+        "noise_accepted": int(np.sum((labels == noise_index) & accepted)),
+        "noise_false_positive_rate": float(np.mean(accepted[labels == noise_index])) if np.any(labels == noise_index) else None,
         "unknown_family_accepted": int(np.sum((family_labels < 0) & family_accepted)),
         "unknown_family_false_positive_rate": (
             float(np.mean(family_accepted[family_labels < 0])) if np.any(family_labels < 0) else None
@@ -342,24 +356,25 @@ def train_and_evaluate(
     train_rows = [row for row in rows if row["split"] == "train"]
     validation_rows = [row for row in rows if row["split"] == "validation"]
     test_rows = [row for row in rows if row["split"] == "test"]
-    known_train_rows = [row for row in train_rows if row["mode"] in MODES]
-    x_train, y_train_names, _ = _features_for(known_train_rows)
+    x_train, y_train_names, _ = _features_for(train_rows)
     x_validation, y_validation_names, validation_groups = _features_for(validation_rows)
     x_test, y_test_names, test_groups = _features_for(test_rows)
     train_groups = [row["lineage_group"] for row in train_rows]
     if set(train_groups) & set(validation_groups) or set(train_groups) & set(test_groups) or set(validation_groups) & set(test_groups):
         raise ValueError("lineage leakage detected before training")
-    classes = list(MODES)
+    classes = [*MODES, NOISE_CLASS]
     parameters = fit_softmax(x_train, y_train_names, classes, epochs=epochs)
     class_indices = {name: index for index, name in enumerate(classes)}
     validation_indices = np.asarray([class_indices.get(name, -1) for name in y_validation_names], dtype=np.int64)
     test_indices = np.asarray([class_indices.get(name, -1) for name in y_test_names], dtype=np.int64)
     validation_probabilities = predict_probabilities(x_validation, parameters)
-    calibration = _calibrate_threshold(validation_probabilities, validation_indices)
+    calibration = _calibrate_threshold(
+        validation_probabilities, validation_indices, noise_class_index=class_indices[NOISE_CLASS]
+    )
     threshold = float(calibration["threshold"])
     family_names = ("FSK", "MFSK", "PSK")
     family_probabilities = np.asarray([
-        validation_probabilities[:, [i for i, name in enumerate(classes) if FAMILY_BY_MODE[name] == family]].sum(axis=1)
+        validation_probabilities[:, [i for i, name in enumerate(classes) if name in FAMILY_BY_MODE and FAMILY_BY_MODE[name] == family]].sum(axis=1)
         for family in family_names
     ]).T
     validation_family_indices = np.asarray(
@@ -412,15 +427,22 @@ def train_and_evaluate(
         "sample_rate_hz": int(train_rows[0]["sample_rate"]),
         "classes": classes,
         "family_by_method": FAMILY_BY_MODE,
+        "noise_class": NOISE_CLASS,
+        "noise_class_trained": any(row["mode"] == "noise" for row in train_rows),
         "method_names": METHOD_BY_MODE,
         "protocol_prediction_enabled": False,
         "unknown_rejection_validated": False,
+        "noise_class_validated": bool(
+            evaluation["test"]["noise_examples"]
+            and evaluation["test"]["noise_class_correct"]
+            and evaluation["test"]["noise_false_positive_rate"] == 0.0
+        ),
         "noise_rejection_scope": "synthetic_noise_only",
         "noise_rejection_validated": bool(
             calibration["status"] == "calibrated"
             and any(row["mode"] == "noise" for row in validation_rows)
             and any(row["mode"] == "noise" for row in test_rows)
-            and evaluation["test"]["unknown_false_positive_rate"] == 0.0
+            and evaluation["test"]["noise_false_positive_rate"] == 0.0
             and evaluation["test"]["unknown_family_false_positive_rate"] == 0.0
         ),
         "abstention_threshold": threshold,

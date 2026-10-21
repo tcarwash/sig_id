@@ -153,7 +153,9 @@ sig-id-import-scene --data-dir ~/.local/share/sig-id data/scenes/mix.wav data/sc
 ```
 
 Measure provisional spectral candidate detection on all imported mixed scenes and
-noise-only examples in the dataset. The report includes per-capture matches, component
+noise-only examples in the dataset. The method classifier learns a separate noise
+class from those split-safe corpus examples; this does not identify unseen modulated
+modes. The report includes per-capture matches, component
 recall, candidate precision, and false candidates per hour:
 
 ```sh

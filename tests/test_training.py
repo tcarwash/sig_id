@@ -48,9 +48,12 @@ def test_training_uses_split_groups_calibrates_abstention_and_exports_loadable_m
     trained = train_and_evaluate(split_path, data, model_path, epochs=300)
     metadata, parameters = load_model(model_path)
     evaluation = trained["evaluation"]
-    assert metadata["classes"] == list(MODES)
+    assert metadata["classes"] == [*MODES, "noise"]
+    assert metadata["noise_class"] == "noise"
+    assert metadata["noise_class_trained"] is True
     assert metadata["protocol_prediction_enabled"] is False
     assert metadata["unknown_rejection_validated"] is False
+    assert metadata["noise_class_validated"] is True
     assert metadata["noise_rejection_scope"] == "synthetic_noise_only"
     assert metadata["noise_rejection_validated"] is False
     assert evaluation["evaluation_scope"].startswith("synthetic generated modulation sources plus noise-only negatives")
@@ -59,8 +62,9 @@ def test_training_uses_split_groups_calibrates_abstention_and_exports_loadable_m
     assert set(evaluation["train_group_ids"]).isdisjoint(evaluation["test_group_ids"])
     assert set(evaluation["validation_group_ids"]).isdisjoint(evaluation["test_group_ids"])
     assert evaluation["test"]["examples"] == 13
-    assert evaluation["test"]["unknown_examples"] == 1
-    assert evaluation["test"]["unknown_accepted"] == 0
+    assert evaluation["test"]["noise_examples"] == 1
+    assert evaluation["test"]["noise_accepted"] == 0
+    assert evaluation["test"]["noise_class_correct"] == 1
     assert evaluation["test"]["unknown_family_false_positive_rate"] == 0.0
     assert evaluation["calibration"]["validation_noise_false_positive_rate"] == 0.0
     assert evaluation["calibration"]["status"] == "reject_all_no_threshold_meets_validation_constraints"
@@ -83,6 +87,18 @@ def test_training_uses_split_groups_calibrates_abstention_and_exports_loadable_m
     assert result["protocol"] is None
     assert result["abstained"] or result["family"] in {"FSK", "MFSK", "PSK"}
     assert result["method"] is None or result["method"] in metadata["method_names"].values()
+
+    noise_record = next(record for record in corpus["records"] if record["mode"] == "noise")
+    noise_capture = store.capture(noise_record["capture_id"])
+    noise_samples = np.asarray([sample for block in WavSource(noise_capture["audio_path"]).blocks() for sample in block.samples])
+    noise_result = propose(
+        extract_features(noise_samples, noise_capture["sample_rate"]),
+        parameters,
+        metadata["classes"],
+        threshold=metadata["abstention_threshold"],
+    )
+    assert noise_result["noise_detected"] is True
+    assert noise_result["method"] is None
 
     with model_path.open("ab") as artifact:
         artifact.write(b"tamper")

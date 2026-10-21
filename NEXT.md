@@ -127,8 +127,10 @@ validation remain open.
 
 ## Next action
 
-Next, calibrate live model proposals on held-out mixed scenes and add unknown/no-signal
-examples. An opt-in automatic trial now requires a persistent track and an accepted
+Next, calibrate live model proposals on held-out mixed scenes and add examples of
+unidentified modulated signals. The method model now trains a separate noise-only
+class; that does not establish rejection of unseen modulation families. An opt-in
+automatic trial now requires a persistent track and an accepted
 method proposal, while abstentions never trigger mode changes. Keep it opt-in until
 unseen-family and real-capture validation establish useful operating limits. The
 proposal path scores up to four strongest tracks per update over at most two seconds,

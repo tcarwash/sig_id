@@ -158,6 +158,8 @@ def create_app(
             "threshold": metadata["abstention_threshold"],
             "family_threshold": metadata["family_abstention_threshold"],
             "unknown_rejection_validated": metadata["unknown_rejection_validated"],
+            "noise_class_trained": metadata.get("noise_class_trained", False),
+            "noise_class_validated": metadata.get("noise_class_validated", False),
             "model_sha256": metadata["model_sha256"],
         }
 

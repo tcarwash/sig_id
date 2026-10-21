@@ -642,7 +642,9 @@ function renderTracks() {
       const identity = track.track_id ? `${track.track_id.split(":").at(-1)} · ${track.track_state}` : "single analysis";
       const proposal = track.model_proposal;
       const modelLabel = proposal?.available
-        ? proposal.abstained
+        ? proposal.noise_detected
+          ? ` · model noise-only (${(100 * proposal.confidence).toFixed(0)}%)`
+          : proposal.abstained
           ? ` · model abstained (${proposal.top_candidate}, ${(100 * proposal.confidence).toFixed(0)}%)`
           : ` · model ${proposal.method_id} ${(100 * proposal.confidence).toFixed(0)}%`
         : "";

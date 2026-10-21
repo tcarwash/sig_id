@@ -14,6 +14,7 @@ from .corpus import MODES
 
 
 FEATURE_VERSION = "passband-log-spectrum-v1"
+NOISE_CLASS = "noise"
 
 
 def extract_features(samples: Any, sample_rate: int) -> np.ndarray:
@@ -126,21 +127,26 @@ def propose(
     probabilities = predict_probabilities(features, parameters)[0]
     top = int(np.argmax(probabilities))
     confidence = float(probabilities[top])
-    accepted = confidence >= threshold
+    noise_detected = classes[top] == NOISE_CLASS
+    accepted = confidence >= threshold and not noise_detected
     family_names = ("FSK", "MFSK", "PSK")
     family_probabilities = np.asarray([
-        sum(probabilities[index] for index, method in enumerate(classes) if FAMILY_BY_MODE[method] == family)
+        sum(probabilities[index] for index, method in enumerate(classes) if method in FAMILY_BY_MODE and FAMILY_BY_MODE[method] == family)
         for family in family_names
     ])
     family_index = int(np.argmax(family_probabilities))
     family_confidence = float(family_probabilities[family_index])
     chosen_family_threshold = threshold if family_threshold is None else family_threshold
     family_accepted = family_confidence >= chosen_family_threshold
-    method_family = FAMILY_BY_MODE[classes[top]]
+    method_family = FAMILY_BY_MODE.get(classes[top])
     if accepted:
         family_result = method_family
         family_result_confidence = float(family_probabilities[family_names.index(method_family)])
         family_result_abstained = False
+    elif noise_detected:
+        family_result = None
+        family_result_confidence = 0.0
+        family_result_abstained = True
     else:
         family_result = family_names[family_index] if family_accepted else None
         family_result_confidence = family_confidence
@@ -155,6 +161,7 @@ def propose(
         "protocol": None,
         "variant": None,
         "top_candidate": classes[top],
+        "noise_detected": noise_detected,
         "confidence": confidence,
         "threshold": threshold,
         "abstained": not accepted,
@@ -173,7 +180,7 @@ def load_model(path: str | Path) -> tuple[dict[str, Any], dict[str, np.ndarray]]
         parameters = {name: archive[name].copy() for name in ("mean", "scale", "weights", "bias")}
     if metadata.get("feature_version") != FEATURE_VERSION:
         raise ValueError("unsupported model feature version")
-    if metadata.get("classes") != list(MODES):
+    if metadata.get("classes") not in (list(MODES), [*MODES, NOISE_CLASS]):
         raise ValueError("model taxonomy does not match the supported modulation methods")
     threshold = metadata.get("abstention_threshold")
     if not isinstance(threshold, (int, float)) or not np.isfinite(threshold) or not 0 <= threshold <= 1.000001:
