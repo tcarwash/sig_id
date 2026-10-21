@@ -814,6 +814,7 @@ el("demod-form").addEventListener("submit", async (event) => {
       tone_0_hz: Number(el("demod-tone0").value),
       tone_1_hz: Number(el("demod-tone1").value),
       timing_offset_samples: Number(el("demod-offset").value),
+      auto_timing: el("demod-auto-timing").checked,
     };
     const result = await request(`/api/captures/${state.capture.id}/demod/2fsk`, {
       method: "POST",
@@ -825,7 +826,10 @@ el("demod-form").addEventListener("submit", async (event) => {
       ? result.soft_metrics.reduce((sum, value) => sum + Math.abs(value), 0) / result.soft_metrics.length
       : 0;
     const groupedBits = result.bits.match(/.{1,64}/g)?.join("\n") || "(no complete symbols)";
-    el("demod-output").textContent = `${result.demodulator} · ${result.symbol_count} symbols · mean |soft metric| ${confidence.toFixed(3)}\nProtocol: unknown\n\n${groupedBits}`;
+    const timing = result.timing_offset_estimated
+      ? ` · estimated timing ${result.timing_offset_samples.toFixed(2)} samples (${result.timing_search.phase_count} phases)`
+      : ` · timing ${result.timing_offset_samples.toFixed(2)} samples`;
+    el("demod-output").textContent = `${result.demodulator} · ${result.symbol_count} symbols${timing} · mean |soft metric| ${confidence.toFixed(3)}\nProtocol: unknown\n\n${groupedBits}`;
   } catch (error) {
     el("demod-output").textContent = `Demodulation failed: ${error.message}`;
   } finally {

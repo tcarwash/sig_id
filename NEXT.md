@@ -117,8 +117,9 @@ validation remain open.
   and peak SNR. Review selects an editable region and leaves all label fields blank;
   heuristic predictions are not stored as ground truth.
 - Manual protocol-independent 2-FSK demodulation for a saved capture or selected
-  region. Operator supplies symbol rate, bit-to-tone mapping and timing offset; results
-  include raw bits, per-symbol soft metrics and sample bounds, with protocol unknown.
+  region. Operator supplies symbol rate and bit-to-tone mapping; timing phase can be
+  entered manually or acquired with a 32-phase soft/energy search. Results include raw
+  bits, search diagnostics, per-symbol soft metrics and sample bounds, with protocol unknown.
 - Manual M-FSK tone-bank demodulation for a saved capture or selected region. It returns
   hard tone indices and confidence margins; natural-binary bits are emitted only for
   power-of-two tone counts, with protocol unknown.

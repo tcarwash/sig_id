@@ -47,6 +47,23 @@ def test_api_demodulates_saved_region_to_raw_bits_without_protocol_label(tmp_pat
             assert result["sample_start"] == 0
             assert result["symbol_sample_bounds"][0] == [0, 120]
 
+            acquired = await client.post(
+                f"/api/captures/{capture_id}/demod/2fsk",
+                json={
+                    "sample_start": 8,
+                    "sample_count": len(bits) * 120 - 8,
+                    "symbol_rate": 100,
+                    "tone_0_hz": 1100,
+                    "tone_1_hz": 1400,
+                    "auto_timing": True,
+                },
+            )
+            assert acquired.status_code == 200, acquired.text
+            acquired_result = acquired.json()
+            assert acquired_result["bits"] == bits[: acquired_result["symbol_count"]]
+            assert acquired_result["timing_offset_estimated"] is True
+            assert acquired_result["timing_search"]["phase_count"] == 32
+
             outside = await client.post(
                 f"/api/captures/{capture_id}/demod/2fsk",
                 json={"sample_start": len(bits) * 120 + 1},

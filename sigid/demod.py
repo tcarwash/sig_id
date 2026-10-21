@@ -16,6 +16,7 @@ def demodulate_2fsk(
     tone_0_hz: float,
     tone_1_hz: float,
     timing_offset_samples: float = 0.0,
+    auto_timing: bool = False,
     sample_offset: int = 0,
     integration_fraction: float = 0.8,
 ) -> dict[str, Any]:
@@ -38,13 +39,58 @@ def demodulate_2fsk(
         raise ValueError("tone frequencies must be above 0 Hz and below Nyquist")
     if tone_0_hz == tone_1_hz:
         raise ValueError("2-FSK tone frequencies must differ")
+    if not isinstance(auto_timing, bool):
+        raise ValueError("auto_timing must be a boolean")
     if sample_offset < 0:
         raise ValueError("sample_offset must be non-negative")
     samples_per_symbol = sample_rate / symbol_rate
-    if not math.isfinite(timing_offset_samples) or not 0 <= timing_offset_samples < samples_per_symbol:
+    if not math.isfinite(timing_offset_samples) or (not auto_timing and not 0 <= timing_offset_samples < samples_per_symbol):
         raise ValueError("timing_offset_samples must be within one symbol")
     if not 0.2 <= integration_fraction <= 1.0:
         raise ValueError("integration_fraction must be between 0.2 and 1.0")
+
+    if auto_timing:
+        phase_count = min(32, max(8, int(math.ceil(samples_per_symbol))))
+        offsets = np.arange(phase_count, dtype=np.float64) * samples_per_symbol / phase_count
+        trials = [
+            demodulate_2fsk(
+                values,
+                sample_rate,
+                symbol_rate=symbol_rate,
+                tone_0_hz=tone_0_hz,
+                tone_1_hz=tone_1_hz,
+                timing_offset_samples=float(offset),
+                auto_timing=False,
+                sample_offset=sample_offset,
+                integration_fraction=integration_fraction,
+            )
+            for offset in offsets
+        ]
+        soft_scores = [
+            float(np.mean(np.abs(trial["soft_metrics"]))) if trial["soft_metrics"] else 0.0
+            for trial in trials
+        ]
+        energy_scores = [
+            float(np.mean(np.log10(np.asarray(trial["tone_0_energy"]) + np.asarray(trial["tone_1_energy"]) + np.finfo(float).tiny)))
+            if trial["tone_0_energy"] else 0.0
+            for trial in trials
+        ]
+        energy_center = float(np.median(energy_scores))
+        scores = [soft + 0.25 * (energy - energy_center) for soft, energy in zip(soft_scores, energy_scores, strict=True)]
+        best_index = int(np.argmax(scores))
+        return {
+            **trials[best_index],
+            "timing_offset_estimated": True,
+            "timing_search": {
+                "method": "uniform-grid-soft-metric-and-correlator-energy",
+                "phase_count": phase_count,
+                "candidate_offsets_samples": offsets.tolist(),
+                "candidate_scores": scores,
+                "candidate_soft_scores": soft_scores,
+                "candidate_log_energy_scores": energy_scores,
+                "selected_score": scores[best_index],
+            },
+        }
 
     symbols: list[int] = []
     soft_metrics: list[float] = []
@@ -90,6 +136,7 @@ def demodulate_2fsk(
         "tone_0_hz": tone_0_hz,
         "tone_1_hz": tone_1_hz,
         "timing_offset_samples": timing_offset_samples,
+        "timing_offset_estimated": False,
         "integration_fraction": integration_fraction,
         "symbol_count": len(symbols),
         "symbols": symbols,

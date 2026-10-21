@@ -66,6 +66,20 @@ def test_2fsk_demodulator_handles_timing_offset_and_awgn(tmp_path):
     )
     assert result["bits"] == bits
 
+    automatic = demodulate_2fsk(
+        noisy,
+        12000,
+        symbol_rate=100,
+        tone_0_hz=900,
+        tone_1_hz=1500,
+        auto_timing=True,
+        integration_fraction=0.7,
+    )
+    assert automatic["bits"] == bits, (automatic["timing_offset_samples"], automatic["symbol_count"])
+    assert automatic["timing_offset_estimated"] is True
+    assert automatic["timing_offset_samples"] == pytest.approx(8.0, abs=8.0)
+    assert automatic["timing_search"]["phase_count"] == 32
+
 
 def test_mfsk_demodulator_recovers_tone_symbols_bits_and_confidence(tmp_path):
     symbols = [0, 3, 1, 2, 3, 0, 2, 1] * 8

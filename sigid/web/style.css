@@ -9,3 +9,4 @@
 .raw-demod-panel h3{font-size:13px;margin:20px 0 5px;color:#cbd7e0}
 .receive-products{width:100%;margin:8px 0 13px}.receive-products>span{display:block;margin-top:6px;font-size:10px}.received-images{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-top:10px}.received-images figure{min-width:0;margin:0;border:1px solid #34414c;border-radius:7px;background:#0c1218;padding:6px;color:#b8c5cf;font-size:10px}.received-images img{display:block;width:100%;height:100px;object-fit:contain;margin-bottom:5px}.received-images figcaption{overflow-wrap:anywhere}.received-images figure:hover{border-color:#52d6d0aa}
 .demod-export{margin:0 0 20px;padding:7px 10px;border:1px solid #374552;border-radius:7px;background:#19212a;color:#c7d2dc;font-size:11px;cursor:pointer}.demod-export:disabled{opacity:.4;cursor:not-allowed}
+.demod-form .demod-check{display:flex;align-items:center;gap:6px}.demod-form .demod-check input{width:15px;height:15px;margin:0}
