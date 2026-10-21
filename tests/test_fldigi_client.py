@@ -57,10 +57,10 @@ def test_client_excludes_end_marker_and_rejects_silent_mode_switch_failure():
     client = FldigiClient(rpc_proxy=rpc)
 
     assert client.modem_names() == ["BPSK31", "OFDM500F", "RSID_EOT"]
-    assert client.mode_names() == ["BPSK31", "OFDM500F"]
+    assert client.mode_names() == ["BPSK31"]
     with pytest.raises(ValueError, match="not a receive mode"):
         client.select_mode("RSID_EOT")
-    with pytest.raises(RuntimeError, match="did not switch"):
+    with pytest.raises(ValueError, match="not implemented"):
         client.select_mode("OFDM500F")
 
 

@@ -213,7 +213,7 @@ def test_fldigi_payload_reaches_workbench_api_through_virtual_audio(tmp_path, so
     os.environ.get("SIGID_TEST_FLDIGI_CATALOG") != "1",
     reason="set SIGID_TEST_FLDIGI_CATALOG=1 to audit selection of the installed catalog",
 )
-def test_every_installed_catalog_entry_is_selectable_in_isolated_fldigi(tmp_path):
+def test_every_installed_catalog_entry_is_selectable_in_isolated_fldigi(tmp_path, socket_enabled):
     for executable in ("fldigi", "xvfb-run", "pactl"):
         if shutil.which(executable) is None:
             pytest.skip(f"{executable} is required for the Fldigi catalog audit")
@@ -283,6 +283,8 @@ def test_every_installed_catalog_entry_is_selectable_in_isolated_fldigi(tmp_path
         assert report["catalog_count"] == len(modes)
         assert report["selectable_count"] + len(failures) == len(modes)
         assert [result["mode"] for result in results] == modes
+        if client.version().version == "4.2.13":
+            assert failed_names == {"OFDM500F", "OFDM750F", "OFDM3500", "RSID_EOT"}
     finally:
         if process is not None:
             _stop_process(process)

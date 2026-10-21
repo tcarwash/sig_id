@@ -9,6 +9,10 @@ from xmlrpc.client import ServerProxy, Transport
 
 
 NON_MODE_CATALOG_ENTRIES = frozenset({"RSID_EOT"})
+# Fldigi 4.2.13 registers these names but compiles their init_modem cases out.
+# They remain in modem_names() for catalog auditing, but must not be offered as
+# selectable decode modes by the workbench.
+UNAVAILABLE_MODE_ENTRIES = frozenset({"OFDM500F", "OFDM750F", "OFDM3500"})
 
 
 class _TimeoutTransport(Transport):
@@ -61,8 +65,9 @@ class FldigiClient:
             return [str(name) for name in self._rpc.modem.get_names()]
 
     def mode_names(self) -> list[str]:
-        """Return selectable decoder modes, excluding Fldigi's RSID end marker."""
-        return [name for name in self.modem_names() if name not in NON_MODE_CATALOG_ENTRIES]
+        """Return decoder modes that Fldigi can actually activate."""
+        unavailable = NON_MODE_CATALOG_ENTRIES | UNAVAILABLE_MODE_ENTRIES
+        return [name for name in self.modem_names() if name not in unavailable]
 
     def current_modem(self) -> str:
         with self._lock:
@@ -75,6 +80,8 @@ class FldigiClient:
             raise ValueError(f"mode is not present in the Fldigi catalog: {name}")
         if name in NON_MODE_CATALOG_ENTRIES:
             raise ValueError(f"catalog entry is not a receive mode and cannot be selected: {name}")
+        if name in UNAVAILABLE_MODE_ENTRIES:
+            raise ValueError(f"Fldigi catalog entry is not implemented for receive: {name}")
         with self._lock:
             self._rpc.modem.set_by_name(name)
             selected = str(self._rpc.modem.get_name())
