@@ -37,11 +37,16 @@ validation remain open.
   held-out rejection benchmark. `sig-id-evaluate-ood` verifies sidecar provenance and
   reports method/family false-accept rates plus waveform and model hashes without
   training on those inputs.
-- `sig-id-build-ood-corpus` creates resumable, hash-indexed independent OOK sources
-  with varied payloads, symbol rates, carrier frequencies, amplitudes and phase. Its
+- Clean generic M-ASK sources carry exact amplitude-level symbols and natural-binary
+  reference bits when representable. The independent ASK benchmark now stratifies OOK
+  and 4-ASK lineages across validation and test to measure transfer between amplitude
+  modulation variants.
+- `sig-id-build-ood-corpus` creates resumable, hash-indexed independent ASK sources
+  (OOK and 4-ASK) with varied payloads, symbol rates, carrier frequencies, amplitudes and phase. Its
   separate index is not accepted as training data. The trainer can use the corpus's
   disjoint 3:2 validation/test source split to calibrate method/family abstention on
-  OOK negatives without fitting on them.
+  ASK negatives without fitting on them, with test false-accept metrics broken down
+  by modulation method.
 - Generic 2–64-tone FSK fixture generation with exact tone symbols and, for
   power-of-two tone counts, exact natural-binary reference bits. MFSK fixtures
   carry family and method labels while protocol and variant remain null.
@@ -156,12 +161,12 @@ validation remain open.
 
 ## Next action
 
-Next, retain a reproducible OOK calibration/evaluation report, add a second unknown
-modulation family, and calibrate live model proposals on held-out mixed scenes.
-An end-to-end experiment with 12 known source groups per mode and 30 separate OOK sources
-showed method/family false acceptance fall from 30/30 to 0/12 on OOK test, while known
-test coverage fell from 92.3% to 42.3% and accepted accuracy rose from 79.2% to 100%.
-These are one synthetic split only, not general unknown-mode or RF performance. An opt-in
+Next, retain a reproducible multi-ASK calibration/evaluation report, add a second
+unknown modulation family, and calibrate live model proposals on held-out mixed scenes.
+An end-to-end experiment with 12 known source groups per mode and 30 separate ASK sources
+(15 OOK and 15 4-ASK) produced 0/12 method and family false accepts on the ASK test set.
+Known-mode test coverage was 34.6% with 100% accuracy among accepted examples. This is
+one synthetic split only, not general unknown-mode or RF performance. An opt-in
 automatic trial now requires a persistent track and an accepted
 method proposal, while abstentions never trigger mode changes. Keep it opt-in until
 unseen-family and real-capture validation establish useful operating limits. The

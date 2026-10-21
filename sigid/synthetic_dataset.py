@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import shutil
@@ -180,6 +181,58 @@ def _validate_manifest(manifest: dict[str, Any], wav_path: Path) -> None:
             or len(bits) * (sample_rate // symbol_rate) != manifest.get("sample_count")
         ):
             raise ValueError("OOK reference bits do not match the waveform dimensions")
+    elif generator == "sig-id-ask":
+        if manifest.get("generator_version") != "0.1.0":
+            raise ValueError("unsupported ASK generator version")
+        expected_family = "ASK"
+        level_count = parameters.get("level_count")
+        if not isinstance(level_count, int) or isinstance(level_count, bool) or not 2 <= level_count <= 16:
+            raise ValueError("ASK manifest has an invalid amplitude level count")
+        expected_method = f"{level_count}-ary amplitude shift keying"
+        amplitude = parameters.get("amplitude")
+        carrier_hz = parameters.get("carrier_hz")
+        if (
+            not isinstance(amplitude, (int, float))
+            or isinstance(amplitude, bool)
+            or not math.isfinite(amplitude)
+            or not 0 < amplitude <= 1
+            or not isinstance(carrier_hz, (int, float))
+            or isinstance(carrier_hz, bool)
+            or not math.isfinite(carrier_hz)
+        ):
+            raise ValueError("ASK manifest has invalid amplitude or carrier parameters")
+        symbols = manifest.get("reference_symbols")
+        if not isinstance(symbols, list) or not symbols or any(
+            not isinstance(symbol, int) or isinstance(symbol, bool) or not 0 <= symbol < level_count
+            for symbol in symbols
+        ):
+            raise ValueError("ASK manifest must contain valid exact amplitude-level symbols")
+        sample_rate = manifest.get("sample_rate")
+        symbol_rate = parameters.get("symbol_rate")
+        if (
+            not isinstance(sample_rate, int)
+            or isinstance(sample_rate, bool)
+            or not isinstance(symbol_rate, int)
+            or isinstance(symbol_rate, bool)
+            or symbol_rate <= 0
+            or sample_rate % symbol_rate
+            or len(symbols) * (sample_rate // symbol_rate) != manifest.get("sample_count")
+        ):
+            raise ValueError("ASK symbols do not match the waveform dimensions")
+        expected_levels = [amplitude * index / (level_count - 1) for index in range(level_count)]
+        expected_bits_per_symbol = level_count.bit_length() - 1 if level_count & (level_count - 1) == 0 else None
+        expected_bits = (
+            "".join(f"{symbol:0{expected_bits_per_symbol}b}" for symbol in symbols)
+            if expected_bits_per_symbol is not None else None
+        )
+        if (
+            parameters.get("amplitude_levels") != expected_levels
+            or parameters.get("symbol_mapping") != {str(index): value for index, value in enumerate(expected_levels)}
+            or parameters.get("bits_per_symbol") != expected_bits_per_symbol
+            or parameters.get("bit_order") != ("most-significant bit first" if expected_bits_per_symbol is not None else None)
+            or manifest.get("reference_bits") != expected_bits
+        ):
+            raise ValueError("ASK level and bit mapping metadata do not match the source symbols")
     else:
         raise ValueError(f"unsupported synthetic generator: {generator!r}")
 
@@ -197,7 +250,7 @@ def _validate_manifest(manifest: dict[str, Any], wav_path: Path) -> None:
     # Recreate from the reference symbols with the shipped deterministic
     # generator. This prevents a hand-edited sidecar from turning arbitrary
     # audio into accepted synthetic ground truth.
-    from .synthetic import generate_2fsk_wav, generate_bpsk_wav, generate_mfsk_wav, generate_qpsk_wav, generate_noise_wav, generate_ook_wav
+    from .synthetic import generate_2fsk_wav, generate_ask_wav, generate_bpsk_wav, generate_mfsk_wav, generate_qpsk_wav, generate_noise_wav, generate_ook_wav
 
     try:
         with tempfile.TemporaryDirectory(prefix="sig-id-validate-") as temporary:
@@ -251,10 +304,21 @@ def _validate_manifest(manifest: dict[str, Any], wav_path: Path) -> None:
                     amplitude=parameters["amplitude"],
                     initial_phase_radians=parameters["initial_phase_radians"],
                 )
-            else:
+            elif generator == "sig-id-ook":
                 generate_ook_wav(
                     regenerated,
                     manifest["reference_bits"],
+                    sample_rate=manifest["sample_rate"],
+                    symbol_rate=parameters["symbol_rate"],
+                    carrier_hz=parameters["carrier_hz"],
+                    amplitude=parameters["amplitude"],
+                    initial_phase_radians=parameters["initial_phase_radians"],
+                )
+            else:
+                generate_ask_wav(
+                    regenerated,
+                    manifest["reference_symbols"],
+                    level_count=parameters["level_count"],
                     sample_rate=manifest["sample_rate"],
                     symbol_rate=parameters["symbol_rate"],
                     carrier_hz=parameters["carrier_hz"],

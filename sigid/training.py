@@ -142,33 +142,44 @@ def _evaluate_unmodeled(
     classes: list[str],
     threshold: float,
     family_threshold: float,
+    true_methods: list[str] | None = None,
 ) -> dict[str, Any]:
     if probabilities.ndim != 2 or not probabilities.shape[0]:
         raise ValueError("OOD evaluation requires at least one probability row")
-    noise_index = classes.index(NOISE_CLASS)
-    top = np.argmax(probabilities, axis=1)
-    confidence = probabilities[np.arange(len(top)), top]
-    accepted = (confidence >= threshold) & (top != noise_index)
-    family_names = ("FSK", "MFSK", "PSK")
-    family_probabilities = np.asarray([
-        probabilities[:, [i for i, name in enumerate(classes) if name in FAMILY_BY_MODE and FAMILY_BY_MODE[name] == family]].sum(axis=1)
-        for family in family_names
-    ]).T
-    family_confidence = np.max(family_probabilities, axis=1)
-    family_accepted = (family_confidence >= family_threshold) & (top != noise_index)
-    count = len(top)
-    return {
-        "examples": count,
-        "method_false_accepts": int(accepted.sum()),
-        "method_false_accept_rate": float(np.mean(accepted)),
-        "family_false_accepts": int(family_accepted.sum()),
-        "family_false_accept_rate": float(np.mean(family_accepted)),
-        "top_candidate_counts": {
-            name: int(np.sum(top == index)) for index, name in enumerate(classes)
-        },
-        "method_confidence_mean": float(np.mean(confidence)),
-        "family_confidence_mean": float(np.mean(family_confidence)),
-    }
+    def summarize(matrix: np.ndarray) -> dict[str, Any]:
+        noise_index = classes.index(NOISE_CLASS)
+        top = np.argmax(matrix, axis=1)
+        confidence = matrix[np.arange(len(top)), top]
+        accepted = (confidence >= threshold) & (top != noise_index)
+        family_names = ("FSK", "MFSK", "PSK")
+        family_probabilities = np.asarray([
+            matrix[:, [i for i, name in enumerate(classes) if name in FAMILY_BY_MODE and FAMILY_BY_MODE[name] == family]].sum(axis=1)
+            for family in family_names
+        ]).T
+        family_confidence = np.max(family_probabilities, axis=1)
+        family_accepted = (family_confidence >= family_threshold) & (top != noise_index)
+        return {
+            "examples": len(top),
+            "method_false_accepts": int(accepted.sum()),
+            "method_false_accept_rate": float(np.mean(accepted)),
+            "family_false_accepts": int(family_accepted.sum()),
+            "family_false_accept_rate": float(np.mean(family_accepted)),
+            "top_candidate_counts": {
+                name: int(np.sum(top == index)) for index, name in enumerate(classes)
+            },
+            "method_confidence_mean": float(np.mean(confidence)),
+            "family_confidence_mean": float(np.mean(family_confidence)),
+        }
+
+    result = summarize(probabilities)
+    if true_methods is not None:
+        if len(true_methods) != len(probabilities):
+            raise ValueError("OOD truth methods must align with probability rows")
+        result["by_true_method"] = {
+            method: summarize(probabilities[np.asarray([value == method for value in true_methods], dtype=bool)])
+            for method in sorted(set(true_methods))
+        }
+    return result
 
 
 def _include_scene_features(
@@ -500,7 +511,13 @@ def train_and_evaluate(
     ood_test_metrics = None
     if len(x_ood_test):
         ood_test_probabilities = predict_probabilities(x_ood_test, parameters)
-        ood_test_metrics = _evaluate_unmodeled(ood_test_probabilities, classes, threshold, family_threshold)
+        ood_test_metrics = _evaluate_unmodeled(
+            ood_test_probabilities,
+            classes,
+            threshold,
+            family_threshold,
+            [row["modulation_method"] for row in ood_test_rows],
+        )
     mixed_scene_evaluation = None
     mixed_scene_x, mixed_scene_names, mixed_scene_details = scene_features["test"]
     if mixed_scene_names.size:
@@ -538,7 +555,7 @@ def train_and_evaluate(
         },
         "mixed_scene_training": scene_features["train"][2],
         "mixed_scene_validation": scene_features["validation"][2],
-        "evaluation_scope": "synthetic generated modulation sources and lineage-safe mixed-scene constituent crops plus noise-only negatives; held-out ASK/OOK rejection is validated only when a separate OOD corpus is supplied; independent radio captures remain unvalidated",
+        "evaluation_scope": "synthetic generated modulation sources and lineage-safe mixed-scene constituent crops plus noise-only negatives; held-out ASK rejection across OOK and 4-ASK is evaluated only when a separate OOD corpus is supplied; independent radio captures remain unvalidated",
         "split_group_counts": {
             split: len({row["lineage_group"] for row in rows if row["split"] == split})
             for split in ("train", "validation", "test")
@@ -571,7 +588,7 @@ def train_and_evaluate(
             and ood_test_metrics["method_false_accept_rate"] == 0.0
             and ood_test_metrics["family_false_accept_rate"] == 0.0
         ),
-        "unknown_rejection_scope": "synthetic ASK/OOK held-out" if ood_test_metrics is not None else "unvalidated",
+        "unknown_rejection_scope": "synthetic ASK held-out" if ood_test_metrics is not None else "unvalidated",
         "ood_corpus_index_sha256": ood_index_digest,
         "ood_sources_fit_on": 0,
         "noise_class_validated": bool(

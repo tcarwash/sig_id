@@ -394,6 +394,105 @@ def generate_ook_wav(
     return manifest
 
 
+def generate_ask_wav(
+    output: str | Path,
+    symbols: Sequence[int],
+    *,
+    level_count: int = 4,
+    sample_rate: int = 12_000,
+    symbol_rate: int = 100,
+    carrier_hz: float = 1_500.0,
+    amplitude: float = 0.6,
+    initial_phase_radians: float = 0.0,
+) -> dict[str, object]:
+    """Generate uncoded nonnegative M-ASK with equally spaced carrier amplitudes."""
+    output = Path(output)
+    if not isinstance(symbols, Sequence) or isinstance(symbols, (str, bytes)) or not symbols:
+        raise ValueError("symbols must be a non-empty sequence of amplitude-level indices")
+    if not isinstance(level_count, int) or isinstance(level_count, bool) or not 2 <= level_count <= 16:
+        raise ValueError("level_count must be from 2 to 16")
+    if any(not isinstance(symbol, int) or isinstance(symbol, bool) or not 0 <= symbol < level_count for symbol in symbols):
+        raise ValueError("every symbol must be an integer within the amplitude level count")
+    if (
+        not isinstance(sample_rate, int)
+        or isinstance(sample_rate, bool)
+        or not isinstance(symbol_rate, int)
+        or isinstance(symbol_rate, bool)
+        or sample_rate <= 0
+        or symbol_rate <= 0
+        or sample_rate % symbol_rate
+    ):
+        raise ValueError("sample_rate must be a positive integer multiple of symbol_rate")
+    if not math.isfinite(carrier_hz) or not 0 < carrier_hz < sample_rate / 2:
+        raise ValueError("carrier_hz must be finite and between 0 and Nyquist")
+    if not (0.0 < amplitude <= 1.0) or not math.isfinite(initial_phase_radians):
+        raise ValueError("amplitude must be in (0, 1] and phase must be finite")
+
+    amplitude_levels = [amplitude * index / (level_count - 1) for index in range(level_count)]
+    samples_per_symbol = sample_rate // symbol_rate
+    phase = initial_phase_radians
+    phase_step = 2.0 * math.pi * carrier_hz / sample_rate
+    pcm = bytearray()
+    for symbol in symbols:
+        level = amplitude_levels[symbol]
+        for _ in range(samples_per_symbol):
+            value = round(math.sin(phase) * level * 32767)
+            pcm.extend(int(value).to_bytes(2, "little", signed=True))
+            phase = (phase + phase_step) % (2.0 * math.pi)
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(output), "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(sample_rate)
+        wav.writeframes(pcm)
+
+    bits_per_symbol = int(math.log2(level_count)) if level_count & (level_count - 1) == 0 else None
+    reference_bits = (
+        "".join(f"{symbol:0{bits_per_symbol}b}" for symbol in symbols)
+        if bits_per_symbol is not None else None
+    )
+    method = f"{level_count}-ary amplitude shift keying"
+    manifest: dict[str, object] = {
+        "schema_version": 1,
+        "source_kind": "synthetic",
+        "generator": "sig-id-ask",
+        "generator_version": "0.1.0",
+        "deterministic": True,
+        "waveform": output.name,
+        "sample_rate": sample_rate,
+        "sample_count": len(symbols) * samples_per_symbol,
+        "sample_width_bytes": 2,
+        "channels": 1,
+        "labels": {
+            "modulation_family": "ASK",
+            "modulation_method": method,
+            "protocol": None,
+            "variant": None,
+        },
+        "parameters": {
+            "level_count": level_count,
+            "symbol_rate": symbol_rate,
+            "carrier_hz": carrier_hz,
+            "amplitude": amplitude,
+            "amplitude_levels": amplitude_levels,
+            "symbol_mapping": {str(index): value for index, value in enumerate(amplitude_levels)},
+            "bits_per_symbol": bits_per_symbol,
+            "bit_order": "most-significant bit first" if bits_per_symbol is not None else None,
+            "initial_phase_radians": initial_phase_radians,
+            "phase_continuous_carrier": True,
+            "protocol_framing": None,
+        },
+        "reference_symbols": list(symbols),
+        "reference_bits": reference_bits,
+        "impairments": [],
+    }
+    output.with_suffix(output.suffix + ".json").write_text(
+        json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+    )
+    return manifest
+
+
 def generate_mfsk_wav(
     output: str | Path,
     symbols: Sequence[int],
@@ -612,6 +711,34 @@ def ook_main() -> None:
     manifest = generate_ook_wav(
         args.output,
         args.bits,
+        sample_rate=args.sample_rate,
+        symbol_rate=args.symbol_rate,
+        carrier_hz=args.carrier_hz,
+        amplitude=args.amplitude,
+        initial_phase_radians=args.initial_phase_radians,
+    )
+    print(json.dumps(manifest, indent=2))
+
+
+def ask_main() -> None:
+    parser = argparse.ArgumentParser(description="Generate a clean labeled generic M-ASK WAV fixture")
+    parser.add_argument("output", type=Path)
+    parser.add_argument("symbols", help="comma-separated amplitude-level indices, e.g. 0,1,3,2")
+    parser.add_argument("--level-count", type=int, default=4)
+    parser.add_argument("--sample-rate", type=int, default=12_000)
+    parser.add_argument("--symbol-rate", type=int, default=100)
+    parser.add_argument("--carrier-hz", type=float, default=1_500.0)
+    parser.add_argument("--amplitude", type=float, default=0.6)
+    parser.add_argument("--initial-phase-radians", type=float, default=0.0)
+    args = parser.parse_args()
+    try:
+        symbols = [int(item) for item in args.symbols.split(",")]
+    except ValueError as exc:
+        parser.error(f"symbols must be comma-separated integers: {exc}")
+    manifest = generate_ask_wav(
+        args.output,
+        symbols,
+        level_count=args.level_count,
         sample_rate=args.sample_rate,
         symbol_rate=args.symbol_rate,
         carrier_hz=args.carrier_hz,

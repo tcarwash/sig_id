@@ -26,7 +26,7 @@ Release ladder:
 | 1.0 full workbench | Use the Fldigi catalog, non-text outputs, integrated learning tools, and unknown-mode symbol/bit inspection | Catalog audit, supported demodulators, packaging and operational acceptance |
 
 All Fldigi receive modes remain the target. Generic unknown-mode analysis initially
-covers 2-FSK, M-FSK, OOK, BPSK, and QPSK; universal demodulation of every possible waveform
+covers 2-FSK, M-FSK, ASK/OOK, BPSK, and QPSK; universal demodulation of every possible waveform
 is not a finite release gate. Automatic protocol identification has an explicit
 validated coverage list, and may return a family or unknown for other modes.
 
@@ -294,7 +294,7 @@ automatic recognition alone does not block manual decoding coverage.
 Begin after sample/annotation contracts stabilize. Reuse waveform generation,
 replay, filtering, and exports; keep this separate from Fldigi text APIs.
 
-- Add protocol-independent 2-FSK, M-FSK, OOK, BPSK and QPSK source generators with exact
+- Add protocol-independent 2-FSK, M-FSK, ASK/OOK, BPSK and QPSK source generators with exact
   symbol/bit references. Deterministic fixtures and importer/demodulator coverage
   exist for all four; add impairment and rate diversity.
 - Implement or integrate demodulators with frequency/timing recovery and explicit

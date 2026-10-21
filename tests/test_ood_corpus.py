@@ -18,6 +18,9 @@ def test_ood_corpus_is_deterministic_resumable_and_varies_signal_parameters(tmp_
     assert len({record["waveform_sha256"] for record in first["records"]}) == 5
     assert len({record["symbol_rate"] for record in first["records"]}) > 1
     assert len({record["carrier_hz"] for record in first["records"]}) > 1
+    assert {record["modulation_method"] for record in first["records"]} == {
+        "on-off keying (OOK)", "4-ary amplitude shift keying"
+    }
 
     for record in first["records"]:
         wav_path = corpus_dir / record["waveform"]

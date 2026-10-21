@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from sigid.dataset import CaptureStore
-from sigid.synthetic import generate_2fsk_wav, generate_bpsk_wav, generate_mfsk_wav, generate_ook_wav, generate_qpsk_wav
+from sigid.synthetic import generate_2fsk_wav, generate_ask_wav, generate_bpsk_wav, generate_mfsk_wav, generate_ook_wav, generate_qpsk_wav
 from sigid.synthetic_dataset import import_synthetic_wav, main as import_synthetic_main
 
 
@@ -17,6 +17,7 @@ from sigid.synthetic_dataset import import_synthetic_wav, main as import_synthet
         (generate_bpsk_wav, {"bits": "001101"}, "PSK", "binary phase-shift keying", "reference_bits", "001101"),
         (generate_qpsk_wav, {"bits": "001101"}, "PSK", "quadrature phase-shift keying", "reference_bits", "001101"),
         (generate_ook_wav, {"bits": "001101"}, "ASK", "on-off keying (OOK)", "reference_bits", "001101"),
+        (generate_ask_wav, {"symbols": [0, 1, 2, 3], "level_count": 4}, "ASK", "4-ary amplitude shift keying", "reference_symbols", [0, 1, 2, 3]),
         (generate_mfsk_wav, {"symbols": [0, 3, 2, 1], "tone_count": 4}, "MFSK", "4-ary frequency shift keying", "reference_symbols", [0, 3, 2, 1]),
     ],
 )

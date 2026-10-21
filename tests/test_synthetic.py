@@ -5,7 +5,7 @@ import wave
 
 import pytest
 
-from sigid.synthetic import bpsk_main, generate_2fsk_wav, generate_bpsk_wav, generate_mfsk_wav, generate_ook_wav, generate_qpsk_wav, mfsk_main, ook_main, qpsk_main
+from sigid.synthetic import ask_main, bpsk_main, generate_2fsk_wav, generate_ask_wav, generate_bpsk_wav, generate_mfsk_wav, generate_ook_wav, generate_qpsk_wav, mfsk_main, ook_main, qpsk_main
 from sigid.wav import WavSource
 
 
@@ -242,6 +242,51 @@ def test_ook_generator_and_cli_preserve_exact_bits_and_ask_label(tmp_path, monke
 def test_ook_generator_rejects_invalid_parameters(tmp_path, kwargs):
     with pytest.raises(ValueError):
         generate_ook_wav(tmp_path / "invalid-ook.wav", "101", **kwargs)
+
+
+def test_4ask_generator_preserves_level_symbols_bits_and_cli(tmp_path, monkeypatch, capsys):
+    import numpy as np
+
+    symbols = [0, 1, 2, 3] * 4
+    path = tmp_path / "ask4.wav"
+    manifest = generate_ask_wav(
+        path,
+        symbols,
+        level_count=4,
+        sample_rate=12000,
+        symbol_rate=100,
+        carrier_hz=1500,
+        initial_phase_radians=0.4,
+    )
+    assert json.loads(path.with_suffix(".wav.json").read_text()) == manifest
+    assert manifest["labels"]["modulation_family"] == "ASK"
+    assert manifest["labels"]["modulation_method"] == "4-ary amplitude shift keying"
+    assert manifest["reference_symbols"] == symbols
+    assert manifest["reference_bits"] == "".join(f"{symbol:02b}" for symbol in symbols)
+    assert manifest["parameters"]["amplitude_levels"] == pytest.approx([0.0, 0.2, 0.4, 0.6])
+    with wave.open(str(path), "rb") as wav:
+        samples = np.frombuffer(wav.readframes(wav.getnframes()), dtype="<i2").astype(float) / 32768
+    measured = [
+        float(np.sqrt(np.mean(samples[index * 120 : (index + 1) * 120] ** 2)))
+        for index in range(4)
+    ]
+    assert measured == pytest.approx([0.0, 0.2 / np.sqrt(2), 0.4 / np.sqrt(2), 0.6 / np.sqrt(2)], abs=0.002)
+
+    cli_path = tmp_path / "cli-ask.wav"
+    monkeypatch.setattr("sys.argv", ["sig-id-generate-ask", str(cli_path), "0,2,1,3"])
+    ask_main()
+    cli_manifest = json.loads(capsys.readouterr().out)
+    assert cli_manifest["reference_bits"] == "00100111"
+    assert cli_manifest["labels"]["modulation_family"] == "ASK"
+
+
+@pytest.mark.parametrize(
+    ("symbols", "kwargs"),
+    [([], {}), ([0, 4], {"level_count": 4}), ([0, 1], {"level_count": 1}), ([0, 1], {"sample_rate": 8000, "symbol_rate": 300})],
+)
+def test_ask_generator_rejects_invalid_inputs(tmp_path, symbols, kwargs):
+    with pytest.raises(ValueError):
+        generate_ask_wav(tmp_path / "invalid-ask.wav", symbols, **kwargs)
 
 
 @pytest.mark.parametrize(
