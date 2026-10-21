@@ -1,6 +1,6 @@
 # Next checkpoint
 
-Status: planning complete; application implementation has not started.
+Status: milestone 0 adapter foundation in progress; audio routing is not yet proven.
 
 ## Agreed scope
 
@@ -13,11 +13,15 @@ Status: planning complete; application implementation has not started.
 
 ## Next action
 
-Begin milestone 0 in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md): scaffold the
-minimum project and prove isolated Fldigi waveform generation, audio input, decoded
-output, state reset and replay behavior. Audit actual backend/tool availability.
+Continue milestone 0 in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md): resolve
+why an isolated Fldigi process does not open its XML-RPC listener, then prove audio
+input, offline waveform generation, decoded output, reset and replay. The Python
+client, catalog capability record and unit tests are in place.
 
 ## Evidence boundary
 
-Only design and planning documents exist. No code, test fixtures, model, integration
-proof, runtime benchmark or hardware/RF validation has been produced.
+Verified: Fldigi 4.2.13 and its XML-RPC method catalog are installed; receive-only
+client unit tests pass. An isolated process stayed alive but did not open the
+configured XML-RPC port, so no live catalog or audio integration is claimed yet.
+No application UI, audio loopback proof, generated waveform fixture, model, or
+hardware/RF validation exists. See commit log for the staged changes.

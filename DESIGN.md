@@ -137,6 +137,19 @@ uncertainty/disagreement to prioritize later review. Report per-mode precision a
 recall, unknown rejection, false detections per hour, identification latency, and
 decode success; classifier accuracy alone is insufficient.
 
+The Signal Identification Wiki can seed a curated reference index and source
+examples: its guide provides descriptions, sample sounds and waterfall images,
+while its database separates entries marked identified from unidentified examples.
+These are recorded reference signals, not generated synthetic signals. Store each
+entry's URL, retrieval date, field-level source, original asset reference and
+rights/attribution status. Preserve source terminology and distinguish
+community-reported modulation/protocol from independently verified labels. Missing
+or uncertain fields stay unknown. Do not automatically promote a wiki's named
+protocol to gold truth, redistribute its media, or use it for training until the
+asset's reuse terms are established. Curated audio may later provide an independent
+real-recording evaluation set; synthetic impairments derived from it keep lineage
+to that recording and remain in its dataset split.
+
 ## Synthetic dataset generation
 
 Make a reproducible offline corpus generator part of the workbench. Its pipeline is:

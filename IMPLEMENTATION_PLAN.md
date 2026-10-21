@@ -184,12 +184,20 @@ Learning track:
 - Version model weights, taxonomy, preprocessing and split manifests together.
   Load a model into the app, propose candidates, and support rollback to the
   previous model. An inference failure must leave capture/manual decode working.
+- Add a curated Signal Identification Wiki reference importer/catalog after
+  checking the terms for each retained media asset. Keep source-reported labels,
+  independently reviewed labels, and unknown entries distinct. Record page URL,
+  retrieval date, fields/assets sourced, attribution and rights status. Treat these
+  as real reference recordings, not synthetic ground truth; use them in training or
+  evaluation only when rights and labels permit, with lineage-preserving splits.
 
 Acceptance: one documented command creates a small corpus, another trains and
 evaluates the baseline, and the exported artifact runs in the application. The
 same generated source cannot appear across splits. A held-out protocol produces
 a family hypothesis or abstention rather than forced identification as a familiar
 protocol. Review approval does not silently overwrite the original prediction.
+Curated external examples cannot become trusted labels without an explicit review
+record; media with unresolved reuse terms remains link-only reference metadata.
 
 ## Milestone 4: full Fldigi coverage
 
