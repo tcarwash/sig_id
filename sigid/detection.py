@@ -92,9 +92,22 @@ def detect_tracks(
             continue
         weights = np.power(10.0, np.asarray([peak["snr_db"] for peak in cluster]) / 10.0)
         center_hz = float(np.average([peak["frequency_hz"] for peak in cluster], weights=weights))
+        row_centers = []
+        for row_index in sorted(active_rows):
+            row_peaks = [peak for peak in cluster if int(peak["row"]) == row_index]
+            row_weights = np.power(10.0, np.asarray([peak["snr_db"] for peak in row_peaks]) / 10.0)
+            row_centers.append((
+                (int(sample_starts[row_index]) + fft_size / 2) / sample_rate,
+                float(np.average([peak["frequency_hz"] for peak in row_peaks], weights=row_weights)),
+            ))
+        drift_hz_per_second = (
+            float(np.polyfit([item[0] for item in row_centers], [item[1] for item in row_centers], 1)[0])
+            if len(row_centers) >= 2 else 0.0
+        )
         tones.append(
             {
                 "center_hz": center_hz,
+                "drift_hz_per_second": drift_hz_per_second,
                 "first_row": first_row,
                 "last_row": last_row,
                 "active_rows": active_rows,
@@ -137,6 +150,7 @@ def detect_tracks(
                 "frequency_high_hz": min(sample_rate / 2, centers[-1] + bin_hz / 2),
                 "center_hz": float(np.median(centers)),
                 "bandwidth_hz": max(bin_hz, centers[-1] - centers[0] + bin_hz),
+                "drift_hz_per_second": float(np.median([tone["drift_hz_per_second"] for tone in group])),
                 "peak_snr_db": float(np.mean([tone["peak_snr_db"] for tone in group])),
                 "occupancy": occupancy,
                 "active_rows": len(rows_in_group),

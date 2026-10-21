@@ -48,6 +48,24 @@ def test_detector_reports_provisional_fsk_and_mfsk_tone_evidence(tmp_path):
     assert fsk_result[0]["modulation_hypothesis"] == "FSK-like"
     assert fsk_result[0]["tone_count_candidate"] == 2
     assert fsk_result[0]["tone_centers_hz"] == pytest.approx([1000, 1500], abs=1)
+    assert fsk_result[0]["drift_hz_per_second"] == pytest.approx(0.0, abs=1.0)
+
+
+def test_detector_estimates_linear_carrier_drift(tmp_path):
+    sample_rate = 8000
+    time_s = np.arange(16_000) / sample_rate
+    phase = 2 * np.pi * (900 * time_s + 0.5 * 25 * time_s**2)
+    pcm = np.rint(0.8 * np.sin(phase) * 32767).astype("<i2")
+    path = tmp_path / "drifting-carrier.wav"
+    with wave.open(str(path), "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(sample_rate)
+        wav.writeframes(pcm.tobytes())
+
+    candidates = detect_tracks(waterfall(path, fft_size=512, hop_size=128, max_rows=2048))
+    assert len(candidates) == 1
+    assert candidates[0]["drift_hz_per_second"] == pytest.approx(25.0, abs=8.0)
 
 
 def test_detector_rejects_quiet_noise_as_a_signal(tmp_path):

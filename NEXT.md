@@ -72,6 +72,8 @@ validation remain open.
 - Live candidate IDs persist across rolling analyses, tolerate limited center-frequency
   drift, and expire after five seconds without a detection. Three observations mark a
   candidate persistent; this is spectral continuity evidence, not mode confirmation.
+  The spectral detector now estimates within-window linear carrier drift and shows the
+  rate with candidate frequency, timing, tone-count and SNR evidence.
 - Receive-only Fldigi API/UI: connection status, catalog list, manual mode selection
   and incremental decoded-text polling. Transmit, rig and macro calls are not exposed.
 - Isolated end-to-end Fldigi loopbacks now recover the exact test payload through the

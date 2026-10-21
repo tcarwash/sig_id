@@ -639,6 +639,7 @@ function renderTracks() {
       row.className = "track-row";
       const summary = document.createElement("div");
       summary.className = "track-summary";
+      const drift = Number.isFinite(track.drift_hz_per_second) ? track.drift_hz_per_second : 0;
       const identity = track.track_id ? `${track.track_id.split(":").at(-1)} · ${track.track_state}` : "single analysis";
       const proposal = track.model_proposal;
       const modelLabel = proposal?.available
@@ -651,7 +652,7 @@ function renderTracks() {
       summary.textContent = `${identity} · ${track.modulation_hypothesis} · ${track.tone_count_candidate} tone centers${modelLabel}`;
       const detail = document.createElement("div");
       detail.className = "region-detail";
-      detail.textContent = `${track.frequency_low_hz.toFixed(0)}–${track.frequency_high_hz.toFixed(0)} Hz · ${track.time_start_seconds.toFixed(2)}–${track.time_end_seconds.toFixed(2)} s · ${track.peak_snr_db.toFixed(1)} dB peak SNR`;
+      detail.textContent = `${track.frequency_low_hz.toFixed(0)}–${track.frequency_high_hz.toFixed(0)} Hz · ${track.time_start_seconds.toFixed(2)}–${track.time_end_seconds.toFixed(2)} s · ${track.peak_snr_db.toFixed(1)} dB peak SNR · drift ${drift >= 0 ? "+" : ""}${drift.toFixed(1)} Hz/s`;
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = "Review region";
