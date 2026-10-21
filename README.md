@@ -240,9 +240,28 @@ file before starting `sig-id-serve`. Proposals never save labels automatically.
 The model uses zero-false-accept validation constraints for noise and supplied ASK
 negatives, and reports held-out rates separately. If the constraints and known-mode
 precision target cannot both be met, it abstains on every example; small corpora can
-therefore yield zero useful coverage. ASK calibration and testing validate only these
-synthetic recipes; real-radio performance and other unknown modes remain
-unvalidated.
+therefore yield zero useful coverage. The current reproducible mixed ASK experiment,
+including corpus, split, model and waveform hashes, is saved in
+[`reports/ask-ood-benchmark-2026-10-21.json`](reports/ask-ood-benchmark-2026-10-21.json).
+Its method threshold accepted only 9/26 known test examples (100% accuracy among
+accepted), while its family threshold rejected every family proposal. The held-out ASK
+test had 0/12 method and family false accepts. This is one synthetic split only; other
+unknown modes and radio performance remain unvalidated.
+
+To reproduce that report in a fresh workspace, run the following commands (the
+generated corpus, database and model are written under `/tmp`):
+
+```sh
+export SIG_ID_DATA_DIR=/tmp/sig-id-ask-benchmark-data
+sig-id-build-corpus --output-dir /tmp/sig-id-ask-benchmark/known --data-dir "$SIG_ID_DATA_DIR" \
+  --examples-per-mode 12 --snr-db 10 --seed 20261021
+sig-id-split-corpus --corpus /tmp/sig-id-ask-benchmark/known/corpus.json \
+  --data-dir "$SIG_ID_DATA_DIR" --output /tmp/sig-id-ask-benchmark/known/splits.json --seed 27
+sig-id-build-ood-corpus --output-dir /tmp/sig-id-ask-benchmark/ask --examples 30 --seed 1717
+sig-id-train-method-model --split /tmp/sig-id-ask-benchmark/known/splits.json \
+  --data-dir "$SIG_ID_DATA_DIR" --ood-corpus /tmp/sig-id-ask-benchmark/ask/ood-corpus.json \
+  --output-model /tmp/sig-id-ask-benchmark/model/method.npz --epochs 1200
+```
 
 Build independent synthetic OOK and 4-ASK sources with varied payload, baud rate,
 carrier, amplitude and phase. This ASK corpus is separate from the six-class training index and is

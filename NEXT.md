@@ -161,12 +161,14 @@ validation remain open.
 
 ## Next action
 
-Next, retain a reproducible multi-ASK calibration/evaluation report, add a second
-unknown modulation family, and calibrate live model proposals on held-out mixed scenes.
-An end-to-end experiment with 12 known source groups per mode and 30 separate ASK sources
-(15 OOK and 15 4-ASK) produced 0/12 method and family false accepts on the ASK test set.
-Known-mode test coverage was 34.6% with 100% accuracy among accepted examples. This is
-one synthetic split only, not general unknown-mode or RF performance. An opt-in
+The reproducible multi-ASK calibration/evaluation report is saved at
+`reports/ask-ood-benchmark-2026-10-21.json`, with generation and training commands in
+README. An end-to-end experiment with 12 known source groups per mode and 30 separate
+ASK sources (15 OOK and 15 4-ASK) produced 0/12 method and family false accepts on the
+ASK test set. Known-mode method coverage was 34.6% with 100% accuracy among accepted
+examples; family calibration rejected every proposal. This is one synthetic split only,
+not general unknown-mode or RF performance. Next add a second unknown modulation family
+and calibrate live model proposals on held-out mixed scenes. An opt-in
 automatic trial now requires a persistent track and an accepted
 method proposal, while abstentions never trigger mode changes. Keep it opt-in until
 unseen-family and real-capture validation establish useful operating limits. The
@@ -185,7 +187,7 @@ Verified: Fldigi 4.2.13 and its XML-RPC method catalog are installed; unit tests
 cover receive-only client semantics, PCM WAV block indexing/normalization and
 synthetic 2-FSK/MFSK metadata, exact symbols/bits and tone frequencies, SQLite
 capture hashes/regions/label history, JSONL export, spectrogram peak detection, upload/region APIs, and Fldigi
-status/catalog/mode/output APIs, WEFAX product import and image delivery. Current full suite: 109 passed, 5 skipped;
+status/catalog/mode/output APIs, WEFAX product import and image delivery. Current full suite: 152 passed, 7 skipped;
 the opt-in isolated selection audit checks all 169 entries (165 selectable, four unresolved),
 and `node --test tests/test_waterfall_window.mjs`, module syntax validation, headless
 Chromium loading, and `git diff --check` pass. The generic text-backend
