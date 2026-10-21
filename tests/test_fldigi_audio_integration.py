@@ -1,4 +1,4 @@
-"""RF-free, end-to-end Fldigi audio loopback test.
+"""RF-free, end-to-end Fldigi audio loopback tests for PSK, RTTY and THOR.
 
 Run explicitly with SIGID_TEST_FLDIGI_AUDIO=1. It needs fldigi, xvfb-run,
 pactl, a configured ~/.fldigi profile, and a working PulseAudio/PipeWire server.
@@ -137,7 +137,8 @@ def _stop_process(process: subprocess.Popen[bytes]) -> None:
         process.wait(timeout=2)
 
 
-def test_bpsk31_payload_reaches_workbench_api_through_virtual_audio(tmp_path, socket_enabled):
+@pytest.mark.parametrize("mode", ["BPSK31", "RTTY", "THOR16"])
+def test_fldigi_payload_reaches_workbench_api_through_virtual_audio(tmp_path, socket_enabled, mode):
     for executable in ("fldigi", "xvfb-run", "pactl"):
         if shutil.which(executable) is None:
             pytest.skip(f"{executable} is required for the Fldigi audio integration test")
@@ -176,13 +177,13 @@ def test_bpsk31_payload_reaches_workbench_api_through_virtual_audio(tmp_path, so
                 assert status["connected"] is True
                 assert status["mode_count"] > 100
                 modes = (await client.get("/api/fldigi/modes")).json()
-                assert "BPSK31" in modes
-                assert (await client.post("/api/fldigi/mode", json={"name": "BPSK31"})).status_code == 200
+                assert mode in modes
+                assert (await client.post("/api/fldigi/mode", json={"name": mode})).status_code == 200
 
                 def generate_rf_free_audio() -> None:
                     receiver_rpc.text.clear_rx()
                     sender_rpc.text.clear_tx()
-                    sender.select_modem("BPSK31")
+                    sender.select_modem(mode)
                     sender_rpc.modem.set_carrier(1000)
                     receiver_rpc.modem.set_carrier(1000)
                     sender_rpc.text.add_tx(payload)
@@ -190,7 +191,7 @@ def test_bpsk31_payload_reaches_workbench_api_through_virtual_audio(tmp_path, so
 
                 await asyncio.to_thread(generate_rf_free_audio)
 
-                deadline = time.monotonic() + 35
+                deadline = time.monotonic() + 75
                 while time.monotonic() < deadline:
                     output = await client.get(
                         "/api/fldigi/output", params={"start": 0, "limit": 65536}
@@ -199,7 +200,7 @@ def test_bpsk31_payload_reaches_workbench_api_through_virtual_audio(tmp_path, so
                     if payload in output.json()["text"]:
                         return
                     await asyncio.sleep(0.25)
-                pytest.fail("full known BPSK31 payload did not appear through the workbench API")
+                pytest.fail(f"full known {mode} payload did not appear through the workbench API")
 
         asyncio.run(verify_workbench_decode())
     finally:

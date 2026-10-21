@@ -1,10 +1,10 @@
 # Next checkpoint
 
 Status: local WAV upload/replay workbench, spectrogram, manual region labels,
-sample-indexed replay, live audio capture, 2-FSK fixtures and SQLite dataset index
+sample-indexed replay, live audio capture, FSK fixtures and SQLite dataset index
 are implemented. Receive-only Fldigi catalog selection and decoded-text display are
-implemented. A synthetic BPSK31 audio loopback has passed through Fldigi into the
-workbench API; radio-input routing and independent-signal validation remain open.
+implemented. Isolated BPSK31, RTTY and THOR16 audio loopbacks pass through Fldigi into
+the workbench API; radio-input routing and independent-signal validation remain open.
 
 ## Agreed scope
 
@@ -59,11 +59,13 @@ exercise WAV writing, capture indexing, API start/status/stop and waterfall acce
 An isolated live Fldigi 4.2.13 process served the API with the documented receive-only
 allow-list: 169 modes, THOR16 selection, and receive-buffer queries all worked. A
 separate, opt-in integration test passes: it creates two copied profiles with all
-rig/PTT paths disabled, routes BPSK31 transmit audio through a temporary PulseAudio
-null sink, and verifies the complete payload arrives through the workbench API. Run it with
+rig/PTT paths disabled, routes BPSK31, RTTY and THOR16 transmit audio through a
+temporary PulseAudio null sink, and verifies each complete payload arrives through
+the workbench API. Run it with
 `SIGID_TEST_FLDIGI_AUDIO=1 pytest tests/test_fldigi_audio_integration.py`. This is a
 software loopback, not an independent modem or RF test. A fresh blank profile did
 not expose XML-RPC until initialized. WAV replay is sample-indexed and synthetic
 FSK/MFSK files carry modulation labels while leaving protocol unknown. Live hardware
 capture, radio audio routing, trained identification model, and RF validation remain
-unverified. Current heuristic candidates have synthetic fixture evidence only.
+unverified. Current heuristic candidates have synthetic fixture evidence only. The
+tested Fldigi modes are a three-family sample, not full-catalog validation.

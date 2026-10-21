@@ -2,7 +2,8 @@
 
 Status: implementation in progress. WAV replay, live capture, the manual dataset
 workflow, and the first provisional spectral candidate pass are implemented. Fldigi's
-receive-only UI/API is connected; see [NEXT.md](NEXT.md) for verified gates. Automatic
+receive-only UI/API is connected, with isolated audio-loopback evidence for BPSK31,
+RTTY and THOR16; see [NEXT.md](NEXT.md) for verified gates. Automatic
 protocol identification, model training and RF validation remain open. A BPSK31
 software audio loopback decodes through Fldigi; routing a real radio input remains open.
 
@@ -65,9 +66,10 @@ Timebox the first investigation to 1-2 focused implementation days, then decide.
    a machine-readable capability registry with stable internal IDs, backend names,
    configurable variants, output types, and validation status. Parameterized modes
    need explicit variant records, not just the returned modem name.
-2. Launch an isolated Fldigi instance, select PSK31, route a known WAV into its
-   input, retrieve text, stop/reset it, and repeat with different payloads.
-3. Repeat for an RTTY configuration and THOR16. Measure startup/interleaver delay,
+2. Launch isolated Fldigi instances, select a mode, generate a known payload into its
+   input and retrieve text. BPSK31, RTTY and THOR16 now pass this audio loopback gate;
+   continue with additional families and independent fixtures.
+3. Repeat across remaining representative Fldigi families. Measure startup/interleaver delay,
    input pacing, stale-output clearing, tune/selection behavior, and output latency.
 4. Capture offline generated audio for a known payload; decode it again. Store the
    clean waveform and manifest. Prove that no radio audio output is involved.

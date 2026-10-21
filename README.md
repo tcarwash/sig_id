@@ -12,9 +12,9 @@ time/frequency selection and label export; blockwise PCM replay; deterministic
 capture/label dataset; and a receive-only Fldigi XML-RPC probe. Local device capture
 and the Fldigi path from audio input to recovered text are represented in the
 workbench: when a running Fldigi XML-RPC service is available, users can select a catalog mode and view its
-receive-text output. A synthetic BPSK31 loopback has decoded end to end through a
-temporary virtual audio sink. Routing actual radio input to Fldigi remains an
-external setup and is not yet validated.
+receive-text output. RF-free loopback tests decode BPSK31, RTTY and THOR16 payloads
+through temporary virtual audio into the workbench API. Routing actual radio input
+to Fldigi remains an external setup and is not yet validated.
 
 ## Development
 
@@ -28,9 +28,9 @@ pytest
 sig-id-serve
 ```
 
-The opt-in, RF-free Fldigi audio loopback test uses isolated profiles and a temporary
-PulseAudio/PipeWire null sink. It requires a configured `~/.fldigi`, `xvfb-run`, and
-`pactl`:
+The opt-in, RF-free Fldigi audio loopback tests exercise BPSK31, RTTY and THOR16 using
+isolated profiles and a temporary PulseAudio/PipeWire null sink. They require a
+configured `~/.fldigi`, `xvfb-run`, and `pactl`:
 
 ```sh
 SIGID_TEST_FLDIGI_AUDIO=1 pytest tests/test_fldigi_audio_integration.py
