@@ -12,7 +12,7 @@ from .fldigi import FldigiClient, ModeCapability
 def probe(url: str) -> dict[str, object]:
     client = FldigiClient(url)
     version = client.version()
-    modes = [ModeCapability(name, selectable=True) for name in client.modem_names()]
+    modes = [ModeCapability(name, catalog_present=True) for name in client.modem_names()]
     return {
         "backend": asdict(version),
         "current_mode": client.current_modem(),

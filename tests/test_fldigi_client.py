@@ -49,13 +49,16 @@ def test_probe_marks_catalog_presence_as_pending_validation(client, monkeypatch)
     result = probe("unused")
     assert result["catalog_count"] == 3
     thor = next(mode for mode in result["modes"] if mode["backend_name"] == "THOR16")
-    assert thor["selectable"] is True
+    assert thor["catalog_present"] is True
+    assert thor["selectable"] is False
     assert thor["decode_validated"] is False
     assert thor["generation_validated"] is False
 
 
 def test_mode_capability_defaults_never_overclaim_support():
-    mode = ModeCapability("MFSK16", selectable=True)
+    mode = ModeCapability("MFSK16", catalog_present=True)
+    assert not mode.selectable
+    assert mode.catalog_present is True
     assert not mode.audio_routed
     assert not mode.decode_validated
     assert not mode.output_handled

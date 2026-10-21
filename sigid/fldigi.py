@@ -77,7 +77,8 @@ class ModeCapability:
     """Evidence for a mode. Catalog presence alone never means supported."""
 
     backend_name: str
-    selectable: bool
+    catalog_present: bool = False
+    selectable: bool = False
     audio_routed: bool = False
     decode_validated: bool = False
     output_handled: bool = False
