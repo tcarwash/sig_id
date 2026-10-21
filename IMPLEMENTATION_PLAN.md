@@ -235,8 +235,11 @@ Learning track:
   calibrated nearest-modulation-centroid novelty gate; v1 artifacts remain loadable.
   On one synthetic ASK/PPM split it rejected 12/12 unknowns while retaining 84.6%
   known test coverage at 86.4% accepted accuracy. No-threshold cases still abstain on
-  every method. App inference is opt-in through `SIG_ID_MODEL_PATH`; additional seeds,
-  impaired captures, unseen families and real-radio evaluation remain open.
+  every method. A five-seed runner now summarizes unique lineage assignments and found
+  zero method/family false accepts across these synthetic OOD tests, with mean known
+  coverage 64.6% and accepted accuracy 79.8%. App inference is opt-in through
+  `SIG_ID_MODEL_PATH`; stronger impairment, unseen-family breadth and real-radio
+  evaluation remain open.
 - Keep protocol heads limited to supported classes; calibrate candidate/rejection
   thresholds on held-out validation data, then freeze before test evaluation.
 - Hold entire protocols out and test whether their families are still recognized.

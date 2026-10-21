@@ -17,9 +17,13 @@ def test_split_manifest_keeps_clean_sources_and_awgn_siblings_together(tmp_path)
     data = tmp_path / "data"
     build_corpus(output, data, examples_per_mode=3, snr_levels_db=[10], seed=202)
     store = CaptureStore(data / "dataset.sqlite3")
-    split = create_split_manifest(output / "corpus.json", store, seed=7)
-    split_again = create_split_manifest(output / "corpus.json", store, seed=7)
+    split = create_split_manifest(output / "corpus.json", store, seed=7, assignment_version=2)
+    split_again = create_split_manifest(output / "corpus.json", store, seed=7, assignment_version=2)
+    split_other_seed = create_split_manifest(output / "corpus.json", store, seed=8, assignment_version=2)
     assert split == split_again
+    assignments = {record["sha256"]: record["split"] for record in split["records"]}
+    other_assignments = {record["sha256"]: record["split"] for record in split_other_seed["records"]}
+    assert assignments != other_assignments
     assert split["counts"]["train"]["source_groups"] > 0
     assert split["counts"]["validation"]["source_groups"] > 0
     assert split["counts"]["test"]["source_groups"] > 0

@@ -65,6 +65,7 @@ def _scene_aware_assignments(
     capture_groups: dict[str, str],
     *,
     seed: int,
+    assignment_version: int,
     fractions: tuple[float, float, float],
 ) -> tuple[dict[str, str], list[dict[str, Any]], list[dict[str, Any]], dict[str, int]]:
     """Keep every set of source lineages used by a scene in one split."""
@@ -137,11 +138,24 @@ def _scene_aware_assignments(
     rng = random.Random(seed)
     ordered = list(clusters)
     rng.shuffle(ordered)
+    seed_priority = {root: rng.random() for root in ordered} if assignment_version == 2 else {}
     rarity = {
         root: sum(1 / sum(mode in modes for modes in cluster_modes.values()) for mode in cluster_modes[root])
         for root in ordered
     }
-    ordered.sort(key=lambda root: (-len(cluster_modes[root]), -rarity[root], group_hashes[min(clusters[root], key=lambda g: group_hashes[g])]))
+    if assignment_version == 1:
+        ordered.sort(key=lambda root: (
+            -len(cluster_modes[root]),
+            -rarity[root],
+            group_hashes[min(clusters[root], key=lambda g: group_hashes[g])],
+        ))
+    else:
+        ordered.sort(key=lambda root: (
+            -len(cluster_modes[root]),
+            -rarity[root],
+            seed_priority[root],
+            group_hashes[min(clusters[root], key=lambda g: group_hashes[g])],
+        ))
     scene_cluster_roots = {
         find(group)
         for dependency in dependencies
@@ -191,6 +205,7 @@ def create_split_manifest(
     *,
     seed: int = 20261021,
     fractions: tuple[float, float, float] = (0.7, 0.15, 0.15),
+    assignment_version: int = 1,
 ) -> dict[str, Any]:
     """Validate a corpus against the dataset and split whole source lineages."""
     corpus_path = Path(corpus_path).expanduser().resolve(strict=True)
@@ -203,6 +218,8 @@ def create_split_manifest(
         raise ValueError("corpus record count does not match its index")
     if not isinstance(seed, int) or isinstance(seed, bool) or not 0 <= seed <= 2**32 - 1:
         raise ValueError("seed must be an unsigned 32-bit integer")
+    if assignment_version not in (1, 2):
+        raise ValueError("assignment_version must be 1 or 2")
     if len(fractions) != 3 or any(not 0 < fraction < 1 for fraction in fractions) or abs(sum(fractions) - 1.0) > 1e-9:
         raise ValueError("split fractions must be three positive values summing to 1")
 
@@ -309,6 +326,7 @@ def create_split_manifest(
         mixed_scenes,
         capture_groups,
         seed=seed,
+        assignment_version=assignment_version,
         fractions=fractions,
     )
     split_names = ("train", "validation", "test")
@@ -339,6 +357,7 @@ def create_split_manifest(
     return {
         "schema_version": 1,
         "generator": "sig-id-split-corpus",
+        **({"assignment_version": assignment_version} if assignment_version != 1 else {}),
         "seed": seed,
         "fractions": {"train": fractions[0], "validation": fractions[1], "test": fractions[2]},
         "source_corpus": corpus_path.name,
@@ -358,6 +377,7 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--data-dir", type=Path, default=Path(os.environ.get("SIG_ID_DATA_DIR", "~/.local/share/sig-id")).expanduser())
     parser.add_argument("--seed", type=int, default=20261021)
+    parser.add_argument("--assignment-version", type=int, choices=(1, 2), default=1)
     parser.add_argument("--train", type=float, default=0.7)
     parser.add_argument("--validation", type=float, default=0.15)
     parser.add_argument("--test", type=float, default=0.15)
@@ -368,6 +388,7 @@ def main() -> None:
             CaptureStore(args.data_dir / "dataset.sqlite3"),
             seed=args.seed,
             fractions=(args.train, args.validation, args.test),
+            assignment_version=args.assignment_version,
         )
         _atomic_json(args.output, result)
     except (OSError, ValueError, json.JSONDecodeError) as exc:

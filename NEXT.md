@@ -85,6 +85,13 @@ validation remain open.
   trainer calibrates a nearest-centroid RMS distance gate on known validation sources
   against noise and separate unknown-family validation sources. The workbench reports
   the distance and gate decision with each proposal; legacy v1 artifacts still load.
+- `sig-id-evaluate-split-seeds` repeats training across lineage-safe partitions and
+  summarizes unique assignments only. Split assignment v2 makes seed variation affect
+  group order; v1 remains the default for historical replay. Five independent ASK/PPM
+  evaluations averaged 64.6% known test coverage and 79.8% accepted accuracy, with zero
+  method/family false accepts on each 12-source OOD test. Accepted accuracy ranged from
+  58.8% to 93.8%, so the earlier single-split result was optimistic. See
+  `reports/multiseed-ask-ppm-2026-10-21.json`.
 - Bounded Signal Identification Wiki metadata importer covers identified and
   unidentified page categories. It stores revision, source-reported fields, media links
   and retrieval time, while leaving source labels unreviewed and media link-only pending
@@ -181,8 +188,8 @@ also rejected all known examples. The envelope/prototype v2 result is recorded a
 `reports/ask-ppm-novelty-benchmark-2026-10-21.json`: on the same split it retained 84.6%
 known test coverage with 86.4% accepted accuracy and had 0/12 ASK/PPM false accepts.
 This is synthetic-only evidence, not general unknown-mode or RF performance. Next test
-multiple seeds, stronger channel impairments and held-out mixed scenes before using the
-novelty threshold for routine live proposals. An opt-in
+stronger channel impairments and held-out mixed scenes before using the novelty threshold
+for routine live proposals. An opt-in
 automatic trial now requires a persistent track and an accepted
 method proposal, while abstentions never trigger mode changes. Keep it opt-in until
 unseen-family and real-capture validation establish useful operating limits. The
@@ -201,7 +208,7 @@ Verified: Fldigi 4.2.13 and its XML-RPC method catalog are installed; unit tests
 cover receive-only client semantics, PCM WAV block indexing/normalization and
 synthetic 2-FSK/MFSK metadata, exact symbols/bits and tone frequencies, SQLite
 capture hashes/regions/label history, JSONL export, spectrogram peak detection, upload/region APIs, and Fldigi
-status/catalog/mode/output APIs, WEFAX product import and image delivery. Current full suite: 164 passed, 7 skipped;
+status/catalog/mode/output APIs, WEFAX product import and image delivery. Current full suite: 169 passed, 7 skipped;
 the opt-in isolated selection audit checks all 169 entries (165 selectable, four unresolved),
 and `node --test tests/test_waterfall_window.mjs`, module syntax validation, headless
 Chromium loading, and `git diff --check` pass. The generic text-backend

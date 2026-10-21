@@ -286,6 +286,28 @@ On this split it retains 84.6% known test coverage at 86.4% accepted accuracy, w
 rejecting 12/12 held-out OOK, 4-ASK and PPM sources. These are synthetic recipe results;
 independent recordings and radio captures remain untested.
 
+To measure split-seed sensitivity, use the lineage-safe multi-seed runner. It creates
+one model per distinct source-group assignment and excludes duplicate assignments from
+aggregate statistics:
+
+```sh
+sig-id-build-corpus --output-dir /tmp/sig-id-multiseed/known --data-dir "$SIG_ID_DATA_DIR" \
+  --examples-per-mode 12 --snr-db 10 --seed 20261021
+sig-id-build-ood-corpus --output-dir /tmp/sig-id-multiseed/unknown --examples 30 --seed 1717
+sig-id-evaluate-split-seeds --corpus /tmp/sig-id-multiseed/known/corpus.json \
+  --data-dir "$SIG_ID_DATA_DIR" --output-dir /tmp/sig-id-multiseed/runs \
+  --seeds 11 23 37 51 79 --epochs 1200 \
+  --ood-corpus /tmp/sig-id-multiseed/unknown/ood-corpus.json
+```
+
+Split assignment version 2 makes seed variation affect lineage ordering; the default
+split command retains version 1 for exact historical reproduction. The five-seed result
+is archived in [`reports/multiseed-ask-ppm-2026-10-21.json`](reports/multiseed-ask-ppm-2026-10-21.json).
+Across five distinct splits, mean known test coverage was 64.6%, mean accepted accuracy
+79.8%, and method/family false accepts were 0/12 on every split. Accepted accuracy ranged
+from 58.8% to 93.8%, showing that the earlier single-split estimate was optimistic. This
+remains synthetic-only evidence.
+
 Build independent synthetic OOK, 4-ASK and pulse-position sources with varied payload,
 baud rate, carrier, amplitude, phase and pulse width. This diverse corpus is separate
 from the six-class training index and is passed separately to the trainer above. Version
