@@ -1,0 +1,779 @@
+{
+  "schema_version": 1,
+  "experiment": "Synthetic ASK and PPM unknown-modulation benchmark",
+  "date": "2026-10-21",
+  "scope": "One synthetic split only; not general unknown-mode or RF performance.",
+  "recipe": {
+    "known_sources": {
+      "generator": "sig-id-build-corpus",
+      "seed": 20261021,
+      "examples_per_mode": 12,
+      "snr_levels_db": [
+        10.0
+      ],
+      "modes": [
+        "2fsk",
+        "4fsk",
+        "8fsk",
+        "16fsk",
+        "bpsk",
+        "qpsk"
+      ],
+      "noise_sources": 12
+    },
+    "split": {
+      "generator": "sig-id-split-corpus",
+      "seed": 27,
+      "strategy": "lineage-grouped train/validation/test"
+    },
+    "unknown_sources": {
+      "generator": "sig-id-build-diverse-ood-corpus",
+      "version": "0.3.0",
+      "seed": 1717,
+      "examples": 30,
+      "families": [
+        "ASK",
+        "PPM"
+      ],
+      "methods": [
+        "on-off keying (OOK)",
+        "4-ary amplitude shift keying",
+        "binary pulse-position modulation"
+      ]
+    },
+    "training": {
+      "epochs": 1200,
+      "classes": [
+        "2fsk",
+        "4fsk",
+        "8fsk",
+        "16fsk",
+        "bpsk",
+        "qpsk",
+        "noise"
+      ]
+    }
+  },
+  "provenance": {
+    "model_sha256": "729c2beb10191288b7bd1a9e5257701a2a3fe25e108c1401af6a0aa619164d3f",
+    "split_manifest_sha256": "f0322c8ebd09f0e29139bcd116cc21741dc89b2de4c93b39346e0547e0476461",
+    "ood_index_sha256": "e94f0c524156462e4e98f3de39efbb4722f2a0dfdee449dfd6b3379c0b8083ad"
+  },
+  "outcome": {
+    "threshold_calibration": "reject_all_no_threshold_meets_validation_constraints",
+    "known_test_coverage": 0.0,
+    "known_test_raw_accuracy": 0.8076923076923077,
+    "known_test_accepted_accuracy": null,
+    "unknown_test_examples": 12,
+    "unknown_method_false_accept_rate": 0.0,
+    "unknown_family_false_accept_rate": 0.0,
+    "interpretation": "The method/family thresholds reject all known proposals to achieve zero observed validation false accepts on this small mixed ASK/PPM split. This is not useful operating coverage."
+  },
+  "evaluation": {
+    "calibration": {
+      "maximum_validation_noise_false_positive_rate": 0.0,
+      "maximum_validation_unknown_false_positive_rate": 0.0,
+      "status": "reject_all_no_threshold_meets_validation_constraints",
+      "target_precision": 0.8,
+      "threshold": 1.000001,
+      "validation_accepted": 0,
+      "validation_count": 44,
+      "validation_negative_false_positive_rate": 0.0,
+      "validation_noise_count": 2,
+      "validation_noise_false_positive_rate": 0.0,
+      "validation_precision": 0.0,
+      "validation_unknown_count": 18,
+      "validation_unknown_false_positive_rate": 0.0
+    },
+    "evaluation_scope": "synthetic generated modulation sources and lineage-safe mixed-scene constituent crops plus noise-only negatives; held-out ASK rejection across OOK and 4-ASK is evaluated only when a separate OOD corpus is supplied; independent radio captures remain unvalidated",
+    "family_calibration": {
+      "maximum_validation_noise_false_positive_rate": 0.0,
+      "maximum_validation_unknown_false_positive_rate": 0.0,
+      "status": "reject_all_no_threshold_meets_validation_constraints",
+      "target_precision": 0.8,
+      "threshold": 1.000001,
+      "validation_accepted": 0,
+      "validation_count": 44,
+      "validation_negative_false_positive_rate": 0.0,
+      "validation_noise_count": 20,
+      "validation_noise_false_positive_rate": 0.0,
+      "validation_precision": 0.0,
+      "validation_unknown_count": 20,
+      "validation_unknown_false_positive_rate": 0.0
+    },
+    "feature_version": "passband-log-spectrum-v1",
+    "mixed_scene_test": {
+      "examples": 0,
+      "metrics": null,
+      "scene_capture_ids": [],
+      "scenes": 0,
+      "scope": "held-out component regions scored in their overlapping scene context",
+      "skipped_components": 0,
+      "source_lineage_groups": [],
+      "split": "test"
+    },
+    "mixed_scene_training": {
+      "examples": 0,
+      "scene_capture_ids": [],
+      "scenes": 0,
+      "skipped_components": 0,
+      "source_lineage_groups": [],
+      "split": "train"
+    },
+    "mixed_scene_validation": {
+      "examples": 0,
+      "scene_capture_ids": [],
+      "scenes": 0,
+      "skipped_components": 0,
+      "source_lineage_groups": [],
+      "split": "validation"
+    },
+    "model_sha256": "729c2beb10191288b7bd1a9e5257701a2a3fe25e108c1401af6a0aa619164d3f",
+    "model_type": "multinomial logistic regression",
+    "ood_corpus_index_sha256": "e94f0c524156462e4e98f3de39efbb4722f2a0dfdee449dfd6b3379c0b8083ad",
+    "ood_test": {
+      "metrics": {
+        "by_true_family": {
+          "ASK": {
+            "examples": 8,
+            "family_confidence_mean": 0.9166156238570041,
+            "family_false_accept_rate": 0.0,
+            "family_false_accepts": 0,
+            "method_confidence_mean": 0.795671793402748,
+            "method_false_accept_rate": 0.0,
+            "method_false_accepts": 0,
+            "top_candidate_counts": {
+              "16fsk": 0,
+              "2fsk": 2,
+              "4fsk": 0,
+              "8fsk": 0,
+              "bpsk": 3,
+              "noise": 0,
+              "qpsk": 3
+            }
+          },
+          "PPM": {
+            "examples": 4,
+            "family_confidence_mean": 0.966436599730928,
+            "family_false_accept_rate": 0.0,
+            "family_false_accepts": 0,
+            "method_confidence_mean": 0.9642875838091551,
+            "method_false_accept_rate": 0.0,
+            "method_false_accepts": 0,
+            "top_candidate_counts": {
+              "16fsk": 1,
+              "2fsk": 0,
+              "4fsk": 0,
+              "8fsk": 0,
+              "bpsk": 3,
+              "noise": 0,
+              "qpsk": 0
+            }
+          }
+        },
+        "by_true_method": {
+          "4-ary amplitude shift keying": {
+            "examples": 4,
+            "family_confidence_mean": 0.9445552117313618,
+            "family_false_accept_rate": 0.0,
+            "family_false_accepts": 0,
+            "method_confidence_mean": 0.850798475447888,
+            "method_false_accept_rate": 0.0,
+            "method_false_accepts": 0,
+            "top_candidate_counts": {
+              "16fsk": 0,
+              "2fsk": 1,
+              "4fsk": 0,
+              "8fsk": 0,
+              "bpsk": 1,
+              "noise": 0,
+              "qpsk": 2
+            }
+          },
+          "binary pulse-position modulation": {
+            "examples": 4,
+            "family_confidence_mean": 0.966436599730928,
+            "family_false_accept_rate": 0.0,
+            "family_false_accepts": 0,
+            "method_confidence_mean": 0.9642875838091551,
+            "method_false_accept_rate": 0.0,
+            "method_false_accepts": 0,
+            "top_candidate_counts": {
+              "16fsk": 1,
+              "2fsk": 0,
+              "4fsk": 0,
+              "8fsk": 0,
+              "bpsk": 3,
+              "noise": 0,
+              "qpsk": 0
+            }
+          },
+          "on-off keying (OOK)": {
+            "examples": 4,
+            "family_confidence_mean": 0.8886760359826464,
+            "family_false_accept_rate": 0.0,
+            "family_false_accepts": 0,
+            "method_confidence_mean": 0.740545111357608,
+            "method_false_accept_rate": 0.0,
+            "method_false_accepts": 0,
+            "top_candidate_counts": {
+              "16fsk": 0,
+              "2fsk": 1,
+              "4fsk": 0,
+              "8fsk": 0,
+              "bpsk": 2,
+              "noise": 0,
+              "qpsk": 1
+            }
+          }
+        },
+        "examples": 12,
+        "family_confidence_mean": 0.9332226158149788,
+        "family_false_accept_rate": 0.0,
+        "family_false_accepts": 0,
+        "method_confidence_mean": 0.8518770568715505,
+        "method_false_accept_rate": 0.0,
+        "method_false_accepts": 0,
+        "top_candidate_counts": {
+          "16fsk": 1,
+          "2fsk": 2,
+          "4fsk": 0,
+          "8fsk": 0,
+          "bpsk": 6,
+          "noise": 0,
+          "qpsk": 3
+        }
+      },
+      "scope": "independent synthetic unknown modulation lineages excluded from model fitting and threshold calibration",
+      "source_indices": [
+        3,
+        4,
+        8,
+        9,
+        13,
+        14,
+        18,
+        19,
+        23,
+        24,
+        28,
+        29
+      ],
+      "waveform_sha256": [
+        "759f0fb7f69bf37c5ad78aae30ecb660120409e28b79d2aa761a12dfb342e115",
+        "348104713e70e2bba66c19b8cddae71994488082423c7dca63a9c4702fb1b5a6",
+        "1f4eb3de8c4b3acc61c2eb237d0df429c27188aa46ee9f645921c2f9566c5740",
+        "c27340383d3b606ed4b146782d1e0bf425d5fcacd0ed974606b39ca40003e07b",
+        "0b29d15c77b7c556a9c7f51d864987d37d72be68bf27e6e9cfb84009b428efd3",
+        "035c5023977b9190649e5b1199d3506aad4e7587027f4e86e16a4766fa0c67b6",
+        "c8c6c2b51d10f4a6691f41f414909c73729d6430b5054c453763d3cbe9c076f2",
+        "e6f5f4fba456b54976db0d6d464e87bef2b4a71b8d23eefe4de797c822cab462",
+        "eb94418c8c0d4c283333ba08f02173dfece902395adcb644eeaa9b8e20f65115",
+        "77b59fae45adff6f3f846e212cf959a2d696cfccea9e31329519e760b6e44379",
+        "160693d8ee101e9d9bf4db9a9fffaf25d98bfb94a98f5a7e581813da7f0d2665",
+        "bb6c48b2aaa6ab396179dbf17d6468184add0bb2077be528748ae2ab2b4fd7d1"
+      ]
+    },
+    "ood_validation": {
+      "examples": 18,
+      "scope": "threshold calibration only; excluded from classifier fitting",
+      "source_indices": [
+        0,
+        1,
+        2,
+        5,
+        6,
+        7,
+        10,
+        11,
+        12,
+        15,
+        16,
+        17,
+        20,
+        21,
+        22,
+        25,
+        26,
+        27
+      ],
+      "waveform_sha256": [
+        "4e30cad06a5a0510a5a722c7cff7de54830bb849f017b6910d99fb8aeef4780b",
+        "10c02fac8f3762e2660b4acacba13db1a1fc0a1bd1970915c78c045097de12f4",
+        "57131773d2ff033cc5e71a9de90ecf0fa0787494a2c05d4660b99742eaf9bdde",
+        "876491bcf7e4208fe795cef12fbb1ec7b9bd7dc921235348aa087caa9c196e95",
+        "26622475d46587bef7da2d7ce61f0a229e58ad6c571306833a0c6ef9ac295995",
+        "6e378df21849fd48b5fb0382232498145a31d748c97e23455f645f03e7b136c6",
+        "98ac17c26a7f7217196def3d067822e85344907bf18b8d556de065f012480785",
+        "1fb329d4b675ff9e9469072691f0537ceefe59c85ec41521255fdc6759c43dfd",
+        "7253387c23e2e801c67360c978c545d9950feff09ac0c4d2ee5330f9c29cb771",
+        "b96e201340a9cf2abc57c8ae1589614d599fe720a84a16bd30bcda9f0c362246",
+        "8745ab57ad234ea5eaa91d8a8feb5a5d39d3ca87ecb72a2b62eabe85e84233f2",
+        "f9308d433a14c910d6725f1c494f2221e97ead6158bd5256c3c44e7597c7f70b",
+        "356b8829a577ff797702da917bab6343d85155ae828424cdbcb2efb23245a4ff",
+        "a82bdad720fe8e477a9cc5e129ca9441fce275dd2c481daac6af96bd66ff543c",
+        "3deeffc4cb1561449bafc4457279473567d8c911522721671adc518d600a00de",
+        "960e4f394ba807d6dc0e026e068737c0ab2f2fed7ee95070a65f2c9c5c3f1791",
+        "7dd538a63ff91c5c8d479d95cd5b8ce27b53d0e7365b5da8d5e3f04c17b165ee",
+        "06fc3ff1f1ee06f4545ba15f42f0867bf137473adca7b3ed29ba0b697e82bca8"
+      ]
+    },
+    "schema_version": 1,
+    "split_group_counts": {
+      "test": 14,
+      "train": 56,
+      "validation": 14
+    },
+    "split_manifest_sha256": "f0322c8ebd09f0e29139bcd116cc21741dc89b2de4c93b39346e0547e0476461",
+    "test": {
+      "accepted_accuracy": null,
+      "accepted_examples": 0,
+      "confusion": {
+        "16fsk": {
+          "16fsk": 0,
+          "2fsk": 0,
+          "4fsk": 0,
+          "8fsk": 0,
+          "bpsk": 0,
+          "noise": 0,
+          "qpsk": 0,
+          "unknown": 4
+        },
+        "2fsk": {
+          "16fsk": 0,
+          "2fsk": 0,
+          "4fsk": 0,
+          "8fsk": 0,
+          "bpsk": 0,
+          "noise": 0,
+          "qpsk": 0,
+          "unknown": 4
+        },
+        "4fsk": {
+          "16fsk": 0,
+          "2fsk": 0,
+          "4fsk": 0,
+          "8fsk": 0,
+          "bpsk": 0,
+          "noise": 0,
+          "qpsk": 0,
+          "unknown": 4
+        },
+        "8fsk": {
+          "16fsk": 0,
+          "2fsk": 0,
+          "4fsk": 0,
+          "8fsk": 0,
+          "bpsk": 0,
+          "noise": 0,
+          "qpsk": 0,
+          "unknown": 4
+        },
+        "bpsk": {
+          "16fsk": 0,
+          "2fsk": 0,
+          "4fsk": 0,
+          "8fsk": 0,
+          "bpsk": 0,
+          "noise": 0,
+          "qpsk": 0,
+          "unknown": 4
+        },
+        "noise": {
+          "16fsk": 0,
+          "2fsk": 0,
+          "4fsk": 0,
+          "8fsk": 0,
+          "bpsk": 0,
+          "noise": 0,
+          "qpsk": 0,
+          "unknown": 2
+        },
+        "qpsk": {
+          "16fsk": 0,
+          "2fsk": 0,
+          "4fsk": 0,
+          "8fsk": 0,
+          "bpsk": 0,
+          "noise": 0,
+          "qpsk": 0,
+          "unknown": 4
+        }
+      },
+      "coverage": 0.0,
+      "examples": 26,
+      "family_accepted_accuracy": null,
+      "family_confusion": {
+        "FSK": {
+          "FSK": 0,
+          "MFSK": 0,
+          "PSK": 0,
+          "unknown": 4
+        },
+        "MFSK": {
+          "FSK": 0,
+          "MFSK": 0,
+          "PSK": 0,
+          "unknown": 12
+        },
+        "PSK": {
+          "FSK": 0,
+          "MFSK": 0,
+          "PSK": 0,
+          "unknown": 8
+        },
+        "unknown": {
+          "FSK": 0,
+          "MFSK": 0,
+          "PSK": 0,
+          "unknown": 2
+        }
+      },
+      "family_coverage": 0.0,
+      "family_raw_accuracy": 0.8846153846153846,
+      "noise_accepted": 0,
+      "noise_class_correct": 2,
+      "noise_examples": 2,
+      "noise_false_positive_rate": 0.0,
+      "raw_accuracy": 0.8076923076923077,
+      "raw_confusion": {
+        "16fsk": {
+          "16fsk": 4,
+          "2fsk": 0,
+          "4fsk": 0,
+          "8fsk": 0,
+          "bpsk": 0,
+          "noise": 0,
+          "qpsk": 0
+        },
+        "2fsk": {
+          "16fsk": 0,
+          "2fsk": 3,
+          "4fsk": 1,
+          "8fsk": 0,
+          "bpsk": 0,
+          "noise": 0,
+          "qpsk": 0
+        },
+        "4fsk": {
+          "16fsk": 0,
+          "2fsk": 0,
+          "4fsk": 4,
+          "8fsk": 0,
+          "bpsk": 0,
+          "noise": 0,
+          "qpsk": 0
+        },
+        "8fsk": {
+          "16fsk": 0,
+          "2fsk": 0,
+          "4fsk": 0,
+          "8fsk": 4,
+          "bpsk": 0,
+          "noise": 0,
+          "qpsk": 0
+        },
+        "bpsk": {
+          "16fsk": 0,
+          "2fsk": 0,
+          "4fsk": 0,
+          "8fsk": 0,
+          "bpsk": 2,
+          "noise": 0,
+          "qpsk": 2
+        },
+        "noise": {
+          "16fsk": 0,
+          "2fsk": 0,
+          "4fsk": 0,
+          "8fsk": 0,
+          "bpsk": 0,
+          "noise": 2,
+          "qpsk": 0
+        },
+        "qpsk": {
+          "16fsk": 0,
+          "2fsk": 0,
+          "4fsk": 0,
+          "8fsk": 0,
+          "bpsk": 2,
+          "noise": 0,
+          "qpsk": 2
+        }
+      },
+      "rejected_examples": 26,
+      "unknown_family_accepted": 0,
+      "unknown_family_false_positive_rate": 0.0
+    },
+    "test_group_ids": [
+      "0039d74a-bb3a-4397-be4a-0614f6d15077",
+      "0a715844-9318-4c03-802b-03abb21edb37",
+      "0ab38d79-72da-4058-8f15-16e51e43cfff",
+      "22f373c9-3f6a-4e4e-89f8-280994dd2a66",
+      "2eeea9e4-2da1-4d6e-9f6a-c25e4b1d6bbc",
+      "31d551d7-12bd-43d0-b3ed-327817fc07e1",
+      "6491bae1-edc5-4e90-88ee-d8bf3b2d4232",
+      "82ce2005-0e93-49a3-ae33-b31c38681c67",
+      "87dc7dc9-d755-4430-a5b3-db7df7256c75",
+      "99ea1ad5-e6f3-4934-bf95-911a7aa4f419",
+      "b99578c7-e738-4ca2-b0cb-49d61ea930b1",
+      "cc117512-868e-47f6-b68c-4cdb000073c3",
+      "dd04147b-610c-450b-9617-755d11be6a04",
+      "efa2ba1e-e962-4b13-b8f0-65aaa73b4033"
+    ],
+    "train_group_ids": [
+      "02d69387-a6a0-4544-b766-e57848a2e1a0",
+      "06bb0bad-72ef-4cdb-961c-5c3c9e8327d1",
+      "0dc174c9-9e2d-42cc-b186-248ba18b0ea9",
+      "12f93673-ca63-40c6-9705-a1d49b38cd6e",
+      "14477700-0f84-4d24-82be-8d329d51bc86",
+      "1623dbbf-fc6c-443a-83cf-fd31efe66643",
+      "1ceac42f-3692-4302-93da-b9208f6428e1",
+      "2514a01d-47a9-4903-b471-a33c706a9aac",
+      "2e8929f2-d25a-4863-a5e1-c1809892ccbf",
+      "3c3d8cff-9a0b-4c46-8d4d-5056f805450f",
+      "3cd0b878-4651-45e8-9a07-92c6a69bf06a",
+      "49f5c27e-34be-4576-b807-508862086e9a",
+      "4a926b7d-d779-4cc7-84f7-b0ea09357cc8",
+      "4c053d38-372b-4e05-a90a-3e93b7032c58",
+      "5b86ba12-bf97-4c3d-92ba-be92f7cc5010",
+      "67688c89-56b0-43bd-8512-d04fe09480d4",
+      "6bfdf001-0216-4cb5-8364-5101011b3e03",
+      "6c54f8a9-4a57-4ce1-bf4a-f63e5768a396",
+      "6d2291c0-83df-40ab-b695-2e3653d0c537",
+      "6e48186e-2660-4525-8315-ebe494564862",
+      "7615f9b9-0d7f-4f56-a920-d8067384cd1f",
+      "77752ca5-eb68-4940-94f8-2f4ca8afcc50",
+      "7a7a7ccb-cc35-4cff-9908-4714d125e7fb",
+      "7af43538-f91d-4e4d-85ca-e7a29f893126",
+      "83f24030-708d-494c-ab9b-9d276d1e1f69",
+      "8a0eacf6-0491-4aea-9902-69a2c18136c6",
+      "8b7da320-e507-4dde-a9ce-5c4f22c5a950",
+      "916fe29e-feb2-4b94-b2f8-bf8f9d3a3387",
+      "932fc103-3139-4046-a7ca-4cf2312bddf8",
+      "9537b086-170a-436a-abfc-4ff50d562682",
+      "97115c10-72c4-441d-a066-7972436cd270",
+      "a6fb1b8f-e0fa-4b23-a56b-04356501454a",
+      "ab3c0d42-8a13-49bb-99df-74236daf4f3c",
+      "b122ecb0-e60b-4b63-bae8-570429a7c176",
+      "b47d50f1-b5f2-401f-a828-84d8c01bd778",
+      "b871c4c1-3243-4694-b3a7-24f98879d117",
+      "b9a13e4e-3e11-4203-8223-3de8c84143c0",
+      "c19738ef-9073-4794-b185-ca865d0e757e",
+      "c4695857-70a0-4520-a37d-ae9b0a9fb8aa",
+      "d01385e5-ca6d-4292-9b02-4f9b1efc78bd",
+      "d0f34353-7386-4bf1-a78a-9532fbf87e02",
+      "d2bdbc65-fa08-4fa0-830f-7788ee12f161",
+      "dbe26d91-d49c-4ab1-898e-eb6b5a439fe0",
+      "de62c6f6-35ff-4202-be79-156e53470baa",
+      "de88ba64-ae98-4296-b596-22d6544d30f5",
+      "dedb1a68-b9f9-439d-8a8e-9381d957f20f",
+      "e7394d5d-b590-4ac8-b076-bc53082c9a90",
+      "e85f04d6-7800-4b52-829a-653746af9661",
+      "e8bf0c98-6eb8-44fa-97b3-ba645eeb7ed2",
+      "eac6d93c-0140-4ccc-8143-e01a7b99f84b",
+      "f2fbbe39-6c79-4aa3-86aa-322b25e9f9d5",
+      "f53584b4-67c8-426d-b68f-5d1dcd610712",
+      "f67ac64b-21fe-45a3-a9f5-aa8b254a2559",
+      "f89ec7f9-942b-437f-8478-d6955da73791",
+      "faa684eb-5ce6-4950-9f94-41e8b8232dac",
+      "fb9dd530-4486-4e6d-852f-6408d9d7c05d"
+    ],
+    "validation": {
+      "accepted_accuracy": null,
+      "accepted_examples": 0,
+      "confusion": {
+        "16fsk": {
+          "16fsk": 0,
+          "2fsk": 0,
+          "4fsk": 0,
+          "8fsk": 0,
+          "bpsk": 0,
+          "noise": 0,
+          "qpsk": 0,
+          "unknown": 4
+        },
+        "2fsk": {
+          "16fsk": 0,
+          "2fsk": 0,
+          "4fsk": 0,
+          "8fsk": 0,
+          "bpsk": 0,
+          "noise": 0,
+          "qpsk": 0,
+          "unknown": 4
+        },
+        "4fsk": {
+          "16fsk": 0,
+          "2fsk": 0,
+          "4fsk": 0,
+          "8fsk": 0,
+          "bpsk": 0,
+          "noise": 0,
+          "qpsk": 0,
+          "unknown": 4
+        },
+        "8fsk": {
+          "16fsk": 0,
+          "2fsk": 0,
+          "4fsk": 0,
+          "8fsk": 0,
+          "bpsk": 0,
+          "noise": 0,
+          "qpsk": 0,
+          "unknown": 4
+        },
+        "bpsk": {
+          "16fsk": 0,
+          "2fsk": 0,
+          "4fsk": 0,
+          "8fsk": 0,
+          "bpsk": 0,
+          "noise": 0,
+          "qpsk": 0,
+          "unknown": 4
+        },
+        "noise": {
+          "16fsk": 0,
+          "2fsk": 0,
+          "4fsk": 0,
+          "8fsk": 0,
+          "bpsk": 0,
+          "noise": 0,
+          "qpsk": 0,
+          "unknown": 2
+        },
+        "qpsk": {
+          "16fsk": 0,
+          "2fsk": 0,
+          "4fsk": 0,
+          "8fsk": 0,
+          "bpsk": 0,
+          "noise": 0,
+          "qpsk": 0,
+          "unknown": 4
+        }
+      },
+      "coverage": 0.0,
+      "examples": 26,
+      "family_accepted_accuracy": null,
+      "family_confusion": {
+        "FSK": {
+          "FSK": 0,
+          "MFSK": 0,
+          "PSK": 0,
+          "unknown": 4
+        },
+        "MFSK": {
+          "FSK": 0,
+          "MFSK": 0,
+          "PSK": 0,
+          "unknown": 12
+        },
+        "PSK": {
+          "FSK": 0,
+          "MFSK": 0,
+          "PSK": 0,
+          "unknown": 8
+        },
+        "unknown": {
+          "FSK": 0,
+          "MFSK": 0,
+          "PSK": 0,
+          "unknown": 2
+        }
+      },
+      "family_coverage": 0.0,
+      "family_raw_accuracy": 0.8846153846153846,
+      "noise_accepted": 0,
+      "noise_class_correct": 2,
+      "noise_examples": 2,
+      "noise_false_positive_rate": 0.0,
+      "raw_accuracy": 0.8846153846153846,
+      "raw_confusion": {
+        "16fsk": {
+          "16fsk": 4,
+          "2fsk": 0,
+          "4fsk": 0,
+          "8fsk": 0,
+          "bpsk": 0,
+          "noise": 0,
+          "qpsk": 0
+        },
+        "2fsk": {
+          "16fsk": 0,
+          "2fsk": 3,
+          "4fsk": 0,
+          "8fsk": 1,
+          "bpsk": 0,
+          "noise": 0,
+          "qpsk": 0
+        },
+        "4fsk": {
+          "16fsk": 0,
+          "2fsk": 0,
+          "4fsk": 4,
+          "8fsk": 0,
+          "bpsk": 0,
+          "noise": 0,
+          "qpsk": 0
+        },
+        "8fsk": {
+          "16fsk": 0,
+          "2fsk": 0,
+          "4fsk": 0,
+          "8fsk": 4,
+          "bpsk": 0,
+          "noise": 0,
+          "qpsk": 0
+        },
+        "bpsk": {
+          "16fsk": 0,
+          "2fsk": 0,
+          "4fsk": 0,
+          "8fsk": 1,
+          "bpsk": 2,
+          "noise": 0,
+          "qpsk": 1
+        },
+        "noise": {
+          "16fsk": 0,
+          "2fsk": 0,
+          "4fsk": 0,
+          "8fsk": 0,
+          "bpsk": 0,
+          "noise": 2,
+          "qpsk": 0
+        },
+        "qpsk": {
+          "16fsk": 0,
+          "2fsk": 0,
+          "4fsk": 0,
+          "8fsk": 0,
+          "bpsk": 0,
+          "noise": 0,
+          "qpsk": 4
+        }
+      },
+      "rejected_examples": 26,
+      "unknown_family_accepted": 0,
+      "unknown_family_false_positive_rate": 0.0
+    },
+    "validation_group_ids": [
+      "03a92779-aac7-4bce-90b5-66dec08000c3",
+      "0fb9f857-0488-47b9-949d-ffb31d498646",
+      "19d31fad-ea0e-40d6-b38d-343c8c6cb899",
+      "1eb070f8-9860-49ef-916f-33862b76b125",
+      "24d62629-56da-4434-9ef1-9c4675b2529d",
+      "387d1080-90ab-4b42-bd97-04e6d230326c",
+      "437242ef-bcb2-415e-a633-7ae19b070014",
+      "6243bc24-b430-4995-873f-a2888c6fd303",
+      "68d8ec3d-593e-4b02-a5ff-425bec074432",
+      "6ad57ae0-7fad-4dca-ad5c-4258626ea43f",
+      "b88aee12-45c0-40b1-a634-8a571cccb7c5",
+      "bf34a93d-e5e0-4cd5-abae-e375e1bf8c9f",
+      "d6b2cc08-b550-43f7-acb1-3fb2c84c27dd",
+      "f6a28f0c-80ee-406d-8e74-bd31f0d343c0"
+    ]
+  }
+}

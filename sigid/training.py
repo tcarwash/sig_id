@@ -143,6 +143,7 @@ def _evaluate_unmodeled(
     threshold: float,
     family_threshold: float,
     true_methods: list[str] | None = None,
+    true_families: list[str] | None = None,
 ) -> dict[str, Any]:
     if probabilities.ndim != 2 or not probabilities.shape[0]:
         raise ValueError("OOD evaluation requires at least one probability row")
@@ -178,6 +179,13 @@ def _evaluate_unmodeled(
         result["by_true_method"] = {
             method: summarize(probabilities[np.asarray([value == method for value in true_methods], dtype=bool)])
             for method in sorted(set(true_methods))
+        }
+    if true_families is not None:
+        if len(true_families) != len(probabilities):
+            raise ValueError("OOD truth families must align with probability rows")
+        result["by_true_family"] = {
+            family: summarize(probabilities[np.asarray([value == family for value in true_families], dtype=bool)])
+            for family in sorted(set(true_families))
         }
     return result
 
@@ -517,6 +525,7 @@ def train_and_evaluate(
             threshold,
             family_threshold,
             [row["modulation_method"] for row in ood_test_rows],
+            [row["modulation_family"] for row in ood_test_rows],
         )
     mixed_scene_evaluation = None
     mixed_scene_x, mixed_scene_names, mixed_scene_details = scene_features["test"]
@@ -545,7 +554,7 @@ def train_and_evaluate(
             "metrics": ood_test_metrics,
             "source_indices": [row["index"] for row in ood_test_rows],
             "waveform_sha256": [row["waveform_sha256"] for row in ood_test_rows],
-            "scope": "independent synthetic ASK/OOK lineages excluded from model fitting and threshold calibration",
+            "scope": "independent synthetic unknown modulation lineages excluded from model fitting and threshold calibration",
         },
         "ood_corpus_index_sha256": ood_index_digest,
         "mixed_scene_test": {
@@ -588,7 +597,10 @@ def train_and_evaluate(
             and ood_test_metrics["method_false_accept_rate"] == 0.0
             and ood_test_metrics["family_false_accept_rate"] == 0.0
         ),
-        "unknown_rejection_scope": "synthetic ASK held-out" if ood_test_metrics is not None else "unvalidated",
+        "unknown_rejection_scope": (
+            "synthetic " + "/".join(sorted({row["modulation_family"] for row in ood_test_rows})) + " held-out"
+            if ood_test_metrics is not None else "unvalidated"
+        ),
         "ood_corpus_index_sha256": ood_index_digest,
         "ood_sources_fit_on": 0,
         "noise_class_validated": bool(
@@ -625,7 +637,7 @@ def main() -> None:
     parser.add_argument("--data-dir", type=Path, default=Path(os.environ.get("SIG_ID_DATA_DIR", "~/.local/share/sig-id")).expanduser())
     parser.add_argument("--output-model", type=Path, required=True, help="output .npz model path")
     parser.add_argument("--epochs", type=int, default=1200)
-    parser.add_argument("--ood-corpus", type=Path, help="separate synthetic OOK corpus index for threshold calibration and held-out evaluation")
+    parser.add_argument("--ood-corpus", type=Path, help="separate synthetic unknown-modulation corpus index for threshold calibration and held-out evaluation")
     args = parser.parse_args()
     try:
         result = train_and_evaluate(

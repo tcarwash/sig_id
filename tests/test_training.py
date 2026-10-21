@@ -218,14 +218,15 @@ def test_training_calibrates_unknown_rejection_without_fitting_ood_sources(tmp_p
     assert len(ood_test["waveform_sha256"]) == 4
     assert set(trained["evaluation"]["ood_validation"]["source_indices"]).isdisjoint(ood_test["source_indices"])
     assert trained["evaluation"]["ood_validation"]["scope"].startswith("threshold calibration only")
-    assert ood_test["scope"].startswith("independent synthetic ASK/OOK")
+    assert ood_test["scope"].startswith("independent synthetic unknown modulation")
     assert 0 <= ood_test["metrics"]["method_false_accept_rate"] <= 1
     assert 0 <= ood_test["metrics"]["family_false_accept_rate"] <= 1
     assert set(ood_test["metrics"]["by_true_method"]) == {
-        "on-off keying (OOK)", "4-ary amplitude shift keying"
+        "on-off keying (OOK)", "4-ary amplitude shift keying", "binary pulse-position modulation"
     }
-    assert all(item["examples"] == 2 for item in ood_test["metrics"]["by_true_method"].values())
-    assert trained["model"]["unknown_rejection_scope"] == "synthetic ASK held-out"
+    assert all(item["examples"] > 0 for item in ood_test["metrics"]["by_true_method"].values())
+    assert set(ood_test["metrics"]["by_true_family"]) == {"ASK", "PPM"}
+    assert trained["model"]["unknown_rejection_scope"] == "synthetic ASK/PPM held-out"
     assert trained["model"]["ood_sources_fit_on"] == 0
     assert trained["model"]["ood_corpus_index_sha256"] == trained["evaluation"]["ood_corpus_index_sha256"]
     assert trained["model"]["unknown_rejection_validated"] is (

@@ -233,6 +233,45 @@ def _validate_manifest(manifest: dict[str, Any], wav_path: Path) -> None:
             or manifest.get("reference_bits") != expected_bits
         ):
             raise ValueError("ASK level and bit mapping metadata do not match the source symbols")
+    elif generator == "sig-id-ppm":
+        if manifest.get("generator_version") != "0.1.0":
+            raise ValueError("unsupported PPM generator version")
+        expected_family = "PPM"
+        expected_method = "binary pulse-position modulation"
+        bits = manifest.get("reference_bits")
+        if not isinstance(bits, str) or not bits or any(bit not in "01" for bit in bits):
+            raise ValueError("PPM manifest must contain exact reference bits")
+        sample_rate = manifest.get("sample_rate")
+        symbol_rate = parameters.get("symbol_rate")
+        pulse_fraction = parameters.get("pulse_fraction")
+        carrier_hz = parameters.get("carrier_hz")
+        amplitude = parameters.get("amplitude")
+        phase = parameters.get("initial_phase_radians")
+        if (
+            not isinstance(sample_rate, int) or isinstance(sample_rate, bool)
+            or not isinstance(symbol_rate, int) or isinstance(symbol_rate, bool)
+            or symbol_rate <= 0 or sample_rate % symbol_rate
+            or len(bits) * (sample_rate // symbol_rate) != manifest.get("sample_count")
+            or not isinstance(pulse_fraction, (int, float)) or isinstance(pulse_fraction, bool)
+            or not math.isfinite(pulse_fraction) or not 0.05 <= pulse_fraction <= 0.4
+            or not isinstance(carrier_hz, (int, float)) or isinstance(carrier_hz, bool)
+            or not math.isfinite(carrier_hz) or not 0 < carrier_hz < sample_rate / 2
+            or not isinstance(amplitude, (int, float)) or isinstance(amplitude, bool)
+            or not math.isfinite(amplitude) or not 0 < amplitude <= 1
+            or not isinstance(phase, (int, float)) or isinstance(phase, bool) or not math.isfinite(phase)
+        ):
+            raise ValueError("PPM manifest has invalid waveform or timing parameters")
+        samples_per_symbol = sample_rate // symbol_rate
+        pulse_samples = max(4, round(samples_per_symbol * pulse_fraction))
+        slot_centers = [samples_per_symbol // 4, (3 * samples_per_symbol) // 4]
+        if (
+            pulse_samples >= samples_per_symbol // 2
+            or parameters.get("pulse_samples") != pulse_samples
+            or parameters.get("slot_centers_samples") != slot_centers
+            or parameters.get("slot_mapping") != {"0": 0, "1": 1}
+            or parameters.get("pulse_envelope") != "raised cosine with zero endpoints"
+        ):
+            raise ValueError("PPM pulse-slot metadata does not match the declared timing recipe")
     else:
         raise ValueError(f"unsupported synthetic generator: {generator!r}")
 
@@ -250,7 +289,7 @@ def _validate_manifest(manifest: dict[str, Any], wav_path: Path) -> None:
     # Recreate from the reference symbols with the shipped deterministic
     # generator. This prevents a hand-edited sidecar from turning arbitrary
     # audio into accepted synthetic ground truth.
-    from .synthetic import generate_2fsk_wav, generate_ask_wav, generate_bpsk_wav, generate_mfsk_wav, generate_qpsk_wav, generate_noise_wav, generate_ook_wav
+    from .synthetic import generate_2fsk_wav, generate_ask_wav, generate_bpsk_wav, generate_mfsk_wav, generate_qpsk_wav, generate_noise_wav, generate_ook_wav, generate_ppm_wav
 
     try:
         with tempfile.TemporaryDirectory(prefix="sig-id-validate-") as temporary:
@@ -314,7 +353,7 @@ def _validate_manifest(manifest: dict[str, Any], wav_path: Path) -> None:
                     amplitude=parameters["amplitude"],
                     initial_phase_radians=parameters["initial_phase_radians"],
                 )
-            else:
+            elif generator == "sig-id-ask":
                 generate_ask_wav(
                     regenerated,
                     manifest["reference_symbols"],
@@ -323,6 +362,17 @@ def _validate_manifest(manifest: dict[str, Any], wav_path: Path) -> None:
                     symbol_rate=parameters["symbol_rate"],
                     carrier_hz=parameters["carrier_hz"],
                     amplitude=parameters["amplitude"],
+                    initial_phase_radians=parameters["initial_phase_radians"],
+                )
+            else:
+                generate_ppm_wav(
+                    regenerated,
+                    manifest["reference_bits"],
+                    sample_rate=manifest["sample_rate"],
+                    symbol_rate=parameters["symbol_rate"],
+                    carrier_hz=parameters["carrier_hz"],
+                    amplitude=parameters["amplitude"],
+                    pulse_fraction=parameters["pulse_fraction"],
                     initial_phase_radians=parameters["initial_phase_radians"],
                 )
             if regenerated.read_bytes() != wav_path.read_bytes():

@@ -41,12 +41,17 @@ validation remain open.
   reference bits when representable. The independent ASK benchmark now stratifies OOK
   and 4-ASK lineages across validation and test to measure transfer between amplitude
   modulation variants.
-- `sig-id-build-ood-corpus` creates resumable, hash-indexed independent ASK sources
-  (OOK and 4-ASK) with varied payloads, symbol rates, carrier frequencies, amplitudes and phase. Its
+- A deterministic binary PPM generator encodes each bit in one of two raised-cosine
+  carrier-pulse positions within the symbol. Its manifest preserves the exact bits,
+  slot timing, carrier and pulse-width recipe; synthetic import re-renders the WAV.
+- `sig-id-build-ood-corpus` creates resumable, hash-indexed independent ASK and PPM
+  sources (OOK, 4-ASK and binary PPM) with varied payloads, symbol rates, carrier
+  frequencies, amplitudes, phase and pulse width. Its
   separate index is not accepted as training data. The trainer can use the corpus's
   disjoint 3:2 validation/test source split to calibrate method/family abstention on
-  ASK negatives without fitting on them, with test false-accept metrics broken down
-  by modulation method.
+  unknown-family negatives without fitting on them, with test false-accept metrics
+  broken down by modulation method and family. Version 0.2.0 remains available to
+  exactly replay the committed historical ASK-only benchmark.
 - Generic 2–64-tone FSK fixture generation with exact tone symbols and, for
   power-of-two tone counts, exact natural-binary reference bits. MFSK fixtures
   carry family and method labels while protocol and variant remain null.
@@ -161,14 +166,17 @@ validation remain open.
 
 ## Next action
 
-The reproducible multi-ASK calibration/evaluation report is saved at
+The reproducible historical multi-ASK calibration/evaluation report is saved at
 `reports/ask-ood-benchmark-2026-10-21.json`, with generation and training commands in
 README. An end-to-end experiment with 12 known source groups per mode and 30 separate
 ASK sources (15 OOK and 15 4-ASK) produced 0/12 method and family false accepts on the
 ASK test set. Known-mode method coverage was 34.6% with 100% accuracy among accepted
-examples; family calibration rejected every proposal. This is one synthetic split only,
-not general unknown-mode or RF performance. Next add a second unknown modulation family
-and calibrate live model proposals on held-out mixed scenes. An opt-in
+examples; family calibration rejected every proposal. The follow-up ASK/PPM evaluation
+also had 0/12 unknown false accepts, but rejected all known examples (0% coverage;
+80.8% raw accuracy). Both reproducible reports are in `reports/`. This is synthetic-only
+evidence, not general unknown-mode or RF performance. Next improve the feature/rejection
+model so it can separate PPM while retaining useful known-mode coverage, then calibrate
+live proposals on held-out mixed scenes. An opt-in
 automatic trial now requires a persistent track and an accepted
 method proposal, while abstentions never trigger mode changes. Keep it opt-in until
 unseen-family and real-capture validation establish useful operating limits. The
@@ -187,7 +195,7 @@ Verified: Fldigi 4.2.13 and its XML-RPC method catalog are installed; unit tests
 cover receive-only client semantics, PCM WAV block indexing/normalization and
 synthetic 2-FSK/MFSK metadata, exact symbols/bits and tone frequencies, SQLite
 capture hashes/regions/label history, JSONL export, spectrogram peak detection, upload/region APIs, and Fldigi
-status/catalog/mode/output APIs, WEFAX product import and image delivery. Current full suite: 152 passed, 7 skipped;
+status/catalog/mode/output APIs, WEFAX product import and image delivery. Current full suite: 159 passed, 7 skipped;
 the opt-in isolated selection audit checks all 169 entries (165 selectable, four unresolved),
 and `node --test tests/test_waterfall_window.mjs`, module syntax validation, headless
 Chromium loading, and `git diff --check` pass. The generic text-backend

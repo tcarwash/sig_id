@@ -11,7 +11,7 @@ from typing import Any
 
 import numpy as np
 
-from .synthetic import generate_ask_wav, generate_ook_wav
+from .synthetic import generate_ask_wav, generate_ook_wav, generate_ppm_wav
 from .synthetic_dataset import _validate_manifest
 
 
@@ -27,8 +27,9 @@ def _atomic_json(path: Path, value: dict[str, Any]) -> None:
     temporary.replace(path)
 
 
-def _seed(base_seed: int, index: int) -> int:
-    digest = hashlib.sha256(f"sig-id-ask-ood-v2:{base_seed}:{index}".encode()).digest()
+def _seed(base_seed: int, index: int, version: str) -> int:
+    namespace = "sig-id-ask-ood-v2" if version == "0.2.0" else "sig-id-diverse-ood-v3"
+    digest = hashlib.sha256(f"{namespace}:{base_seed}:{index}".encode()).digest()
     return (base_seed + int.from_bytes(digest[:4], "little")) % (2**32)
 
 
@@ -37,8 +38,9 @@ def build_ood_corpus(
     *,
     examples: int = 30,
     seed: int = 20261021,
+    generator_version: str = "0.3.0",
 ) -> dict[str, Any]:
-    """Generate independent OOK and 4-ASK sources with varied baud/carrier/payload.
+    """Generate independent ASK and PPM unknowns; 0.2.0 replays the ASK benchmark.
 
     The output is separate from the six-class training-corpus index, so the existing
     trainer cannot accidentally consume these examples as known classes.
@@ -47,15 +49,22 @@ def build_ood_corpus(
         raise ValueError(f"examples must be between 1 and {MAX_EXAMPLES}")
     if not isinstance(seed, int) or isinstance(seed, bool) or not 0 <= seed <= 2**32 - 1:
         raise ValueError("seed must be an unsigned 32-bit integer")
+    if generator_version not in {"0.2.0", "0.3.0"}:
+        raise ValueError("generator_version must be 0.2.0 or 0.3.0")
     output_dir = Path(output_dir).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     index_path = output_dir / "ood-corpus.json"
+    legacy_ask = generator_version == "0.2.0"
+    modulation_methods = (
+        ["on-off keying (OOK)", "4-ary amplitude shift keying"]
+        if legacy_ask else ["on-off keying (OOK)", "4-ary amplitude shift keying", "binary pulse-position modulation"]
+    )
     config = {
         "schema_version": 1,
-        "generator": "sig-id-build-ask-ood-corpus",
-        "generator_version": "0.2.0",
-        "modulation_family": "ASK",
-        "modulation_methods": ["on-off keying (OOK)", "4-ary amplitude shift keying"],
+        "generator": "sig-id-build-ask-ood-corpus" if legacy_ask else "sig-id-build-diverse-ood-corpus",
+        "generator_version": generator_version,
+        **({"modulation_family": "ASK"} if legacy_ask else {"modulation_families": ["ASK", "PPM"]}),
+        "modulation_methods": modulation_methods,
         "examples": examples,
         "seed": seed,
         "sample_rate": 12_000,
@@ -65,23 +74,27 @@ def build_ood_corpus(
     if index_path.exists():
         existing = json.loads(index_path.read_text(encoding="utf-8"))
         if existing.get("config") != config:
-            raise ValueError("existing OOK OOD index uses a different configuration; choose another output directory")
+            raise ValueError("existing OOD index uses a different configuration; choose another output directory")
         records = {record["index"]: record for record in existing.get("records", [])}
     else:
         records = {}
 
     for index in range(examples):
-        source_seed = _seed(seed, index)
+        source_seed = _seed(seed, index, generator_version)
         rng = np.random.default_rng(source_seed)
         symbol_rate = int(rng.choice([50, 75, 100, 150, 200]))
         carrier_hz = float(rng.choice([600, 900, 1200, 1500, 1800, 2200, 2600]))
-        level_count = 2 if index % 2 == 0 else 4
-        waveform = output_dir / "waveforms" / f"ask{level_count}-{index:05d}.wav"
+        variant = index % (2 if legacy_ask else 3)
+        kind = variant if legacy_ask else variant
+        level_count = 2 if kind == 0 else 4
+        waveform = output_dir / "waveforms" / (
+            f"ask{level_count}-{index:05d}.wav" if kind < 2 else f"ppm-{index:05d}.wav"
+        )
         sidecar = waveform.with_suffix(waveform.suffix + ".json")
         if not waveform.exists() or not sidecar.exists():
             amplitude = float(rng.uniform(0.2, 0.8))
             phase = float(rng.uniform(-np.pi, np.pi))
-            if level_count == 2:
+            if kind == 0:
                 bits = "".join(str(int(bit)) for bit in rng.integers(0, 2, size=config["symbols_per_source"]))
                 generate_ook_wav(
                     waveform,
@@ -92,7 +105,7 @@ def build_ood_corpus(
                     amplitude=amplitude,
                     initial_phase_radians=phase,
                 )
-            else:
+            elif kind == 1:
                 symbols = [int(item) for item in rng.integers(0, 4, size=config["symbols_per_source"] // 2)]
                 generate_ask_wav(
                     waveform,
@@ -102,6 +115,18 @@ def build_ood_corpus(
                     symbol_rate=symbol_rate,
                     carrier_hz=carrier_hz,
                     amplitude=amplitude,
+                    initial_phase_radians=phase,
+                )
+            else:
+                bits = "".join(str(int(bit)) for bit in rng.integers(0, 2, size=config["symbols_per_source"]))
+                generate_ppm_wav(
+                    waveform,
+                    bits,
+                    sample_rate=config["sample_rate"],
+                    symbol_rate=symbol_rate,
+                    carrier_hz=carrier_hz,
+                    amplitude=amplitude,
+                    pulse_fraction=float(rng.choice([0.12, 0.18, 0.24, 0.3])),
                     initial_phase_radians=phase,
                 )
         manifest = json.loads(sidecar.read_text(encoding="utf-8"))
@@ -120,6 +145,8 @@ def build_ood_corpus(
             "symbol_rate": symbol_rate,
             "carrier_hz": carrier_hz,
         }
+        if not legacy_ask:
+            record["modulation_family"] = manifest["labels"]["modulation_family"]
         records[index] = record
         _atomic_json(index_path, {"config": config, "record_count": len(records), "records": [records[key] for key in sorted(records)]})
     result = {"config": config, "record_count": len(records), "records": [records[key] for key in sorted(records)]}
@@ -132,9 +159,10 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--examples", type=int, default=30)
     parser.add_argument("--seed", type=int, default=20261021)
+    parser.add_argument("--generator-version", choices=("0.2.0", "0.3.0"), default="0.3.0")
     args = parser.parse_args()
     try:
-        result = build_ood_corpus(args.output_dir, examples=args.examples, seed=args.seed)
+        result = build_ood_corpus(args.output_dir, examples=args.examples, seed=args.seed, generator_version=args.generator_version)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         parser.error(str(exc))
     print(json.dumps({"index": str(args.output_dir / "ood-corpus.json"), "record_count": result["record_count"]}, indent=2))
@@ -151,10 +179,18 @@ def load_ood_corpus(index_path: str | Path) -> list[dict[str, Any]]:
     indexed_records = index.get("records") if isinstance(index, dict) else None
     if (
         not isinstance(config, dict)
-        or config.get("generator") != "sig-id-build-ask-ood-corpus"
-        or config.get("generator_version") != "0.2.0"
-        or config.get("modulation_family") != "ASK"
-        or config.get("modulation_methods") != ["on-off keying (OOK)", "4-ary amplitude shift keying"]
+        or config.get("generator") != (
+            "sig-id-build-ask-ood-corpus" if config.get("generator_version") == "0.2.0"
+            else "sig-id-build-diverse-ood-corpus"
+        )
+        or config.get("generator_version") not in {"0.2.0", "0.3.0"}
+        or (config.get("generator_version") == "0.2.0" and config.get("modulation_family") != "ASK")
+        or (config.get("generator_version") == "0.3.0" and config.get("modulation_families") != ["ASK", "PPM"])
+        or config.get("modulation_methods") != (
+            ["on-off keying (OOK)", "4-ary amplitude shift keying"]
+            if config.get("generator_version") == "0.2.0"
+            else ["on-off keying (OOK)", "4-ary amplitude shift keying", "binary pulse-position modulation"]
+        )
         or not isinstance(config.get("examples"), int)
         or isinstance(config.get("examples"), bool)
         or config.get("examples", 0) < 1
@@ -182,7 +218,9 @@ def load_ood_corpus(index_path: str | Path) -> list[dict[str, Any]]:
             or record.get("split") != ("validation" if source_index % 5 in {0, 1, 2} else "test")
             or source_index >= config["examples"]
             or record.get("modulation_method") != (
-                "on-off keying (OOK)" if source_index % 2 == 0 else "4-ary amplitude shift keying"
+                ("on-off keying (OOK)" if source_index % 2 == 0 else "4-ary amplitude shift keying")
+                if config["generator_version"] == "0.2.0"
+                else ("on-off keying (OOK)", "4-ary amplitude shift keying", "binary pulse-position modulation")[source_index % 3]
             )
         ):
             raise ValueError("OOD corpus must contain uniquely indexed independent validation/test sources")
@@ -206,14 +244,24 @@ def load_ood_corpus(index_path: str | Path) -> list[dict[str, Any]]:
         seen_hashes.add(waveform_digest)
         manifest = json.loads(sidecar.read_text(encoding="utf-8"))
         _validate_manifest(manifest, waveform)
+        expected_family = "PPM" if record["modulation_method"] == "binary pulse-position modulation" else "ASK"
         if (
             manifest.get("generator") not in {"sig-id-ook", "sig-id-ask"}
-            or manifest.get("labels", {}).get("modulation_family") != "ASK"
+            and manifest.get("generator") != "sig-id-ppm"
+        ):
+            raise ValueError("OOD corpus contains an unsupported synthetic generator")
+        if (
+            manifest.get("labels", {}).get("modulation_family") != expected_family
+            or (
+                config["generator_version"] == "0.3.0"
+                and record.get("modulation_family") != expected_family
+            )
             or manifest.get("labels", {}).get("modulation_method") != record.get("modulation_method")
         ):
-            raise ValueError("OOD corpus contains a signal outside the declared synthetic ASK methods")
+            raise ValueError("OOD corpus signal labels do not match its declared unknown modulation method")
         verified.append({
             **record,
+            "modulation_family": expected_family,
             "waveform_path": str(waveform),
             "manifest_path": str(sidecar),
             "sample_rate": manifest["sample_rate"],

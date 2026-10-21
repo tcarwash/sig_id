@@ -5,7 +5,7 @@ import wave
 
 import pytest
 
-from sigid.synthetic import ask_main, bpsk_main, generate_2fsk_wav, generate_ask_wav, generate_bpsk_wav, generate_mfsk_wav, generate_ook_wav, generate_qpsk_wav, mfsk_main, ook_main, qpsk_main
+from sigid.synthetic import ask_main, bpsk_main, generate_2fsk_wav, generate_ask_wav, generate_bpsk_wav, generate_mfsk_wav, generate_ook_wav, generate_ppm_wav, generate_qpsk_wav, mfsk_main, ook_main, ppm_main, qpsk_main
 from sigid.wav import WavSource
 
 
@@ -115,6 +115,44 @@ def test_mfsk_non_power_of_two_uses_symbols_without_fabricating_bits(tmp_path):
     assert manifest["reference_symbols"] == [0, 4, 1]
     assert manifest["reference_bits"] is None
     assert manifest["parameters"]["bits_per_symbol"] is None
+
+
+def test_ppm_generator_records_two_timing_slots_and_is_deterministic(tmp_path):
+    import numpy as np
+
+    path = tmp_path / "ppm.wav"
+    manifest = generate_ppm_wav(path, "01", sample_rate=12000, symbol_rate=100)
+    second = tmp_path / "ppm-copy.wav"
+    generate_ppm_wav(second, "01", sample_rate=12000, symbol_rate=100)
+    assert manifest["labels"] == {
+        "modulation_family": "PPM",
+        "modulation_method": "binary pulse-position modulation",
+        "protocol": None,
+        "variant": None,
+    }
+    assert manifest["parameters"]["slot_centers_samples"] == [30, 90]
+    assert manifest["reference_bits"] == "01"
+    assert path.read_bytes() == second.read_bytes()
+    samples = np.frombuffer(path.read_bytes()[44:], dtype="<i2").reshape(2, 120)
+    energy = np.sum(samples.astype(float) ** 2, axis=1)
+    assert np.argmax(np.abs(samples[0])) < 60
+    assert np.argmax(np.abs(samples[1])) >= 60
+    assert energy[0] > 0 and energy[1] > 0
+
+
+@pytest.mark.parametrize("kwargs", [{"pulse_fraction": 0.01}, {"pulse_fraction": 0.5}, {"symbol_rate": 3_000}])
+def test_ppm_generator_rejects_invalid_timing(kwargs, tmp_path):
+    with pytest.raises(ValueError):
+        generate_ppm_wav(tmp_path / "invalid.wav", "0101", **kwargs)
+
+
+def test_ppm_cli_generates_manifest(tmp_path, monkeypatch, capsys):
+    path = tmp_path / "ppm-cli.wav"
+    monkeypatch.setattr("sys.argv", ["sig-id-generate-ppm", str(path), "0101", "--symbol-rate", "100"])
+    ppm_main()
+    output = json.loads(capsys.readouterr().out)
+    assert output["generator"] == "sig-id-ppm"
+    assert output["reference_bits"] == "0101"
 
 
 def test_mfsk_cli_generates_a_labeled_fixture(tmp_path, monkeypatch, capsys):

@@ -139,6 +139,7 @@ bits, while leaving its protocol unknown:
 
 ```sh
 sig-id-generate-ask data/fixtures/ask4.wav 0,1,3,2 --level-count 4 --symbol-rate 100
+sig-id-generate-ppm data/fixtures/ppm.wav 01011010 --symbol-rate 100 --pulse-fraction 0.2
 ```
 
 Register the waveform and validated sidecar in the local dataset from the command
@@ -149,7 +150,7 @@ sig-id-import-synthetic data/fixtures/mfsk4.wav
 ```
 
 The importer verifies that the WAV exactly matches a deterministic 2-FSK, M-FSK,
-BPSK, QPSK, OOK or M-ASK generator manifest, then stores a full-capture modulation label and the source
+BPSK, QPSK, OOK, M-ASK or PPM generator manifest, then stores a full-capture modulation label and the source
 manifest. It does not invent a named protocol.
 
 Combine already imported, accepted synthetic captures into a deterministic scene.
@@ -212,8 +213,8 @@ train/validation/test split:
 ```sh
 sig-id-build-corpus --output-dir data/corpus --examples-per-mode 12 --snr-db 0 10 20 --seed 42
 sig-id-split-corpus --corpus data/corpus/corpus.json --output data/corpus/splits.json --seed 42
-sig-id-build-ood-corpus --output-dir data/ood/ask --examples 30 --seed 42
-sig-id-train-method-model --split data/corpus/splits.json --ood-corpus data/ood/ask/ood-corpus.json \
+sig-id-build-ood-corpus --output-dir data/ood/unknown --examples 30 --seed 42
+sig-id-train-method-model --split data/corpus/splits.json --ood-corpus data/ood/unknown/ood-corpus.json \
   --output-model data/models/method.npz
 ```
 
@@ -230,14 +231,14 @@ independent source groups per method and for noise negatives, and assigns every 
 waveform and all derived impairments to one train, validation or test split.
 The training command fits a small NumPy logistic-regression baseline, calibrates
 separate method and family rejection thresholds on known validation groups and, when
-`--ood-corpus` is supplied, includes its ASK validation sources as negatives only for
+`--ood-corpus` is supplied, includes its unknown-family validation sources as negatives only for
 threshold calibration. It evaluates once on the held-out known-mode groups and separate
-ASK test sources, then writes weight, metadata and evaluation files. The ASK corpus
+unknown-family test sources, then writes weight, metadata and evaluation files. The corpus
 assigns independent source indices 3:2 to threshold-validation:test; none enters model
 fitting. To load
 the exported proposal model in the workbench, set `SIG_ID_MODEL_PATH` to the `.npz`
 file before starting `sig-id-serve`. Proposals never save labels automatically.
-The model uses zero-false-accept validation constraints for noise and supplied ASK
+The model uses zero-false-accept validation constraints for noise and supplied unknown families
 negatives, and reports held-out rates separately. If the constraints and known-mode
 precision target cannot both be met, it abstains on every example; small corpora can
 therefore yield zero useful coverage. The current reproducible mixed ASK experiment,
@@ -257,27 +258,47 @@ sig-id-build-corpus --output-dir /tmp/sig-id-ask-benchmark/known --data-dir "$SI
   --examples-per-mode 12 --snr-db 10 --seed 20261021
 sig-id-split-corpus --corpus /tmp/sig-id-ask-benchmark/known/corpus.json \
   --data-dir "$SIG_ID_DATA_DIR" --output /tmp/sig-id-ask-benchmark/known/splits.json --seed 27
-sig-id-build-ood-corpus --output-dir /tmp/sig-id-ask-benchmark/ask --examples 30 --seed 1717
+sig-id-build-ood-corpus --output-dir /tmp/sig-id-ask-benchmark/ask --examples 30 --seed 1717 --generator-version 0.2.0
 sig-id-train-method-model --split /tmp/sig-id-ask-benchmark/known/splits.json \
   --data-dir "$SIG_ID_DATA_DIR" --ood-corpus /tmp/sig-id-ask-benchmark/ask/ood-corpus.json \
   --output-model /tmp/sig-id-ask-benchmark/model/method.npz --epochs 1200
 ```
 
-Build independent synthetic OOK and 4-ASK sources with varied payload, baud rate,
-carrier, amplitude and phase. This ASK corpus is separate from the six-class training index and is
-passed separately to the trainer above. To re-run post-hoc ASK scoring on an already
-trained model:
+The current diverse benchmark uses the same known corpus and split, but the default
+OOD generator now adds binary PPM alongside OOK and 4-ASK. To reproduce its archived
+result, use the new benchmark output paths and train against that index:
 
 ```sh
-sig-id-build-ood-corpus --output-dir data/ood/ask --examples 30 --seed 42
-sig-id-evaluate-ood --model data/models/method.npz data/ood/ask/waveforms/ask*.wav \
-  --output data/ood/ask/evaluation.json
+sig-id-build-ood-corpus --output-dir /tmp/sig-id-ask-benchmark/diverse --examples 30 --seed 1717
+sig-id-train-method-model --split /tmp/sig-id-ask-benchmark/known/splits.json \
+  --data-dir "$SIG_ID_DATA_DIR" --ood-corpus /tmp/sig-id-ask-benchmark/diverse/ood-corpus.json \
+  --output-model /tmp/sig-id-ask-benchmark/model/ask-ppm.npz --epochs 1200
+```
+
+The measured result is preserved in
+[`reports/ask-ppm-ood-benchmark-2026-10-21.json`](reports/ask-ppm-ood-benchmark-2026-10-21.json).
+On this split, zero of 12 held-out unknown examples were accepted, but the constraints
+also rejected every known test example (0% coverage; raw accuracy before rejection was
+80.8%). This demonstrates conservative rejection, not a useful detection operating
+point. The confidence-only classifier needs better temporal features or a calibrated
+novelty score before these thresholds can be used for live proposals.
+
+Build independent synthetic OOK, 4-ASK and pulse-position sources with varied payload,
+baud rate, carrier, amplitude, phase and pulse width. This diverse corpus is separate
+from the six-class training index and is passed separately to the trainer above. Version
+0.2.0 remains available for exact regeneration of the historical ASK-only experiment.
+To build the diverse benchmark and re-run post-hoc scoring on an already trained model:
+
+```sh
+sig-id-build-ood-corpus --output-dir data/ood/unknown --examples 30 --seed 42
+sig-id-evaluate-ood --model data/models/method.npz data/ood/unknown/waveforms/*.wav \
+  --output data/ood/unknown/evaluation.json
 ```
 
 The JSON report records per-waveform hashes and method/family false-accept rates. The
 standalone evaluator does not alter a model threshold; use `--ood-corpus` during
-training when ASK rejection should affect calibration. This measures only the supplied
-synthetic ASK/OOK and 4-ASK conditions; it does not establish general unknown-mode or field
+training when unknown-family rejection should affect calibration. This measures only the supplied
+synthetic ASK and PPM conditions; it does not establish general unknown-mode or field
 performance.
 
 Replay it blockwise from Python with `sigid.wav.WavSource`; blocks carry exact sample
