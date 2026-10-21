@@ -227,16 +227,19 @@ both be met, it abstains on every example; small corpora can therefore yield zer
 coverage. This does not validate rejection of unseen modulated families, and real-radio
 performance remains unvalidated.
 
-To measure a trained model against verified synthetic OOK that was not included in
-training or calibration, generate one or more examples and score them with:
+Build independent synthetic OOK sources with varied payload, baud rate, carrier,
+amplitude and phase. This corpus is separate from the six-class training index:
 
 ```sh
-sig-id-evaluate-ood --model data/models/method.npz data/fixtures/ook-1.wav data/fixtures/ook-2.wav
+sig-id-build-ood-corpus --output-dir data/ood/ook --examples 30 --seed 42
+sig-id-evaluate-ood --model data/models/method.npz data/ood/ook/waveforms/ook-*.wav \
+  --output data/ood/ook/evaluation.json
 ```
 
-The JSON report records per-waveform hashes and method/family false-accept rates. This
-tool only measures the supplied synthetic examples; it does not establish general
-unknown-mode or field performance.
+The JSON report records per-waveform hashes and method/family false-accept rates. Keep
+the OOD corpus out of model fitting and threshold calibration. This measures only the
+supplied synthetic ASK/OOK conditions; it does not establish general unknown-mode or
+field performance.
 
 Replay it blockwise from Python with `sigid.wav.WavSource`; blocks carry exact sample
 offsets and normalized mono samples. This is a modulation fixture, not a named
