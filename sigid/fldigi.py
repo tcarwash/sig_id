@@ -89,6 +89,14 @@ class FldigiClient:
         with self._lock:
             return int(self._rpc.text.get_rx_length())
 
+    def receive_wefax_file(self, *, timeout_seconds: int = 0) -> str:
+        """Return the next completed WEFAX image path; zero timeout does not wait."""
+        if not isinstance(timeout_seconds, int) or isinstance(timeout_seconds, bool) or not 0 <= timeout_seconds <= 5:
+            raise ValueError("WEFAX file wait must be an integer from 0 to 5 seconds")
+        with self._lock:
+            result = self._rpc.wefax.get_received_file(timeout_seconds)
+            return str(result or "")
+
 
 @dataclass(frozen=True, slots=True)
 class ModeCapability:

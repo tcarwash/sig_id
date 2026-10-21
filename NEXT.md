@@ -22,6 +22,9 @@ the workbench API; radio-input routing and independent-signal validation remain 
   annotation download.
 - Waterfall axes now match the rendered matrix: audio frequency runs left-to-right and
   time runs top-to-bottom, with frequency ticks below and time ticks alongside the plot.
+- Waterfall presentation uses a fixed 0–3 kHz frequency window. The default display
+  uses a 4096-point FFT and 512-sample hop (about 11.7 Hz/bin at 48 kHz); capture
+  input rates remain selectable at 48, 96, or 192 kHz.
 - SQLite capture metadata, source SHA-256, overlapping regions and append-only label
   revisions.
 - Clean deterministic 2-FSK, M-FSK, BPSK and QPSK WAVs with manifests and exact
@@ -70,6 +73,8 @@ the workbench API; radio-input routing and independent-signal validation remain 
   candidate persistent; this is spectral continuity evidence, not mode confirmation.
 - Receive-only Fldigi API/UI: connection status, catalog list, manual mode selection
   and incremental decoded-text polling. Transmit, rig and macro calls are not exposed.
+- Fldigi WEFAX receive products can be polled, validated as bounded supported image
+  files, stored by content hash, and shown in the received-image gallery.
 - Added a generic receive-text backend contract for mode listing, mode selection
   and incremental text output; Fldigi implements it, and the bounded trial runner
   now depends on that contract. Fldigi remains the only implemented protocol
@@ -114,7 +119,7 @@ Verified: Fldigi 4.2.13 and its XML-RPC method catalog are installed; unit tests
 cover receive-only client semantics, PCM WAV block indexing/normalization and
 synthetic 2-FSK/MFSK metadata, exact symbols/bits and tone frequencies, SQLite
 capture hashes/regions/label history, JSONL export, spectrogram peak detection, upload/region APIs, and Fldigi
-status/catalog/mode/output APIs. Current full suite: 104 passed, 4 skipped;
+status/catalog/mode/output APIs, WEFAX product import and image delivery. Current full suite: 108 passed, 4 skipped;
 `node --check sigid/web/app.js` and `git diff --check` pass. The generic text-backend
 contract is exercised by the Fldigi adapter and trial-runner tests. Deterministic fake-device tests
 exercise WAV writing, capture indexing, API start/status/stop and rolling live

@@ -6,7 +6,8 @@ the current engineering checkpoint is [NEXT.md](NEXT.md).
 
 ## Current state
 
-Current code includes WAV upload/playback with a browser waterfall, manual
+Current code includes WAV upload/playback with a fixed 0–3 kHz browser waterfall
+(4096-point FFT at the default 48 kHz capture rate, about 11.7 Hz per bin), manual
 time/frequency selection and label export; blockwise PCM replay; deterministic
 2-FSK and generic MFSK fixture generators; verified synthetic import into the SQLite
 capture/label dataset; and a receive-only Fldigi XML-RPC probe. Local device capture
@@ -61,6 +62,8 @@ sig-id-probe-fldigi --url http://127.0.0.1:7362/RPC2
 Enable Fldigi's XML-RPC server on loopback before launching the workbench. Set
 `SIG_ID_FLDIGI_URL` if it listens on a different local URL. The decoder panel lists
 the installed catalog, selects a receive mode, and polls incremental receive text.
+Completed Fldigi WEFAX images can also be imported into the workbench's managed
+receive-products store and viewed in its received-image gallery.
 Route the radio passband audio to Fldigi's input using the audio system configuration;
 the application does not silently create an audio route or claim decode validation.
 When starting Fldigi from a terminal, its XML-RPC method allow-list can be limited to
@@ -68,7 +71,7 @@ the calls the application uses:
 
 ```sh
 fldigi --xmlrpc-server-address 127.0.0.1 \
-  --xmlrpc-allow='^(fldigi\.(name|version)|modem\.(get_names|get_name|set_by_name)|text\.(get_rx|get_rx_length))$'
+  --xmlrpc-allow='^(fldigi\.(name|version)|modem\.(get_names|get_name|set_by_name)|text\.(get_rx|get_rx_length)|wefax\.get_received_file)$'
 ```
 
 Restrict its XML-RPC method allow-list to the receive and inspection methods needed

@@ -1,5 +1,5 @@
 const el = (id) => document.getElementById(id);
-const state = { capture: null, waterfall: null, drag: null, selection: null, regions: [], tracks: [], liveView: false, modelAvailable: false };
+const state = { capture: null, waterfall: null, drag: null, selection: null, regions: [], tracks: [], liveView: false, modelAvailable: false, view: null };
 const baseCanvas = el("waterfall");
 const overlayCanvas = el("overlay");
 let livePoll = null;
@@ -17,6 +17,7 @@ async function refreshFldigiStatus() {
       el("connection").lastChild.textContent = " Decoder offline";
       el("fldigi-mode").disabled = true;
       el("fldigi-select").disabled = true;
+      el("fldigi-check-wefax").disabled = true;
       return false;
     }
     label.textContent = `${status.name} ${status.version} · ${status.current_mode} · ${status.mode_count} modes · audio route not verified`;
@@ -30,12 +31,60 @@ async function refreshFldigiStatus() {
     else select.value = status.current_mode;
     select.disabled = false;
     el("fldigi-select").disabled = false;
+    el("fldigi-check-wefax").disabled = !status.wefax_output_available;
+    el("wefax-status").textContent = status.wefax_output_available
+      ? "WEFAX image reception available · poll after image reception completes"
+      : "This decoder backend does not expose WEFAX image output";
+    await refreshReceivedImages();
     return true;
   } catch (error) {
     el("fldigi-status").textContent = `Fldigi unavailable · ${error.message}`;
     return false;
   }
 }
+
+async function refreshReceivedImages(products = null) {
+  const target = el("received-images");
+  try {
+    const items = products || await request("/api/fldigi/products");
+    target.replaceChildren();
+    if (!items.length) {
+      const empty = document.createElement("p");
+      empty.className = "muted";
+      empty.textContent = "No received image products yet.";
+      target.append(empty);
+      return;
+    }
+    for (const product of items) {
+      const figure = document.createElement("figure");
+      const image = document.createElement("img");
+      image.src = product.image_url;
+      image.alt = `Received WEFAX image ${product.id}`;
+      image.loading = "lazy";
+      const caption = document.createElement("figcaption");
+      caption.textContent = `${product.source_filename} · ${(product.size_bytes / 1024).toFixed(1)} KiB · SHA-256 ${product.sha256.slice(0, 12)}…`;
+      figure.append(image, caption);
+      target.append(figure);
+    }
+  } catch (error) {
+    el("wefax-status").textContent = `Could not load received images · ${error.message}`;
+  }
+}
+
+el("fldigi-check-wefax").addEventListener("click", async () => {
+  el("fldigi-check-wefax").disabled = true;
+  try {
+    const result = await request("/api/fldigi/products/wefax/poll?timeout_seconds=0", { method: "POST" });
+    el("wefax-status").textContent = result.received
+      ? `Imported received image · SHA-256 ${result.product.sha256}`
+      : "No completed WEFAX image is waiting.";
+    await refreshReceivedImages(result.products);
+  } catch (error) {
+    el("wefax-status").textContent = `WEFAX product check failed · ${error.message}`;
+  } finally {
+    el("fldigi-check-wefax").disabled = false;
+  }
+});
 
 async function pollFldigiOutput() {
   if (trialPoll) return;
@@ -199,6 +248,7 @@ el("live-start").addEventListener("click", async () => {
     state.capture = null;
     state.liveView = true;
     state.waterfall = null;
+    state.view = null;
     state.selection = null;
     state.regions = [];
     state.tracks = [];
@@ -231,12 +281,18 @@ el("live-start").addEventListener("click", async () => {
         const status = await request("/api/live");
         if (status.active) el("live-status").textContent = `${status.state} · ${status.frames_written.toLocaleString()} samples`;
         const autoTrial = el("auto-trial").checked;
-        const analysis = await request(`/api/live/analysis?fft_size=256&hop_size=64&max_rows=640&auto_trial=${autoTrial}`);
+        const analysis = await request(`/api/live/analysis?fft_size=4096&hop_size=512&max_rows=640&auto_trial=${autoTrial}`);
         if (analysis.warming_up) {
           el("waterfall-state").textContent = `Collecting analysis window · ${analysis.window_sample_count.toLocaleString()} samples`;
           return;
         }
         state.waterfall = analysis.spectrum;
+        if (!state.view) resetWaterfallView(false);
+        else if (state.view.followTime) {
+          const span = state.view.timeEndSample - state.view.timeStartSample;
+          state.view.timeEndSample = analysis.spectrum.sample_count;
+          state.view.timeStartSample = Math.max(0, state.view.timeEndSample - span);
+        }
         state.tracks = analysis.tracks;
         if (analysis.automatic_trial?.status === "running") watchDecoderTrial(analysis.automatic_trial);
         el("waterfall-state").textContent = `${analysis.spectrum.db.length} rolling spectrum rows · latest 10 seconds`;
@@ -335,6 +391,7 @@ el("synthetic-form").addEventListener("submit", async (event) => {
 
 async function loadCapture() {
   state.liveView = false;
+  state.view = null;
   state.selection = null;
   updateModelButton();
   el("demod-run").disabled = false;
@@ -360,7 +417,7 @@ async function loadCapture() {
   el("time-end").textContent = `${duration.toFixed(2)} s`;
   el("audio-player").src = `/api/captures/${c.id}/audio`;
   el("waterfall-state").textContent = "Calculating spectrum…";
-  state.waterfall = await request(`/api/captures/${c.id}/waterfall?fft_size=1024&hop_size=256&max_rows=640`);
+  state.waterfall = await request(`/api/captures/${c.id}/waterfall?fft_size=4096&hop_size=512&max_rows=640`);
   drawWaterfall();
   state.regions = await request(`/api/captures/${c.id}/regions`);
   renderRegions();
@@ -389,8 +446,11 @@ function colorFor(db, min, max) {
 function drawWaterfall() {
   const data = state.waterfall;
   if (!data || !data.db.length) return;
-  const bins = data.frequency_hz.length;
-  const rows = data.db.length;
+  if (!state.view) resetWaterfallView(false);
+  const view = waterfallViewBounds();
+  const bins = view.frequencyEnd - view.frequencyStart;
+  const rows = view.rowEnd - view.rowStart;
+  if (bins < 1 || rows < 1) return;
   baseCanvas.width = bins;
   baseCanvas.height = rows;
   overlayCanvas.width = bins;
@@ -401,7 +461,7 @@ function drawWaterfall() {
   const max = -20;
   for (let y = 0; y < rows; y += 1) {
     for (let x = 0; x < bins; x += 1) {
-      const [r, g, b] = colorFor(data.db[y][x], min, max);
+      const [r, g, b] = colorFor(data.db[y + view.rowStart][x + view.frequencyStart], min, max);
       const p = (y * bins + x) * 4;
       image.data[p] = r;
       image.data[p + 1] = g;
@@ -410,11 +470,64 @@ function drawWaterfall() {
     }
   }
   context.putImageData(image, 0, 0);
-  const firstFrequency = data.frequency_hz[0];
-  const lastFrequency = data.frequency_hz[bins - 1];
+  const firstFrequency = data.frequency_hz[view.frequencyStart];
+  const lastFrequency = data.frequency_hz[view.frequencyEnd - 1];
   el("freq-low").textContent = `${Math.round(firstFrequency).toLocaleString()} Hz`;
   el("freq-high").textContent = `${Math.round(lastFrequency).toLocaleString()} Hz`;
+  const firstTime = data.sample_starts[view.rowStart] / data.sample_rate;
+  const lastTime = Math.min(data.sample_count, data.sample_starts[view.rowEnd - 1] + data.hop_size) / data.sample_rate;
+  el("time-start").textContent = `${firstTime.toFixed(2)} s`;
+  el("time-end").textContent = `${lastTime.toFixed(2)} s`;
   drawOverlays();
+}
+
+function lowerBound(values, value) {
+  let low = 0;
+  let high = values.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (values[middle] < value) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
+
+function waterfallViewBounds() {
+  const data = state.waterfall;
+  const frequencyStart = Math.max(0, Math.min(data.frequency_hz.length - 1, lowerBound(data.frequency_hz, state.view.frequencyLowHz)));
+  const frequencyEnd = Math.max(frequencyStart + 1, Math.min(data.frequency_hz.length, lowerBound(data.frequency_hz, state.view.frequencyHighHz) + 1));
+  const rowStart = Math.max(0, Math.min(data.sample_starts.length - 1, lowerBound(data.sample_starts, state.view.timeStartSample)));
+  const rowEnd = Math.max(rowStart + 1, Math.min(data.sample_starts.length, lowerBound(data.sample_starts, state.view.timeEndSample)));
+  return { frequencyStart, frequencyEnd, rowStart, rowEnd };
+}
+
+function resetWaterfallView(redraw = true) {
+  const data = state.waterfall;
+  if (!data) return;
+  const timeEndSample = data.sample_count;
+  state.view = {
+    frequencyLowHz: 0,
+    frequencyHighHz: Math.min(3000, data.sample_rate / 2),
+    timeStartSample: state.liveView ? Math.max(0, timeEndSample - 10 * data.sample_rate) : 0,
+    timeEndSample,
+    followTime: state.liveView,
+  };
+  reprojectSelection();
+  if (redraw) drawWaterfall();
+}
+
+function reprojectSelection() {
+  if (!state.selection || !state.waterfall || !state.view) return;
+  const data = state.waterfall;
+  const view = waterfallViewBounds();
+  const lowHz = data.frequency_hz[view.frequencyStart];
+  const highHz = data.frequency_hz[view.frequencyEnd - 1];
+  const bins = view.frequencyEnd - view.frequencyStart;
+  const x = (frequency) => Math.round((frequency - lowHz) / Math.max(1, highHz - lowHz) * (bins - 1));
+  state.selection.x1 = x(state.selection.frequency_low_hz);
+  state.selection.x2 = x(state.selection.frequency_high_hz);
+  state.selection.y1 = sampleToRow(state.selection.sample_start) - view.rowStart;
+  state.selection.y2 = sampleToRow(state.selection.sample_start + state.selection.sample_count) - view.rowStart;
 }
 
 function sampleToRow(sample) {
@@ -432,31 +545,41 @@ function sampleToRow(sample) {
 function drawOverlays() {
   const data = state.waterfall;
   if (!data) return;
+  const view = waterfallViewBounds();
   const ctx = overlayCanvas.getContext("2d");
   ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-  const nyquist = data.sample_rate / 2;
-  const bins = data.frequency_hz.length;
+  const lowHz = data.frequency_hz[view.frequencyStart];
+  const highHz = data.frequency_hz[view.frequencyEnd - 1];
+  const bins = view.frequencyEnd - view.frequencyStart;
+  const visibleRow = (sample) => sampleToRow(sample) - view.rowStart;
+  const visibleX = (frequency) => Math.round((frequency - lowHz) / Math.max(1, highHz - lowHz) * (bins - 1));
   for (const track of state.tracks) {
-    const rowA = sampleToRow(track.sample_start);
-    const rowB = Math.max(rowA + 1, sampleToRow(track.sample_start + track.sample_count));
-    const x = Math.max(0, Math.floor((track.frequency_low_hz / nyquist) * (bins - 1)));
-    const right = Math.min(bins - 1, Math.ceil((track.frequency_high_hz / nyquist) * (bins - 1)));
+    const rowA = visibleRow(track.sample_start);
+    const rowB = visibleRow(track.sample_start + track.sample_count);
+    const x = visibleX(track.frequency_low_hz);
+    const right = visibleX(track.frequency_high_hz);
+    if (rowB < 0 || rowA >= overlayCanvas.height || right < 0 || x >= bins) continue;
     ctx.strokeStyle = track.track_state === "persistent" ? "#52d6d0" : "#f1be69";
     ctx.lineWidth = 1.5;
     ctx.setLineDash([5, 3]);
-    ctx.strokeRect(x, rowA, Math.max(2, right - x), Math.max(2, rowB - rowA));
+    const left = Math.max(0, x);
+    const top = Math.max(0, rowA);
+    ctx.strokeRect(left, top, Math.max(2, Math.min(bins - 1, right) - left), Math.max(2, Math.min(overlayCanvas.height - 1, rowB) - top));
   }
   ctx.setLineDash([]);
   for (const region of state.regions) {
-    const rowA = sampleToRow(region.sample_start);
-    const rowB = Math.max(rowA + 1, sampleToRow(region.sample_start + region.sample_count));
+    const rowA = visibleRow(region.sample_start);
+    const rowB = visibleRow(region.sample_start + region.sample_count);
     const low = region.frequency_low_hz ?? 0;
-    const high = region.frequency_high_hz ?? nyquist;
-    const x = Math.max(0, Math.floor((low / nyquist) * (bins - 1)));
-    const width = Math.max(2, Math.ceil(((high - low) / nyquist) * (bins - 1)));
+    const high = region.frequency_high_hz ?? data.sample_rate / 2;
+    const x = visibleX(low);
+    const right = visibleX(high);
+    if (rowB < 0 || rowA >= overlayCanvas.height || right < 0 || x >= bins) continue;
     ctx.strokeStyle = "#ffffff";
     ctx.lineWidth = 2;
-    ctx.strokeRect(x, rowA, Math.min(width, bins - x), Math.max(2, rowB - rowA));
+    const left = Math.max(0, x);
+    const top = Math.max(0, rowA);
+    ctx.strokeRect(left, top, Math.max(2, Math.min(bins - 1, right) - left), Math.max(2, Math.min(overlayCanvas.height - 1, rowB) - top));
   }
   if (state.selection) {
     const { x1, y1, x2, y2 } = state.selection;
@@ -471,15 +594,18 @@ function drawOverlays() {
 function selectTrack(track) {
   const data = state.waterfall;
   if (!data) return;
-  const nyquist = data.sample_rate / 2;
-  const bins = data.frequency_hz.length;
-  const x1 = Math.max(0, Math.min(bins - 1, Math.round(track.frequency_low_hz / nyquist * (bins - 1))));
-  const x2 = Math.max(x1 + 1, Math.min(bins - 1, Math.round(track.frequency_high_hz / nyquist * (bins - 1))));
-  const y1 = sampleToRow(track.sample_start);
-  const y2 = Math.max(y1 + 1, sampleToRow(track.sample_start + track.sample_count));
-  const binStep = nyquist / (bins - 1);
+  if (!state.view) resetWaterfallView(false);
+  const view = waterfallViewBounds();
+  const lowHz = data.frequency_hz[view.frequencyStart];
+  const highHz = data.frequency_hz[view.frequencyEnd - 1];
+  const bins = view.frequencyEnd - view.frequencyStart;
+  const x1 = Math.max(0, Math.min(bins - 1, Math.round((track.frequency_low_hz - lowHz) / Math.max(1, highHz - lowHz) * (bins - 1))));
+  const x2 = Math.max(x1 + 1, Math.min(bins - 1, Math.round((track.frequency_high_hz - lowHz) / Math.max(1, highHz - lowHz) * (bins - 1))));
+  const y1 = Math.max(0, sampleToRow(track.sample_start) - view.rowStart);
+  const y2 = Math.max(y1 + 1, sampleToRow(track.sample_start + track.sample_count) - view.rowStart);
+  const binStep = (highHz - lowHz) / Math.max(1, bins - 1);
   const sampleEnd = Math.min(data.sample_count, track.sample_start + track.sample_count);
-  state.selection = { sample_start: track.sample_start, sample_count: Math.max(1, sampleEnd - track.sample_start), frequency_low_hz: x1 * binStep, frequency_high_hz: x2 * binStep, x1, y1, x2, y2 };
+  state.selection = { sample_start: track.sample_start, sample_count: Math.max(1, sampleEnd - track.sample_start), frequency_low_hz: track.frequency_low_hz, frequency_high_hz: track.frequency_high_hz, x1, y1, x2, y2 };
   el("selection-summary").textContent = `${state.selection.frequency_low_hz.toFixed(0)}–${state.selection.frequency_high_hz.toFixed(0)} Hz · ${track.modulation_hypothesis}`;
   el("selection-details").textContent = `Provisional candidate · ${(track.time_start_seconds).toFixed(2)}–${track.time_end_seconds.toFixed(2)} s · ${track.tone_count_candidate} tone centers · protocol unknown`;
   el("family").value = "";
@@ -571,20 +697,24 @@ overlayCanvas.addEventListener("pointerup", (event) => {
   if (!state.drag) return;
   const point = canvasPoint(event);
   const data = state.waterfall;
+  const view = waterfallViewBounds();
   const rowStart = Math.min(state.drag.y, point.y);
   const rowEnd = Math.max(state.drag.y, point.y);
   const rowSamples = data.sample_starts;
-  const sampleStart = rowSamples[rowStart];
-  const sampleEnd = Math.min(data.sample_count, rowSamples[rowEnd] + data.fft_size);
-  const nyquist = data.sample_rate / 2;
-  const binStep = nyquist / (data.frequency_hz.length - 1);
+  const firstRow = view.rowStart + rowStart;
+  const lastRow = Math.min(view.rowEnd - 1, view.rowStart + rowEnd);
+  const sampleStart = rowSamples[firstRow];
+  const sampleEnd = Math.min(data.sample_count, rowSamples[lastRow] + data.fft_size);
+  const firstBin = view.frequencyStart;
   const xLow = Math.min(state.drag.x, point.x);
   const xHigh = Math.max(state.drag.x, point.x);
+  const frequencyLow = data.frequency_hz[Math.min(view.frequencyEnd - 1, firstBin + xLow)];
+  const frequencyHigh = data.frequency_hz[Math.min(view.frequencyEnd - 1, firstBin + Math.max(xLow + 1, xHigh))];
   state.selection = {
     sample_start: sampleStart,
     sample_count: Math.max(1, sampleEnd - sampleStart),
-    frequency_low_hz: Math.max(0, xLow * binStep),
-    frequency_high_hz: Math.min(nyquist, Math.max(xLow + 1, xHigh) * binStep),
+    frequency_low_hz: frequencyLow,
+    frequency_high_hz: frequencyHigh,
     x1: state.drag.x, y1: state.drag.y, x2: point.x, y2: point.y,
   };
   state.drag = null;

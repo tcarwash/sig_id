@@ -19,6 +19,7 @@ from .demod import demodulate_2fsk, demodulate_bpsk, demodulate_mfsk, demodulate
 from .detection import detect_tracks
 from .fldigi import FldigiClient
 from .live_audio import LiveCaptureManager
+from .receive_products import ReceiveProductStore
 from .spectrum import waterfall, waterfall_samples
 from .synthetic_dataset import MAX_MANIFEST_BYTES, import_synthetic_wav
 from .tracking import LiveTrackRegistry
@@ -113,6 +114,7 @@ def create_app(
     capture_dir.mkdir(parents=True, exist_ok=True)
     store = CaptureStore(root / "dataset.sqlite3")
     live_capture = LiveCaptureManager(store, capture_dir, audio_backend=audio_backend)
+    receive_products = ReceiveProductStore(root / "receive-products")
     fldigi = fldigi_client or FldigiClient(
         url=os.environ.get("SIG_ID_FLDIGI_URL", "http://127.0.0.1:7362/RPC2"),
         timeout=float(os.environ.get("SIG_ID_FLDIGI_TIMEOUT", "0.75")),
@@ -132,6 +134,7 @@ def create_app(
     app.state.capture_dir = capture_dir
     app.state.capture_store = store
     app.state.live_capture = live_capture
+    app.state.receive_products = receive_products
     app.state.fldigi = fldigi
     app.state.classifier = classifier
     app.state.classifier_error = classifier_error
@@ -175,8 +178,8 @@ def create_app(
 
     @app.get("/api/live/analysis")
     def live_analysis(
-        fft_size: int = Query(default=256, ge=32, le=8192),
-        hop_size: int = Query(default=64, ge=1, le=8192),
+        fft_size: int = Query(default=4096, ge=32, le=8192),
+        hop_size: int = Query(default=512, ge=1, le=8192),
         max_rows: int = Query(default=640, ge=1, le=8192),
         threshold_db: float = Query(default=18.0, ge=1.0, le=60.0),
         auto_trial: bool = Query(default=False),
@@ -360,6 +363,7 @@ def create_app(
                 "receive_text_length": fldigi.receive_text_length(),
                 "audio_routed": None,
                 "audio_route_managed": False,
+                "wefax_output_available": callable(getattr(fldigi, "receive_wefax_file", None)),
                 "note": "Connect the radio passband to Fldigi's audio input to decode.",
             }
         except Exception as exc:
@@ -429,6 +433,32 @@ def create_app(
             }
         except Exception as exc:
             raise HTTPException(status_code=503, detail=f"Fldigi receive output unavailable: {exc}") from exc
+
+    @app.get("/api/fldigi/products")
+    def list_fldigi_products() -> list[dict[str, Any]]:
+        return receive_products.list()
+
+    @app.post("/api/fldigi/products/wefax/poll")
+    def poll_fldigi_wefax(timeout_seconds: int = Query(default=0, ge=0, le=1)) -> dict[str, Any]:
+        receive_wefax_file = getattr(fldigi, "receive_wefax_file", None)
+        if receive_wefax_file is None:
+            raise HTTPException(status_code=501, detail="the configured decoder backend does not expose WEFAX products")
+        try:
+            path = receive_wefax_file(timeout_seconds=timeout_seconds)
+            product = receive_products.import_wefax(path) if path else None
+            return {"received": product is not None, "product": product, "products": receive_products.list()}
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"Fldigi WEFAX output unavailable: {exc}") from exc
+
+    @app.get("/api/fldigi/products/{product_id}/image")
+    def fldigi_product_image(product_id: str) -> FileResponse:
+        try:
+            path, media_type = receive_products.image_path(product_id)
+        except (KeyError, OSError, ValueError) as exc:
+            raise HTTPException(status_code=404, detail="received image not found") from exc
+        return FileResponse(path, media_type=media_type, filename=path.name)
 
     @app.post("/api/captures")
     def upload_capture(file: UploadFile = File(...)) -> dict[str, Any]:
@@ -534,8 +564,8 @@ def create_app(
     @app.get("/api/captures/{capture_id}/waterfall")
     def get_waterfall(
         capture_id: str,
-        fft_size: int = 1024,
-        hop_size: int = 256,
+        fft_size: int = 4096,
+        hop_size: int = 512,
         max_rows: int = 512,
     ) -> dict[str, Any]:
         try:
