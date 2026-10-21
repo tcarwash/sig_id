@@ -1,4 +1,4 @@
-import { liveRowLimit, liveTimeWindow } from "/waterfall-window.mjs";
+import { liveRowLimit, liveTimeLabels, liveTimeWindow } from "/waterfall-window.mjs";
 import { createDemodExport, downloadDemodExport } from "/demod-export.mjs";
 
 const el = (id) => document.getElementById(id);
@@ -507,8 +507,14 @@ function drawWaterfall() {
   el("freq-high").textContent = `${Math.round(lastFrequency).toLocaleString()} Hz`;
   const firstTime = data.sample_starts[view.rowStart] / data.sample_rate;
   const lastTime = Math.min(data.sample_count, data.sample_starts[view.rowEnd - 1] + data.hop_size) / data.sample_rate;
-  el("time-start").textContent = `${firstTime.toFixed(2)} s`;
-  el("time-end").textContent = `${lastTime.toFixed(2)} s`;
+  if (state.liveView) {
+    const labels = liveTimeLabels(data.sample_starts[view.rowStart], data.sample_count, data.sample_rate);
+    el("time-start").textContent = labels.start;
+    el("time-end").textContent = labels.end;
+  } else {
+    el("time-start").textContent = `${firstTime.toFixed(2)} s`;
+    el("time-end").textContent = `${lastTime.toFixed(2)} s`;
+  }
   drawOverlays();
 }
 

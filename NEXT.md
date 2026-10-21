@@ -69,6 +69,8 @@ validation remain open.
 - Live capture also exposes a bounded rolling ten-second waterfall and provisional
   signal candidates while recording. The 10-second audio analysis ring is bounded in
   memory; final labels continue to reference the saved capture's absolute samples.
+  Its vertical axis now stays relative (`−10 s` to `Now`) as the one-second analysis
+  refresh advances, so capture uptime is not mistaken for the visible window length.
 - Live candidate IDs persist across rolling analyses, tolerate limited center-frequency
   drift, and expire after five seconds without a detection. Three observations mark a
   candidate persistent; this is spectral continuity evidence, not mode confirmation.

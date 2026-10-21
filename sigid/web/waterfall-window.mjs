@@ -27,3 +27,18 @@ export function liveRowLimit(sampleRate, hopSize, windowSeconds = 10) {
   }
   return Math.ceil(sampleRate * windowSeconds / hopSize) + 1;
 }
+
+/** Relative time-axis labels for a scrolling live view. */
+export function liveTimeLabels(visibleStartSample, sampleCount, sampleRate) {
+  if (!Number.isSafeInteger(visibleStartSample) || visibleStartSample < 0) {
+    throw new RangeError("visibleStartSample must be a non-negative safe integer");
+  }
+  if (!Number.isSafeInteger(sampleCount) || sampleCount < visibleStartSample) {
+    throw new RangeError("sampleCount must be a safe integer at or after visibleStartSample");
+  }
+  if (!Number.isSafeInteger(sampleRate) || sampleRate <= 0) {
+    throw new RangeError("sampleRate must be a positive safe integer");
+  }
+  const elapsedSeconds = (sampleCount - visibleStartSample) / sampleRate;
+  return { start: `−${elapsedSeconds.toFixed(1)} s`, end: "Now" };
+}
