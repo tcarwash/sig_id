@@ -28,6 +28,7 @@ const page = await browser.newPage({
 const errors = [];
 page.on("pageerror", (error) => errors.push(error.message));
 let modeChanges = 0;
+let cleanupLive = false;
 // Exercise controls without changing the operator's Fldigi instance.
 await page.route("**/api/fldigi/**", async (route) => {
   const path = new URL(route.request().url()).pathname;
@@ -116,12 +117,81 @@ try {
   assert.equal(modeChanges, 1);
   await page.locator("#show-library").click();
   await page.locator("#synthetic-wav").setInputFiles(join(root, "2fsk.wav"));
-  await page.locator("#synthetic-manifest").setInputFiles(join(root, "2fsk.wav.json"));
+  await page
+    .locator("#synthetic-manifest")
+    .setInputFiles(join(root, "2fsk.wav.json"));
   await page.locator("#synthetic-form button").click();
-  await page.locator("#library-dialog").waitFor({state:"hidden"});
+  await page.locator("#library-dialog").waitFor({ state: "hidden" });
   await page.locator(".signal-tag.saved").first().waitFor();
   assert.ok(await page.locator("#error").isHidden());
-  assert.equal(await page.locator("#decoded-text").textContent(), "Decoded text will appear here.");
+  assert.equal(
+    await page.locator("#decoded-text").textContent(),
+    "Decoded text will appear here.",
+  );
+  assert.equal(await page.locator("#qpsk-output").textContent(), "Select a saved capture or region to analyze.");
+  if (process.env.SIGID_UI_LIVE === "1") {
+    const devices = await (
+      await page.request.get(
+        `${process.env.SIGID_UI_URL || "http://127.0.0.1:8011"}/api/audio/devices`,
+      )
+    ).json();
+    assert.ok(
+      devices.every((device) => device.name === "Synthetic UI input"),
+      "Live UI tests require tests/ui_server.py, never a radio device",
+    );
+    cleanupLive = true;
+    for (const rate of [48000, 96000, 192000]) {
+      await page.locator("#show-settings").click();
+      await page.locator("#audio-rate").selectOption(String(rate));
+      await page.locator("#settings-dialog [data-close-dialog]").click();
+      await page.locator("#live-start").click();
+      await page.waitForFunction(() =>
+        document
+          .getElementById("waterfall-state")
+          .textContent.includes("30 s display"),
+      );
+      assert.equal(await page.locator("#time-start").textContent(), "−30 s");
+      assert.equal(
+        await page.locator("#waterfall").getAttribute("height"),
+        String(Math.ceil((30 * rate) / 512)),
+      );
+      await page.locator("#freeze-view").click();
+      const frozen = await page
+        .locator("#waterfall")
+        .evaluate((canvas) => canvas.toDataURL());
+      const before = await (
+        await page.request.get(new URL("/api/live", page.url()).href)
+      ).json();
+      await page.waitForTimeout(700);
+      const after = await (
+        await page.request.get(new URL("/api/live", page.url()).href)
+      ).json();
+      assert.ok(
+        after.frames_written > before.frames_written,
+        "recording continues while frozen",
+      );
+      assert.equal(
+        await page
+          .locator("#waterfall")
+          .evaluate((canvas) => canvas.toDataURL()),
+        frozen,
+      );
+      await page.locator("#freeze-view").click();
+      await page.waitForFunction(
+        (old) => document.getElementById("waterfall").toDataURL() !== old,
+        frozen,
+      );
+      if (rate === 48000) await page.screenshot({path:join(root,"live-30-second-history.png")});
+      await page.locator("#live-stop").click();
+      await page.waitForFunction(() =>
+        document
+          .getElementById("live-status")
+          .textContent.includes("Saved live capture"),
+      );
+      assert.ok(await page.locator("#live-start").isEnabled());
+      assert.ok(await page.locator("#freeze-view").isDisabled());
+    }
+  }
   await page.keyboard.press("Escape");
   assert.ok(await page.locator("#inspector").isHidden());
   await page.screenshot({ path: join(root, "desktop.png") });
@@ -143,5 +213,7 @@ try {
     }),
   );
 } finally {
+  if (cleanupLive)
+    await page.request.post(new URL("/api/live/stop", page.url()).href);
   await browser.close();
 }

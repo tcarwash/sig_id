@@ -10,7 +10,7 @@ from uuid import uuid4
 
 import numpy as np
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
 from .dataset import CaptureStore, SignalLabel
@@ -19,6 +19,7 @@ from .demod import demodulate_2fsk, demodulate_bpsk, demodulate_mfsk, demodulate
 from .detection import detect_tracks
 from .fldigi import FldigiClient
 from .live_audio import LiveCaptureManager
+from .live_spectrum import spectrum_packet
 from .receive_products import ReceiveProductStore
 from .spectrum import waterfall, waterfall_samples
 from .synthetic_dataset import MAX_MANIFEST_BYTES, import_synthetic_wav
@@ -204,6 +205,23 @@ def create_app(
     def live_status() -> dict[str, Any]:
         return live_capture.status()
 
+    @app.get("/api/live/spectrum")
+    def live_spectrum(
+        after_sample: int = Query(default=-1, ge=-1),
+        session_id: str | None = Query(default=None, max_length=128),
+        fft_size: int = Query(default=4096, ge=32, le=8192),
+        hop_size: int = Query(default=512, ge=1, le=8192),
+    ) -> Response:
+        snapshot = live_capture.analysis_audio()
+        if snapshot is None or not snapshot["active"]:
+            raise HTTPException(status_code=409, detail="live capture is not active")
+        try:
+            packet = spectrum_packet(snapshot, after_sample=after_sample, session_id=session_id,
+                                     fft_size=fft_size, hop_size=hop_size)
+            return Response(packet, media_type="application/octet-stream", headers={"Cache-Control": "no-store"})
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     @app.get("/api/live/analysis")
     def live_analysis(
         fft_size: int = Query(default=4096, ge=32, le=8192),
@@ -211,6 +229,7 @@ def create_app(
         max_rows: int = Query(default=640, ge=1, le=8192),
         threshold_db: float = Query(default=18.0, ge=1.0, le=60.0),
         auto_trial: bool = Query(default=False),
+        include_spectrum: bool = Query(default=True),
     ) -> dict[str, Any]:
         snapshot = live_capture.analysis_audio()
         if snapshot is None or not snapshot["active"]:
@@ -348,7 +367,7 @@ def create_app(
                 "active": True,
                 "warming_up": False,
                 "session_id": snapshot["session_id"],
-                "spectrum": spectrum,
+                "spectrum": spectrum if include_spectrum else None,
                 "tracks": tracks,
                 "automatic_trial": automatic_trial,
                 "analysis": {"threshold_db": threshold_db, "method": "row-median threshold with persistent peak clusters"},
@@ -961,6 +980,10 @@ def create_app(
     @app.get("/signal-overlays.mjs", include_in_schema=False)
     def signal_overlays_module() -> FileResponse:
         return FileResponse(WEB_DIR / "signal-overlays.mjs", media_type="text/javascript")
+
+    @app.get("/live-waterfall.mjs", include_in_schema=False)
+    def live_waterfall_module() -> FileResponse:
+        return FileResponse(WEB_DIR / "live-waterfall.mjs", media_type="text/javascript")
 
     @app.get("/style.css", include_in_schema=False)
     def stylesheet() -> FileResponse:

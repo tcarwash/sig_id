@@ -24,8 +24,11 @@ validation remain open.
   keyboard access and provisional evidence text. Library reopens saved recordings.
   Chromium workflow checks cover five demodulator exports, partial labels, saved-region
   selection and explicit decoder-mode activation at desktop/mobile sizes. The first
-  layout checkpoint retains the existing ten-second live analysis cadence; incremental
-  display transport and longer history are the next GUI step.
+  layout checkpoint is followed by incremental binary spectrum transport at a 200 ms
+  polling target, independently of the one-second candidate analysis. The display has a
+  fixed thirty-second time scale and a bounded sixty-second row cache. Startup history
+  and missing update ranges remain blank; Freeze view retains an immutable image while
+  recording continues. Browser checks pass at 48/96/192 kHz with paced synthetic audio.
 
 - WAV upload/playback, sample-indexed audio replay, bounded spectrogram, drag-selected
   time/frequency regions, manual hierarchical labels, saved-region list and JSONL
@@ -114,11 +117,12 @@ validation remain open.
 - Local input-device discovery and bounded mono/stereo PCM recording through a
   background writer; live audio is saved as a normal capture with device provenance.
 - Browser controls to start/stop live recording and immediately review its waterfall.
-- Live capture also exposes a bounded rolling ten-second waterfall and provisional
+- Live capture also exposes a thirty-second waterfall display and provisional
   signal candidates while recording. The 10-second audio analysis ring is bounded in
   memory; final labels continue to reference the saved capture's absolute samples.
-  Its vertical axis now stays relative (`−10 s` to `Now`) as the one-second analysis
-  refresh advances, so capture uptime is not mistaken for the visible window length.
+  Its vertical axis stays relative (`−30 s` to `Now`) while the display updates
+  independently of the one-second candidate analysis. The browser caches at most
+  sixty seconds of spectrum rows; the server audio analysis ring stays at ten seconds.
 - Live candidate IDs persist across rolling analyses, tolerate limited center-frequency
   drift, and expire after five seconds without a detection. Three observations mark a
   candidate persistent; this is spectral continuity evidence, not mode confirmation.
@@ -150,8 +154,8 @@ validation remain open.
   `RSID_EOT` is not a receive mode and is now omitted from the workbench selector.
   The client rejects silent mode-switch failures. This is selection evidence only,
   not decode support. See `reports/fldigi-4.2.13-catalog-selection.json`.
-- Live waterfall follow mode expands from available startup history to ten seconds,
-  then keeps the trailing ten seconds in view.
+- Live waterfall follow mode has a fixed thirty-second scale, with unavailable startup
+  history and dropped display-update ranges left blank.
 - Fldigi WEFAX receive products can be polled, validated as bounded supported image
   files, stored by content hash, and shown in the received-image gallery.
 - Added a generic receive-text backend contract for mode listing, mode selection
@@ -223,7 +227,7 @@ Verified: Fldigi 4.2.13 and its XML-RPC method catalog are installed; unit tests
 cover receive-only client semantics, PCM WAV block indexing/normalization and
 synthetic 2-FSK/MFSK metadata, exact symbols/bits and tone frequencies, SQLite
 capture hashes/regions/label history, JSONL export, spectrogram peak detection, upload/region APIs, and Fldigi
-status/catalog/mode/output APIs, WEFAX product import and image delivery. Current full suite: 169 passed, 7 skipped;
+status/catalog/mode/output APIs, WEFAX product import and image delivery. Current full suite: 172 passed, 7 skipped;
 the opt-in isolated selection audit checks all 169 entries (165 selectable, four unresolved),
 and `node --test tests/test_waterfall_window.mjs`, module syntax validation, headless
 Chromium loading, and `git diff --check` pass. The generic text-backend

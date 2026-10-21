@@ -12,6 +12,9 @@ does not change the decoder mode or save a label. Results appear in the bottom d
 Open recordings and import synthetic fixtures through Library; audio device/rate and
 automatic-trial settings are in Settings. Freeze view pauses display following while
 live recording continues; Stop and review finishes and saves the recording.
+The live waterfall shows thirty seconds with a fixed startup scale and receives new
+spectrum rows in binary batches independently of candidate analysis. Missing display
+updates appear as gaps. See [browser verification](tests/GUI.md) for repeatable UI checks.
 
 Current code includes WAV upload/playback with a fixed 0–3 kHz browser waterfall
 (4096-point FFT at the default 48 kHz capture rate, about 11.7 Hz per bin), manual

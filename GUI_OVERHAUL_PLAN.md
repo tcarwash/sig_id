@@ -1,7 +1,7 @@
 # Waterfall-centered GUI overhaul
 
-Status: implementation authorized. Layout and interactive overlays are implemented;
-incremental live display and further output/review integration are in progress.
+Status: layout, interactive overlays, incremental binary live display, fixed history
+and freeze controls are implemented. Further output/review integration is in progress.
 
 ## Product goal
 

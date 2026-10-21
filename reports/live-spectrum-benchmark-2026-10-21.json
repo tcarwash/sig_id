@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "host": "tyler-ldesktop",
+  "platform": "Linux-7.0.0-38-generic-x86_64-with-glibc2.43",
+  "scope": "in-process synthetic encoding benchmark only; excludes device, network and browser rendering",
+  "iterations_per_rate": 50,
+  "results": [
+    {
+      "sample_rate": 48000,
+      "increment_seconds": 0.2,
+      "packet_bytes": 22348,
+      "rows": 19,
+      "frequency_bins": 257,
+      "encode_ms_median": 1.140331500209868,
+      "encode_ms_p95": 1.7988858569879083
+    },
+    {
+      "sample_rate": 96000,
+      "increment_seconds": 0.2,
+      "packet_bytes": 21196,
+      "rows": 38,
+      "frequency_bins": 129,
+      "encode_ms_median": 1.964059512829408,
+      "encode_ms_p95": 2.614525679382495
+    },
+    {
+      "sample_rate": 192000,
+      "increment_seconds": 0.2,
+      "packet_bytes": 20804,
+      "rows": 75,
+      "frequency_bins": 65,
+      "encode_ms_median": 3.7002484896220267,
+      "encode_ms_p95": 4.889570520026609
+    }
+  ]
+}

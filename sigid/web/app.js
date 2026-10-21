@@ -1,4 +1,5 @@
-import { liveRowLimit, liveTimeLabels, liveTimeWindow } from "/waterfall-window.mjs";
+import { liveTimeLabels } from "/waterfall-window.mjs";
+import { decodeSpectrumPacket, LiveWaterfall, liveDisplayBounds } from "/live-waterfall.mjs";
 import { createDemodExport, downloadDemodExport } from "/demod-export.mjs";
 import { layoutSignalLabels, signalCaption, hitSignal } from "/signal-overlays.mjs";
 
@@ -7,6 +8,8 @@ const state = { capture: null, waterfall: null, drag: null, selection: null, reg
 const baseCanvas = el("waterfall");
 const overlayCanvas = el("overlay");
 let livePoll = null;
+let spectrumPoll = null;
+let liveDisplay = null;
 let fldigiPoll = null;
 let fldigiOffset = null;
 let trialPoll = null;
@@ -320,7 +323,7 @@ el("live-start").addEventListener("click", async () => {
     el("workspace").classList.remove("hidden");
     el("capture-title").textContent = "Live passband";
     el("capture-meta").textContent = `${started.sample_rate.toLocaleString()} samples/s · ${started.device_name} · rolling analysis`;
-    el("time-start").textContent = "−10 s";
+    el("time-start").textContent = "−30 s";
     el("time-end").textContent = "Now";
     el("audio-player").removeAttribute("src");
     el("waterfall-state").textContent = "Waiting for audio frames…";
@@ -331,6 +334,8 @@ el("live-start").addEventListener("click", async () => {
     el("live-status").textContent = `Recording · ${started.device_name} · ${started.sample_rate.toLocaleString()} Hz`;
     renderRegions();
     const generation = state.liveGeneration = (state.liveGeneration || 0) + 1;
+    liveDisplay = new LiveWaterfall(60);
+    startSpectrumStream(generation, started.session_id);
     let pending = false;
     livePoll = setInterval(async () => {
       if (pending) return;
@@ -340,8 +345,7 @@ el("live-start").addEventListener("click", async () => {
         if (generation !== state.liveGeneration || !state.liveView) return;
         if (status.active) el("live-status").textContent = state.frozen ? "Recording · view frozen" : `${status.state} · ${status.frames_written.toLocaleString()} samples`;
         const autoTrial = el("auto-trial").checked;
-        const rowLimit = liveRowLimit(started.sample_rate, 512);
-        const analysis = await request(`/api/live/analysis?fft_size=4096&hop_size=512&max_rows=${rowLimit}&auto_trial=${autoTrial}`);
+        const analysis = await request(`/api/live/analysis?fft_size=4096&hop_size=512&max_rows=640&include_spectrum=false&auto_trial=${autoTrial}`);
         if (generation !== state.liveGeneration || !state.liveView) return;
         if (analysis.automatic_trial?.status === "running") watchDecoderTrial(analysis.automatic_trial);
         if (state.frozen) return;
@@ -349,16 +353,7 @@ el("live-start").addEventListener("click", async () => {
           el("waterfall-state").textContent = `Collecting analysis window · ${analysis.window_sample_count.toLocaleString()} samples`;
           return;
         }
-        state.waterfall = analysis.spectrum;
-        if (!state.view) resetWaterfallView(false);
-        else if (state.view.followTime) {
-          const window = liveTimeWindow(analysis.spectrum.sample_count, analysis.spectrum.sample_rate);
-          state.view.timeEndSample = window.endSample;
-          state.view.timeStartSample = window.startSample;
-        }
         state.tracks = analysis.tracks;
-        if (analysis.automatic_trial?.status === "running") watchDecoderTrial(analysis.automatic_trial);
-        el("waterfall-state").textContent = `${analysis.spectrum.db.length} rolling spectrum rows · latest 10 seconds`;
         el("track-status").textContent = state.modelAvailable
           ? "Model-ranked live candidates · proposals remain provisional"
           : "Live spectral heuristic · candidates are provisional";
@@ -372,20 +367,20 @@ el("live-start").addEventListener("click", async () => {
 
 el("live-stop").addEventListener("click", async () => {
   clearError();
-  state.liveGeneration = (state.liveGeneration || 0) + 1;
-  if (livePoll) clearInterval(livePoll);
   el("live-stop").disabled = true;
   try {
     const result = await request("/api/live/stop", { method: "POST" });
+    state.liveGeneration = (state.liveGeneration || 0) + 1;
+    if (livePoll) clearInterval(livePoll);
+    if (spectrumPoll) clearTimeout(spectrumPoll);
     state.capture = result.capture;
     await loadCapture();
     el("live-status").textContent = `Saved live capture · ${result.frames_written.toLocaleString()} samples`;
   } catch (error) { showError(error.message); }
   finally {
-    if (livePoll) clearInterval(livePoll);
-    livePoll = null;
-    el("live-start").disabled = false;
-    el("live-stop").disabled = true;
+    if (!state.liveView) livePoll = null;
+    el("live-start").disabled = state.liveView;
+    el("live-stop").disabled = !state.liveView;
   }
 });
 
@@ -458,6 +453,7 @@ el("synthetic-form").addEventListener("submit", async (event) => {
 });
 
 async function loadCapture() {
+  const generation = state.captureGeneration = (state.captureGeneration || 0) + 1;
   clearDemodExports();
   state.liveView = false;
   resetOutputSession();
@@ -492,15 +488,21 @@ async function loadCapture() {
   el("time-end").textContent = `${duration.toFixed(2)} s`;
   el("audio-player").src = `/api/captures/${c.id}/audio`;
   el("waterfall-state").textContent = "Calculating spectrum…";
-  state.waterfall = await request(`/api/captures/${c.id}/waterfall?fft_size=4096&hop_size=512&max_rows=640`);
+  const spectrum = await request(`/api/captures/${c.id}/waterfall?fft_size=4096&hop_size=512&max_rows=640`);
+  if (generation !== state.captureGeneration || state.liveView) return;
+  state.waterfall = spectrum;
   drawWaterfall();
-  state.regions = await request(`/api/captures/${c.id}/regions`);
+  const regions = await request(`/api/captures/${c.id}/regions`);
+  if (generation !== state.captureGeneration || state.liveView) return;
+  state.regions = regions;
   renderRegions();
   try {
     const result = await request(`/api/captures/${c.id}/tracks`);
+    if (generation !== state.captureGeneration || state.liveView) return;
     state.tracks = result.tracks;
     el("track-status").textContent = `Spectral heuristic · ${result.analysis.fft_size}-point FFT · candidates are provisional`;
   } catch (error) {
+    if (generation !== state.captureGeneration || state.liveView) return;
     state.tracks = [];
     el("track-status").textContent = `Candidate analysis unavailable · ${error.message}`;
   }
@@ -524,7 +526,7 @@ function drawWaterfall() {
   if (!state.view) resetWaterfallView(false);
   const view = waterfallViewBounds();
   const bins = view.frequencyEnd - view.frequencyStart;
-  const rows = view.rowEnd - view.rowStart;
+  const rows = state.liveView ? Math.ceil(30 * data.sample_rate / data.hop_size) : view.rowEnd - view.rowStart;
   if (bins < 1 || rows < 1) return;
   baseCanvas.width = bins;
   baseCanvas.height = rows;
@@ -532,16 +534,20 @@ function drawWaterfall() {
   overlayCanvas.height = rows;
   const context = baseCanvas.getContext("2d", { alpha: false });
   const image = context.createImageData(bins, rows);
-  const min = -95;
-  const max = -20;
-  for (let y = 0; y < rows; y += 1) {
-    for (let x = 0; x < bins; x += 1) {
-      const [r, g, b] = colorFor(data.db[y + view.rowStart][x + view.frequencyStart], min, max);
-      const p = (y * bins + x) * 4;
-      image.data[p] = r;
-      image.data[p + 1] = g;
-      image.data[p + 2] = b;
-      image.data[p + 3] = 255;
+  const palette = state.palette ||= Array.from({length:256},(_,i)=>colorFor(-95+i*75/255,-95,-20));
+  for (let p=0;p<image.data.length;p+=4) {
+    image.data[p]=8; image.data[p+1]=17; image.data[p+2]=35; image.data[p+3]=255;
+  }
+  for (let index=view.rowStart;index<view.rowEnd;index++) {
+    const y = state.liveView
+      ? Math.floor((data.sample_starts[index]-state.view.timeStartSample)/(state.view.timeEndSample-state.view.timeStartSample)*rows)
+      : index-view.rowStart;
+    if (y<0 || y>=rows) continue;
+    for (let x=0;x<bins;x++) {
+      const level = Math.max(0,Math.min(255,Math.round((data.db[index][x+view.frequencyStart]+95)*255/75)));
+      const [r,g,b] = palette[level];
+      const p=(y*bins+x)*4;
+      image.data[p]=r; image.data[p+1]=g; image.data[p+2]=b;
     }
   }
   context.putImageData(image, 0, 0);
@@ -552,8 +558,8 @@ function drawWaterfall() {
   const firstTime = data.sample_starts[view.rowStart] / data.sample_rate;
   const lastTime = Math.min(data.sample_count, data.sample_starts[view.rowEnd - 1] + data.hop_size) / data.sample_rate;
   if (state.liveView) {
-    const labels = liveTimeLabels(data.sample_starts[view.rowStart], data.sample_count, data.sample_rate);
-    el("time-start").textContent = labels.start;
+    const labels = liveTimeLabels(Math.max(0, state.view.timeStartSample), state.view.timeEndSample, data.sample_rate);
+    el("time-start").textContent = "−30 s";
     el("time-end").textContent = labels.end;
   } else {
     el("time-start").textContent = `${firstTime.toFixed(2)} s`;
@@ -589,7 +595,7 @@ function resetWaterfallView(redraw = true) {
   state.view = {
     frequencyLowHz: 0,
     frequencyHighHz: Math.min(3000, data.sample_rate / 2),
-    timeStartSample: state.liveView ? Math.max(0, timeEndSample - 10 * data.sample_rate) : 0,
+    timeStartSample: state.liveView ? timeEndSample - 30 * data.sample_rate : 0,
     timeEndSample,
     followTime: state.liveView,
   };
@@ -612,6 +618,10 @@ function reprojectSelection() {
 }
 
 function sampleToRow(sample) {
+  if (state.liveView && state.view) {
+    const bounds = waterfallViewBounds();
+    return bounds.rowStart+(sample-state.view.timeStartSample)/(state.view.timeEndSample-state.view.timeStartSample)*overlayCanvas.height;
+  }
   const starts = state.waterfall.sample_starts;
   let lo = 0;
   let hi = starts.length;
@@ -809,7 +819,7 @@ overlayCanvas.addEventListener("pointerup", (event) => {
   const rect = overlayCanvas.getBoundingClientRect();
   const moved = Math.hypot((state.drag.x - point.x) * rect.width / overlayCanvas.width, (state.drag.y - point.y) * rect.height / overlayCanvas.height);
   if (moved < 5) {
-    const sample = data.sample_starts[Math.min(view.rowEnd - 1, view.rowStart + point.y)];
+    const sample = sampleAtCanvasRow(point.y);
     const frequency = data.frequency_hz[Math.min(view.frequencyEnd - 1, view.frequencyStart + point.x)];
     const track = hitSignal(state.tracks, sample, frequency);
     if (track) { state.drag = null; selectTrack(track); return; }
@@ -819,8 +829,14 @@ overlayCanvas.addEventListener("pointerup", (event) => {
   const rowSamples = data.sample_starts;
   const firstRow = view.rowStart + rowStart;
   const lastRow = Math.min(view.rowEnd - 1, view.rowStart + rowEnd);
-  const sampleStart = rowSamples[firstRow];
-  const sampleEnd = Math.min(data.sample_count, rowSamples[lastRow] + data.fft_size);
+  const sampleStart = state.liveView ? Math.max(0, Math.floor(sampleAtCanvasRow(rowStart))) : rowSamples[firstRow];
+  const sampleEnd = state.liveView ? Math.min(data.sample_count, Math.ceil(sampleAtCanvasRow(rowEnd))) : Math.min(data.sample_count, rowSamples[lastRow] + data.fft_size);
+  if (state.liveView && sampleEnd <= sampleStart) {
+    state.drag = null;
+    state.selection = null;
+    drawOverlays();
+    return;
+  }
   const firstBin = view.frequencyStart;
   const xLow = Math.min(state.drag.x, point.x);
   const xHigh = Math.max(state.drag.x, point.x);
@@ -1159,6 +1175,10 @@ function resetOutputSession() {
   state.outputGeneration = (state.outputGeneration || 0) + 1;
   fldigiOffset = null;
   el("decoded-text").textContent = "Decoded text will appear here.";
+  for (const id of ["demod-output", "mfsk-output", "ook-output", "bpsk-output", "qpsk-output"]) {
+    el(id).textContent = "Select a saved capture or region to analyze.";
+  }
+  showOutput("text");
   el("output-context").textContent = "Shared Fldigi output · audio route external";
   if (trialPoll) clearInterval(trialPoll);
   trialPoll = null;
@@ -1290,13 +1310,19 @@ el("freeze-view").addEventListener("click", () => {
   state.frozen = !state.frozen;
   el("freeze-view").textContent = state.frozen ? "Resume view" : "Freeze view";
   el("live-status").textContent = state.frozen ? "Recording · view frozen" : "Recording · following live audio";
+  if (!state.frozen) applyLiveDisplay();
 });
 document.addEventListener("keydown", event => { if (event.key === "Escape") el("inspector").classList.add("hidden"); });
 overlayCanvas.addEventListener("pointermove", event => {
   if (!state.waterfall) return;
   const point = canvasPoint(event), bounds = waterfallViewBounds(), data = state.waterfall;
-  const row = Math.min(bounds.rowEnd - 1, bounds.rowStart + point.y);
+  const sample = sampleAtCanvasRow(point.y);
+  const row = Math.min(bounds.rowEnd-1, lowerBound(data.sample_starts, sample));
   const bin = Math.min(bounds.frequencyEnd - 1, bounds.frequencyStart + point.x);
+  if (sample < data.sample_starts[0] || Math.abs(data.sample_starts[row] - sample) > data.hop_size) {
+    el("cursor-readout").textContent = `${data.frequency_hz[bin].toFixed(1)} Hz · no display samples`;
+    return;
+  }
   el("cursor-readout").textContent = `${data.frequency_hz[bin].toFixed(1)} Hz · ${(data.sample_starts[row]/data.sample_rate).toFixed(2)} s · ${data.db[row][bin].toFixed(1)} dB`;
 });
 // Move each analysis result into the dock, preserving API handlers and exports.
@@ -1312,3 +1338,42 @@ el("raw-results").querySelector(":scope > p")?.remove();
 showRawTool("2fsk");
 showOutput("text");
 new ResizeObserver(() => { if (state.waterfall) renderSignalLabels(); }).observe(overlayCanvas.parentElement);
+
+function sampleAtCanvasRow(y) {
+  if (state.liveView) return state.view.timeStartSample + y / Math.max(1,overlayCanvas.height) * (state.view.timeEndSample-state.view.timeStartSample);
+  const view=waterfallViewBounds();
+  return state.waterfall.sample_starts[Math.min(view.rowEnd-1,view.rowStart+Math.round(y))];
+}
+function applyLiveDisplay() {
+  if (!state.liveView || state.frozen || !liveDisplay?.data?.db.length) return;
+  state.waterfall=liveDisplay.data;
+  if (!state.view) resetWaterfallView(false);
+  const window=liveDisplayBounds(state.waterfall.sample_count,state.waterfall.sample_rate);
+  state.view.timeStartSample=window.startSample;
+  state.view.timeEndSample=window.endSample;
+  reprojectSelection();
+  drawWaterfall();
+  el("waterfall-state").textContent=`30 s display · ${state.waterfall.gap_count} update gaps · 10 s analysis`;
+}
+function startSpectrumStream(generation,sessionId) {
+  if (spectrumPoll) clearTimeout(spectrumPoll);
+  const update=async()=>{
+    let delay=200;
+    try {
+      const after=liveDisplay?.lastSample ?? -1;
+      const response=await fetch(`/api/live/spectrum?after_sample=${after}&session_id=${encodeURIComponent(sessionId)}`, {signal:AbortSignal.timeout(5000)});
+      if (!response.ok) throw new Error(`Spectrum request ${response.status}`);
+      const packet=decodeSpectrumPacket(await response.arrayBuffer());
+      if (generation!==state.liveGeneration || !state.liveView) return;
+      if (packet.session_id!==sessionId) throw new Error("Live source changed; stop and reopen capture");
+      liveDisplay.append(packet);
+      applyLiveDisplay();
+    } catch(error) {
+      delay=1000;
+      if (generation===state.liveGeneration && state.liveView) el("waterfall-state").textContent=`Spectrum update delayed · ${error.message}`;
+    } finally {
+      if(generation===state.liveGeneration && state.liveView) spectrumPoll=setTimeout(update,delay);
+    }
+  };
+  update();
+}
