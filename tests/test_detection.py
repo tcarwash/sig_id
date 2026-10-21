@@ -62,6 +62,42 @@ def test_detector_rejects_quiet_noise_as_a_signal(tmp_path):
     assert detect_tracks(waterfall(path, fft_size=256, hop_size=64, max_rows=256)) == []
 
 
+def test_detector_separates_two_simultaneous_fsk_signals(tmp_path):
+    sources = []
+    for name, low, high, bits in (
+        ("lower", 1000, 1200, "01" * 100),
+        ("upper", 2600, 2800, "10" * 100),
+    ):
+        path = tmp_path / f"{name}.wav"
+        generate_2fsk_wav(
+            path,
+            bits,
+            sample_rate=12000,
+            symbol_rate=50,
+            tone_low_hz=low,
+            tone_high_hz=high,
+            amplitude=0.25,
+        )
+        with wave.open(str(path), "rb") as wav:
+            sources.append(np.frombuffer(wav.readframes(wav.getnframes()), dtype="<i2").astype(np.int32))
+
+    mixture = np.clip(sources[0] + sources[1], -32768, 32767).astype("<i2")
+    mixed_path = tmp_path / "two-signals.wav"
+    with wave.open(str(mixed_path), "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(12000)
+        wav.writeframes(mixture.tobytes())
+
+    candidates = detect_tracks(waterfall(mixed_path, fft_size=256, hop_size=64, max_rows=2048))
+    assert len(candidates) == 2
+    assert [candidate["modulation_hypothesis"] for candidate in candidates] == ["FSK-like", "FSK-like"]
+    assert candidates[0]["frequency_high_hz"] < candidates[1]["frequency_low_hz"]
+    assert candidates[0]["frequency_low_hz"] == pytest.approx(1000, abs=100)
+    assert candidates[1]["frequency_low_hz"] == pytest.approx(2600, abs=100)
+    assert all(candidate["protocol"] is None for candidate in candidates)
+
+
 def test_detector_rejects_invalid_parameters_or_spectrum_shape():
     spectrum = {
         "db": [[-80.0, -20.0]],

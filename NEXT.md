@@ -53,7 +53,7 @@ Verified: Fldigi 4.2.13 and its XML-RPC method catalog are installed; unit tests
 cover receive-only client semantics, PCM WAV block indexing/normalization and
 synthetic 2-FSK/MFSK metadata, exact symbols/bits and tone frequencies, SQLite
 capture hashes/regions/label history, JSONL export, spectrogram peak detection, upload/region APIs, and Fldigi
-status/catalog/mode/output APIs. Current full suite: 54 passed, 2 skipped;
+status/catalog/mode/output APIs. Current full suite: 55 passed, 4 skipped;
 `node --check sigid/web/app.js` and `git diff --check` pass. Deterministic fake-device tests
 exercise WAV writing, capture indexing, API start/status/stop and waterfall access.
 An isolated live Fldigi 4.2.13 process served the API with the documented receive-only
@@ -67,5 +67,6 @@ software loopback, not an independent modem or RF test. A fresh blank profile di
 not expose XML-RPC until initialized. WAV replay is sample-indexed and synthetic
 FSK/MFSK files carry modulation labels while leaving protocol unknown. Live hardware
 capture, radio audio routing, trained identification model, and RF validation remain
-unverified. Current heuristic candidates have synthetic fixture evidence only. The
-tested Fldigi modes are a three-family sample, not full-catalog validation.
+unverified. Current heuristic candidates pass clean 2-FSK/MFSK, quiet-noise rejection
+and two separated simultaneous 2-FSK signals; real-capture performance is unknown.
+The tested Fldigi modes are a three-family sample, not full-catalog validation.
