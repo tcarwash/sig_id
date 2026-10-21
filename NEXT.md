@@ -43,6 +43,10 @@ the workbench API; radio-input routing and independent-signal validation remain 
   candidate persistent; this is spectral continuity evidence, not mode confirmation.
 - Receive-only Fldigi API/UI: connection status, catalog list, manual mode selection
   and incremental decoded-text polling. Transmit, rig and macro calls are not exposed.
+- Live provisional candidates can start a bounded Fldigi receive trial across up to
+  three loopback-tested modes, with six-second dwell periods, per-track duplicate
+  suppression and a six-starts-per-minute limit. New receive text stops the sweep as
+  tentative output; trials require an active live capture and external audio routing.
 - Provisional automatic candidates from persistent spectral peaks, shown as amber
   dashed waterfall overlays with frequency/time, tone-count hypothesis, occupancy
   and peak SNR. Review selects an editable region and leaves all label fields blank;
@@ -75,7 +79,7 @@ Verified: Fldigi 4.2.13 and its XML-RPC method catalog are installed; unit tests
 cover receive-only client semantics, PCM WAV block indexing/normalization and
 synthetic 2-FSK/MFSK metadata, exact symbols/bits and tone frequencies, SQLite
 capture hashes/regions/label history, JSONL export, spectrogram peak detection, upload/region APIs, and Fldigi
-status/catalog/mode/output APIs. Current full suite: 70 passed, 4 skipped;
+status/catalog/mode/output APIs. Current full suite: 72 passed, 4 skipped;
 `node --check sigid/web/app.js` and `git diff --check` pass. Deterministic fake-device tests
 exercise WAV writing, capture indexing, API start/status/stop and rolling live
 analysis. The live analysis ring is capped at ten seconds and absolute sample

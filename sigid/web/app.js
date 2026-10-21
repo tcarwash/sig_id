@@ -5,6 +5,7 @@ const overlayCanvas = el("overlay");
 let livePoll = null;
 let fldigiPoll = null;
 let fldigiOffset = null;
+let trialPoll = null;
 
 async function refreshFldigiStatus() {
   try {
@@ -36,6 +37,7 @@ async function refreshFldigiStatus() {
 }
 
 async function pollFldigiOutput() {
+  if (trialPoll) return;
   try {
     const result = await request(`/api/fldigi/output?start=${fldigiOffset}&limit=8192`);
     if (result.end < fldigiOffset) fldigiOffset = 0;
@@ -51,6 +53,39 @@ async function pollFldigiOutput() {
     if (fldigiPoll) clearInterval(fldigiPoll);
     fldigiPoll = setTimeout(watchFldigi, 5000);
   }
+}
+
+async function startDecoderTrial(track) {
+  if (!track.track_id || !state.liveView) return;
+  try {
+    const result = await request("/api/fldigi/trials/start", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ track_id: track.track_id, modulation_hypothesis: track.modulation_hypothesis }),
+    });
+    fldigiOffset = result.output_offset;
+    el("fldigi-status").textContent = `Trying ${result.current_mode} for ${result.track_id} · audio routing is external`;
+    el("decoded-text").textContent = `Automatic receive trial: ${result.current_mode}\nTentative only · waiting ${result.note}`;
+    if (trialPoll) clearInterval(trialPoll);
+    trialPoll = setInterval(async () => {
+      try {
+        const trial = await request("/api/fldigi/trials/current");
+        el("fldigi-status").textContent = `${trial.status} · ${trial.attempted_modes.join(" → ")} · ${trial.note}`;
+        if (trial.status === "tentative_output") {
+          el("decoded-text").textContent = `TENTATIVE · ${trial.current_mode}\n${trial.text}`;
+          fldigiOffset = trial.output_end ?? fldigiOffset;
+        } else if (trial.status !== "running") {
+          el("decoded-text").textContent = `${trial.status.toUpperCase()} · ${trial.current_mode || "no mode"}\n${trial.note}`;
+          if (trialPoll) clearInterval(trialPoll);
+          trialPoll = null;
+          pollFldigiOutput();
+        }
+      } catch (error) {
+        el("fldigi-status").textContent = `Automatic trial stopped · ${error.message}`;
+        if (trialPoll) clearInterval(trialPoll);
+        trialPoll = null;
+      }
+    }, 1000);
+  } catch (error) { showError(error.message); }
 }
 
 el("fldigi-select").addEventListener("click", async () => {
@@ -412,6 +447,14 @@ function renderTracks() {
       button.textContent = "Review region";
       button.addEventListener("click", () => selectTrack(track));
       row.append(summary, detail, button);
+      if (state.liveView && track.track_id) {
+        const tryButton = document.createElement("button");
+        tryButton.className = "track-auto-button";
+        tryButton.type = "button";
+        tryButton.textContent = "Try tested modes";
+        tryButton.addEventListener("click", () => startDecoderTrial(track));
+        row.append(tryButton);
+      }
       list.append(row);
     }
   }

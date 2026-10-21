@@ -48,6 +48,25 @@ class FakeStream:
         pass
 
 
+class FakeFldigi:
+    def __init__(self):
+        self.mode = "BPSK31"
+        self.text = b""
+
+    def modem_names(self):
+        return ["BPSK31", "RTTY", "THOR16"]
+
+    def select_modem(self, name):
+        self.mode = name
+        return name
+
+    def receive_text_length(self):
+        return len(self.text)
+
+    def receive_text(self, *, start=0, length=65536):
+        return self.text[start : start + length]
+
+
 def test_live_capture_writes_wav_and_registers_capture(tmp_path):
     store = CaptureStore(tmp_path / "data.sqlite3")
     backend = FakeAudio()
@@ -99,7 +118,9 @@ def test_live_capture_api_flow(tmp_path, monkeypatch):
             "protocol": None,
         }],
     )
-    app = create_app(tmp_path / "app-data", audio_backend=FakeAudio())
+    app = create_app(
+        tmp_path / "app-data", audio_backend=FakeAudio(), fldigi_client=FakeFldigi()
+    )
 
     async def exercise():
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
@@ -108,6 +129,11 @@ def test_live_capture_api_flow(tmp_path, monkeypatch):
             assert devices.json()[0]["name"] == "Test input"
             bad = await client.post("/api/live/start", json={"sample_rate": 1000})
             assert bad.status_code == 422
+            unavailable = await client.post(
+                "/api/fldigi/trials/start",
+                json={"track_id": "live:0001", "modulation_hypothesis": "FSK-like"},
+            )
+            assert unavailable.status_code == 409
             started = await client.post("/api/live/start", json={"device_id": 1, "sample_rate": 8000})
             assert started.status_code == 200, started.text
             assert (await client.get("/api/live")).json()["active"] is True
@@ -124,6 +150,16 @@ def test_live_capture_api_flow(tmp_path, monkeypatch):
             again = (await client.get("/api/live/analysis", params={"fft_size": 64, "hop_size": 16})).json()
             assert again["tracks"][0]["track_id"] == track["track_id"]
             assert again["tracks"][0]["track_observations"] == 1
+            trial = await client.post(
+                "/api/fldigi/trials/start",
+                json={"track_id": track["track_id"], "modulation_hypothesis": "FSK-like"},
+            )
+            assert trial.status_code == 200, trial.text
+            assert trial.json()["current_mode"] == "RTTY"
+            manual = await client.post("/api/fldigi/mode", json={"name": "BPSK31"})
+            assert manual.status_code == 200
+            stopped_trial = await client.get("/api/fldigi/trials/current")
+            assert stopped_trial.json()["status"] == "cancelled"
             stopped = await client.post("/api/live/stop")
             assert stopped.status_code == 200, stopped.text
             capture = stopped.json()["capture"]

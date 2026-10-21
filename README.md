@@ -14,7 +14,9 @@ and the Fldigi path from audio input to recovered text are represented in the
 workbench: when a running Fldigi XML-RPC service is available, users can select a catalog mode and view its
 receive-text output. RF-free loopback tests decode BPSK31, RTTY and THOR16 payloads
 through temporary virtual audio into the workbench API. Routing actual radio input
-to Fldigi remains an external setup and is not yet validated. Saved recordings also
+to Fldigi remains an external setup and is not yet validated. The workbench also
+offers a user-started, bounded sweep of tested Fldigi modes for live provisional
+candidates; any recovered text remains tentative until reviewed. Saved recordings
 have a manual, protocol-independent 2-FSK demodulator that exposes uncoded bits,
 symbol timing and soft tone metrics; symbol rate, tone mapping and timing offset must
 be supplied by the operator. A corresponding M-FSK analyzer returns hard tone indices,

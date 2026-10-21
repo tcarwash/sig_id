@@ -144,6 +144,9 @@ Ship this as soon as the gate passes. No classifier is required for 0.1.
   of assuming a selected-modem change is a complete RSID event feed.
 - Add bounded candidate scheduler, trial timeouts, worker resets, minimum dwell,
   and hysteresis. Scale the pool only after per-worker routing is proven.
+- A first user-started trial runner now sweeps only loopback-tested BPSK31, RTTY and
+  THOR16 candidates, with bounded dwell/rate limits and tentative output semantics.
+  Automatic launch policy, worker reset/isolation and additional modes remain open.
 - Run initial decoder candidates, record mode-specific evidence, and display
   tentative versus supported output. Cap attempts per signal and per second.
 - Save identified events automatically with pre-roll; queue unknowns according to

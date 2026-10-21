@@ -21,6 +21,7 @@ from .live_audio import LiveCaptureManager
 from .spectrum import waterfall, waterfall_samples
 from .synthetic_dataset import MAX_MANIFEST_BYTES, import_synthetic_wav
 from .tracking import LiveTrackRegistry
+from .trials import FldigiTrialRunner
 from .wav import WavSource
 
 
@@ -49,6 +50,11 @@ class LiveCaptureStart(BaseModel):
 
 class FldigiModeSelect(BaseModel):
     name: str = Field(min_length=1, max_length=80)
+
+
+class FldigiTrialStart(BaseModel):
+    track_id: str = Field(min_length=1, max_length=128)
+    modulation_hypothesis: str = Field(default="unknown", max_length=80)
 
 
 class FskDemodRequest(BaseModel):
@@ -112,6 +118,7 @@ def create_app(
     app.state.live_capture = live_capture
     app.state.fldigi = fldigi
     app.state.live_track_registry = None
+    app.state.fldigi_trials = FldigiTrialRunner(fldigi)
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
@@ -205,7 +212,9 @@ def create_app(
     @app.post("/api/live/stop")
     def stop_live_capture() -> dict[str, Any]:
         try:
-            return live_capture.stop()
+            result = live_capture.stop()
+            app.state.fldigi_trials.cancel()
+            return result
         except RuntimeError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -237,12 +246,37 @@ def create_app(
     @app.post("/api/fldigi/mode")
     def select_fldigi_mode(data: FldigiModeSelect) -> dict[str, Any]:
         try:
+            app.state.fldigi_trials.cancel()
             selected = fldigi.select_modem(data.name)
             return {"current_mode": selected, "output_offset": fldigi.receive_text_length()}
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except Exception as exc:
             raise HTTPException(status_code=503, detail=f"Fldigi mode selection failed: {exc}") from exc
+
+    @app.post("/api/fldigi/trials/start")
+    def start_fldigi_trial(data: FldigiTrialStart) -> dict[str, Any]:
+        try:
+            live = bool(live_capture.status().get("active"))
+            return app.state.fldigi_trials.start(
+                track_id=data.track_id,
+                modulation_hypothesis=data.modulation_hypothesis,
+                live=live,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"Fldigi trial could not start: {exc}") from exc
+
+    @app.get("/api/fldigi/trials/current")
+    def current_fldigi_trial() -> dict[str, Any]:
+        try:
+            if not bool(live_capture.status().get("active")):
+                return app.state.fldigi_trials.cancel()
+            return app.state.fldigi_trials.advance()
+        except Exception as exc:
+            app.state.fldigi_trials.cancel()
+            raise HTTPException(status_code=503, detail=f"Fldigi trial failed: {exc}") from exc
 
     @app.get("/api/fldigi/output")
     def fldigi_output(start: int = Query(default=0, ge=0), limit: int = Query(default=8192, ge=1, le=65536)) -> dict[str, Any]:
