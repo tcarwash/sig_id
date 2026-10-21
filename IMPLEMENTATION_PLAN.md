@@ -1,7 +1,8 @@
 # Implementation plan
 
-Status: ready for implementation; planning artifacts only. No working application,
-backend integration, trained model, or live-radio validation exists yet.
+Status: implementation in progress. The first WAV replay and manual dataset workflow
+is partially implemented; see [NEXT.md](NEXT.md) for verified gates. Fldigi audio,
+live capture, automatic identification, model training and RF validation remain open.
 
 ## Delivery strategy
 

@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#10151b" />
+    <title>Signal ID Workbench</title>
+    <link rel="stylesheet" href="/style.css" />
+    <style>.dataset-actions{display:flex;align-items:center;gap:9px}.export-link{font-size:10px;color:#52d6d0;text-decoration:none;border:1px solid #315356;padding:6px 9px;border-radius:7px}.export-link:hover{background:#1a3031}</style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark">S</span><span>Signal ID <span class="muted">/ Workbench</span></span></div>
+      <div id="connection" class="status"><span class="status-dot"></span> WAV review</div>
+    </header>
+    <main>
+      <section class="source-row">
+        <div>
+          <p class="eyebrow">RECEIVE WORKSPACE</p>
+          <h1>Inspect a signal</h1>
+          <p class="subhead">Load an audio recording, mark a signal, and save what you can identify.</p>
+        </div>
+        <form id="upload-form" class="upload-form">
+          <label class="file-button" for="wav-file">Choose WAV</label>
+          <input id="wav-file" type="file" accept="audio/wav,.wav" required />
+          <button type="submit" class="primary">Load recording</button>
+        </form>
+      </section>
+
+      <section id="empty-state" class="empty-state">
+        <div class="empty-icon">∿</div>
+        <h2>Start with a recording</h2>
+        <p>Upload a PCM WAV passband recording to see its time and audio-frequency spectrum.</p>
+      </section>
+
+      <section id="workspace" class="workspace hidden">
+        <div class="panel spectrum-panel">
+          <div class="panel-heading">
+            <div>
+              <h2 id="capture-title">Recording</h2>
+              <p id="capture-meta" class="subhead"></p>
+            </div>
+            <div class="spectrum-legend"><span>−100 dB</span><i></i><span>0 dB</span></div>
+          </div>
+          <div class="waterfall-layout">
+            <div class="axis-y"><span id="freq-high">0 Hz</span><span>Audio frequency</span><span id="freq-low">0 Hz</span></div>
+            <div class="waterfall-column">
+              <div class="waterfall-wrap">
+                <canvas id="waterfall" aria-label="Audio frequency waterfall. Drag to mark a signal region."></canvas>
+                <canvas id="overlay" aria-hidden="true"></canvas>
+                <div id="hint" class="canvas-hint">Drag across a signal to mark its time and frequency bounds</div>
+              </div>
+              <div class="axis-x"><span>Start</span><span>Time →</span><span id="duration">0 s</span></div>
+            </div>
+          </div>
+          <div class="capture-controls">
+            <audio id="audio-player" controls preload="none"></audio>
+            <span id="waterfall-state" class="muted">WAV spectrum</span>
+          </div>
+        </div>
+
+        <div class="details-grid">
+          <section class="panel selection-panel">
+            <p class="eyebrow">SELECTED REGION</p>
+            <h2 id="selection-summary">No region selected</h2>
+            <p id="selection-details" class="subhead">Drag over the waterfall to mark a signal.</p>
+            <div class="form-grid">
+              <label>Modulation family<input id="family" placeholder="e.g. FSK, MFSK, PSK" /></label>
+              <label>Modulation method<input id="method" placeholder="e.g. binary FSK" /></label>
+              <label>Protocol<input id="protocol" placeholder="Leave blank if unknown" /></label>
+              <label>Variant<input id="variant" placeholder="e.g. THOR16" /></label>
+            </div>
+            <label class="notes-label">Notes<textarea id="notes" rows="2" placeholder="What supports this label? What remains uncertain?"></textarea></label>
+            <div class="save-row"><span id="label-state" class="muted">Partial labels are welcome.</span><button id="save-region" class="primary" disabled>Save region label</button></div>
+          </section>
+
+          <section class="panel decoder-panel">
+            <p class="eyebrow">DECODER</p>
+            <h2>Decoder integration pending</h2>
+            <p class="subhead">This recording can be reviewed and labeled now. Fldigi audio routing and live decoding are still being validated.</p>
+            <div class="decoder-evidence"><span class="status-dot amber"></span><span>Unknown mode remains a valid result</span></div>
+          </section>
+        </div>
+
+        <section class="panel regions-panel">
+          <div class="panel-heading"><div><p class="eyebrow">DATASET</p><h2>Saved regions</h2></div><div class="dataset-actions"><span id="region-count" class="count">0</span><a class="export-link" href="/api/exports/regions.jsonl" download>Export labels</a></div></div>
+          <div id="region-list" class="region-list"><p class="subhead">No labeled regions in this recording yet.</p></div>
+        </section>
+      </section>
+      <p id="error" class="error hidden" role="alert"></p>
+    </main>
+    <script src="/app.js" defer></script>
+  </body>
+</html>

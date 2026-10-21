@@ -6,12 +6,12 @@ the current engineering checkpoint is [NEXT.md](NEXT.md).
 
 ## Current state
 
-Current code includes a receive-only Fldigi XML-RPC client, a catalog capability
-probe, blockwise PCM WAV replay, a clean labeled 2-FSK fixture generator, a SQLite
-capture/region index with label history and JSONL export, and unit tests. It does not
-yet provide live audio capture, a waterfall, decoder UI, or audio-to-decoded-text
-proof. Catalog presence is reported as pending validation and must not be treated as
-supported decoding.
+Current code includes WAV upload/playback with a browser waterfall, manual
+time/frequency selection and label export; blockwise PCM replay; a deterministic
+2-FSK fixture generator; SQLite capture, region and label history; and a
+receive-only Fldigi XML-RPC probe. Local device capture and the Fldigi path from
+audio input to recovered text are still pending. Catalog presence is reported as pending
+validation and must not be treated as supported decoding.
 
 ## Development
 
@@ -22,7 +22,12 @@ python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install -e '.[dev]'
 pytest
+sig-id-serve
 ```
+
+Then open <http://127.0.0.1:8010>, choose a PCM WAV, and mark a signal region on
+the waterfall. The local service stores audio under `~/.local/share/sig-id` by
+default. Set `SIG_ID_DATA_DIR` before starting it to use another data directory.
 
 The installed Fldigi process can be inspected with:
 

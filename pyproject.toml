@@ -11,12 +11,16 @@ dependencies = []
 
 [project.optional-dependencies]
 audio = ["numpy>=2.0", "scipy>=1.13", "soundfile>=0.12", "sounddevice>=0.5"]
-api = ["fastapi>=0.111", "uvicorn>=0.30"]
-dev = ["pytest>=8"]
+api = ["fastapi>=0.111", "uvicorn>=0.30", "python-multipart>=0.0.9", "numpy>=2.0"]
+dev = ["pytest>=8", "fastapi>=0.111", "httpx>=0.27", "numpy>=2.0", "python-multipart>=0.0.9", "uvicorn>=0.30"]
 
 [project.scripts]
 sig-id-probe-fldigi = "sigid.fldigi_probe:main"
 sig-id-generate-2fsk = "sigid.synthetic:main"
+sig-id-serve = "sigid.server:main"
+
+[tool.setuptools.package-data]
+sigid = ["web/*.html", "web/*.js", "web/*.css"]
 
 [tool.setuptools.packages.find]
 include = ["sigid*"]

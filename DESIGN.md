@@ -1,6 +1,7 @@
 # Signal identification and decoding workbench
 
-Status: proposed architecture; no application or RF validation yet.
+Status: architecture and scope are established; release 0.1 is in progress. See
+[NEXT.md](NEXT.md) for implemented behavior and remaining validation gates.
 
 Execution order, release gates and estimates are maintained in
 [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md). That plan supersedes the broad

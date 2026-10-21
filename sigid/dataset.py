@@ -232,6 +232,37 @@ class CaptureStore:
         result["source_metadata"] = json.loads(result.pop("source_metadata_json"))
         return result
 
+    def list_captures(self) -> list[dict[str, Any]]:
+        with self._connect() as db:
+            rows = db.execute("SELECT * FROM captures ORDER BY created_utc DESC").fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["source_metadata"] = json.loads(item.pop("source_metadata_json"))
+            result.append(item)
+        return result
+
+    def regions(self, capture_id: str) -> list[dict[str, Any]]:
+        with self._connect() as db:
+            exists = db.execute("SELECT 1 FROM captures WHERE id = ?", (capture_id,)).fetchone()
+            if exists is None:
+                raise KeyError(f"unknown capture: {capture_id}")
+            rows = db.execute(
+                """SELECT r.*, l.revision, l.family, l.method, l.protocol, l.variant,
+                          l.source, l.review_state, l.evidence_json, l.notes
+                   FROM regions r JOIN label_revisions l ON l.region_id = r.id
+                   WHERE r.capture_id = ? AND l.revision = (
+                       SELECT MAX(revision) FROM label_revisions WHERE region_id = r.id
+                   ) ORDER BY r.sample_start""",
+                (capture_id,),
+            ).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["evidence"] = json.loads(item.pop("evidence_json"))
+            result.append(item)
+        return result
+
     def label_history(self, region_id: str) -> list[dict[str, Any]]:
         with self._connect() as db:
             rows = db.execute(
