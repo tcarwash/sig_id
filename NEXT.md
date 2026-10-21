@@ -34,7 +34,9 @@ validation remain open.
 - Clean deterministic OOK/ASK WAV generation now preserves exact source bits and
   imports with a verified ASK-family label. OOK is not part of the current classifier
   classes; it provides an explicitly unfamiliar modulation source for a separate
-  held-out rejection benchmark.
+  held-out rejection benchmark. `sig-id-evaluate-ood` verifies sidecar provenance and
+  reports method/family false-accept rates plus waveform and model hashes without
+  training on those inputs.
 - Generic 2–64-tone FSK fixture generation with exact tone symbols and, for
   power-of-two tone counts, exact natural-binary reference bits. MFSK fixtures
   carry family and method labels while protocol and variant remain null.
@@ -145,10 +147,11 @@ validation remain open.
 
 ## Next action
 
-Next, build a lineage-safe held-out OOK rejection benchmark and calibrate live model
-proposals on held-out mixed scenes. The method model now trains a separate noise-only
-class; adding a verified OOK generator does not establish rejection of unseen
-modulation families until those samples are scored without entering model fitting. An opt-in
+Next, create independent lineage-safe OOK validation/test corpora, report performance
+across held-out conditions, and calibrate live model proposals on held-out mixed scenes.
+The method model now trains a separate noise-only class; the OOK evaluator measures
+only the exact supplied synthetic files and does not establish general rejection of
+unseen modulation families. An opt-in
 automatic trial now requires a persistent track and an accepted
 method proposal, while abstentions never trigger mode changes. Keep it opt-in until
 unseen-family and real-capture validation establish useful operating limits. The

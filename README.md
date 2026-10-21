@@ -124,6 +124,13 @@ parameters:
 sig-id-generate-qpsk data/fixtures/qpsk.wav 001101101001 --carrier-hz 1500
 ```
 
+Generate a synthetic OOK/ASK fixture. OOK is deliberately outside the current model's
+FSK/PSK taxonomy and can be used as a held-out unknown-family example:
+
+```sh
+sig-id-generate-ook data/fixtures/ook.wav 001101101001 --carrier-hz 1500
+```
+
 Register the waveform and validated sidecar in the local dataset from the command
 line, or choose both files in the workbench's **Synthetic Dataset** panel:
 
@@ -132,7 +139,7 @@ sig-id-import-synthetic data/fixtures/mfsk4.wav
 ```
 
 The importer verifies that the WAV exactly matches a deterministic 2-FSK, M-FSK,
-BPSK or QPSK generator manifest, then stores a full-capture modulation label and the source
+BPSK, QPSK or OOK generator manifest, then stores a full-capture modulation label and the source
 manifest. It does not invent a named protocol.
 
 Combine already imported, accepted synthetic captures into a deterministic scene.
@@ -219,6 +226,17 @@ noise false positives. If that constraint and the known-mode precision target ca
 both be met, it abstains on every example; small corpora can therefore yield zero useful
 coverage. This does not validate rejection of unseen modulated families, and real-radio
 performance remains unvalidated.
+
+To measure a trained model against verified synthetic OOK that was not included in
+training or calibration, generate one or more examples and score them with:
+
+```sh
+sig-id-evaluate-ood --model data/models/method.npz data/fixtures/ook-1.wav data/fixtures/ook-2.wav
+```
+
+The JSON report records per-waveform hashes and method/family false-accept rates. This
+tool only measures the supplied synthetic examples; it does not establish general
+unknown-mode or field performance.
 
 Replay it blockwise from Python with `sigid.wav.WavSource`; blocks carry exact sample
 offsets and normalized mono samples. This is a modulation fixture, not a named
