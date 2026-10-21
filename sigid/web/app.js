@@ -1,8 +1,9 @@
 import { liveRowLimit, liveTimeLabels, liveTimeWindow } from "/waterfall-window.mjs";
 import { createDemodExport, downloadDemodExport } from "/demod-export.mjs";
+import { layoutSignalLabels, signalCaption, hitSignal } from "/signal-overlays.mjs";
 
 const el = (id) => document.getElementById(id);
-const state = { capture: null, waterfall: null, drag: null, selection: null, regions: [], tracks: [], liveView: false, modelAvailable: false, view: null, demodExports: {} };
+const state = { capture: null, waterfall: null, drag: null, selection: null, regions: [], tracks: [], liveView: false, modelAvailable: false, view: null, demodExports: {}, selectedTrack: null, frozen: false };
 const baseCanvas = el("waterfall");
 const overlayCanvas = el("overlay");
 let livePoll = null;
@@ -27,6 +28,8 @@ function clearDemodExports() {
 function storeDemodExport(mode, result, settings) {
   state.demodExports[mode] = createDemodExport({ capture: state.capture, mode, result, settings });
   el(DEMOD_EXPORT_BUTTONS[mode]).disabled = false;
+  showRawTool(mode);
+  showOutput("raw");
 }
 
 for (const [mode, buttonId] of Object.entries(DEMOD_EXPORT_BUTTONS)) {
@@ -117,8 +120,15 @@ el("fldigi-check-wefax").addEventListener("click", async () => {
 
 async function pollFldigiOutput() {
   if (trialPoll) return;
+  const generation = state.outputGeneration;
   try {
+    if (fldigiOffset === null) {
+      const status = await request("/api/fldigi/status");
+      if (generation === state.outputGeneration && status.connected) fldigiOffset = status.receive_text_length;
+      return;
+    }
     const result = await request(`/api/fldigi/output?start=${fldigiOffset}&limit=8192`);
+    if (generation !== state.outputGeneration) return;
     if (result.end < fldigiOffset) fldigiOffset = 0;
     fldigiOffset = result.end;
     if (result.text) {
@@ -137,12 +147,15 @@ async function pollFldigiOutput() {
 function watchDecoderTrial(result) {
   if (trialPoll || watchedTrialTrack === result.track_id) return;
   watchedTrialTrack = result.track_id;
+  const generation = state.outputGeneration;
+  el("output-context").textContent = `Trial for ${result.track_id} · tentative · external audio route`;
   fldigiOffset = result.output_offset;
   el("fldigi-status").textContent = `Trying ${result.current_mode} for ${result.track_id} · receive only · audio routing is external`;
   el("decoded-text").textContent = `Automatic receive trial: ${result.current_mode}\nTentative only · waiting ${result.note}`;
   trialPoll = setInterval(async () => {
     try {
       const trial = await request("/api/fldigi/trials/current");
+      if (generation !== state.outputGeneration) return;
       el("fldigi-status").textContent = `${trial.status} · ${trial.attempted_modes.join(" → ")} · ${trial.note}`;
       if (trial.status === "tentative_output") {
         el("decoded-text").textContent = `TENTATIVE · ${trial.current_mode}\n${trial.text}`;
@@ -185,6 +198,7 @@ el("fldigi-select").addEventListener("click", async () => {
     });
     el("fldigi-status").textContent = `Selected ${result.current_mode} · audio routing not verified`;
     fldigiOffset = result.output_offset;
+    el("output-context").textContent = `Shared Fldigi output · ${result.current_mode} · external audio route`;
     el("decoded-text").textContent = "Decoder mode changed. Waiting for receive output…";
   } catch (error) { showError(error.message); }
 });
@@ -285,6 +299,7 @@ el("live-start").addEventListener("click", async () => {
     clearDemodExports();
     state.capture = null;
     state.liveView = true;
+    resetOutputSession();
     state.waterfall = null;
     state.view = null;
     state.selection = null;
@@ -315,13 +330,21 @@ el("live-start").addEventListener("click", async () => {
     renderTracks();
     el("live-status").textContent = `Recording · ${started.device_name} · ${started.sample_rate.toLocaleString()} Hz`;
     renderRegions();
+    const generation = state.liveGeneration = (state.liveGeneration || 0) + 1;
+    let pending = false;
     livePoll = setInterval(async () => {
+      if (pending) return;
+      pending = true;
       try {
         const status = await request("/api/live");
-        if (status.active) el("live-status").textContent = `${status.state} · ${status.frames_written.toLocaleString()} samples`;
+        if (generation !== state.liveGeneration || !state.liveView) return;
+        if (status.active) el("live-status").textContent = state.frozen ? "Recording · view frozen" : `${status.state} · ${status.frames_written.toLocaleString()} samples`;
         const autoTrial = el("auto-trial").checked;
         const rowLimit = liveRowLimit(started.sample_rate, 512);
         const analysis = await request(`/api/live/analysis?fft_size=4096&hop_size=512&max_rows=${rowLimit}&auto_trial=${autoTrial}`);
+        if (generation !== state.liveGeneration || !state.liveView) return;
+        if (analysis.automatic_trial?.status === "running") watchDecoderTrial(analysis.automatic_trial);
+        if (state.frozen) return;
         if (analysis.warming_up) {
           el("waterfall-state").textContent = `Collecting analysis window · ${analysis.window_sample_count.toLocaleString()} samples`;
           return;
@@ -341,13 +364,16 @@ el("live-start").addEventListener("click", async () => {
           : "Live spectral heuristic · candidates are provisional";
         drawWaterfall();
         renderTracks();
-      } catch (error) { showError(error.message); }
+      } catch (error) { if (generation === state.liveGeneration) showError(error.message); }
+      finally { pending = false; }
     }, 1000);
   } catch (error) { showError(error.message); }
 });
 
 el("live-stop").addEventListener("click", async () => {
   clearError();
+  state.liveGeneration = (state.liveGeneration || 0) + 1;
+  if (livePoll) clearInterval(livePoll);
   el("live-stop").disabled = true;
   try {
     const result = await request("/api/live/stop", { method: "POST" });
@@ -386,6 +412,7 @@ async function request(url, options) {
 
 el("upload-form").addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (state.liveView) { showError("Stop live capture before opening another source."); return; }
   clearError();
   const file = el("wav-file").files[0];
   if (!file) return;
@@ -407,6 +434,7 @@ el("upload-form").addEventListener("submit", async (event) => {
 
 el("synthetic-form").addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (state.liveView) { showError("Stop live capture before importing another source."); return; }
   clearError();
   const wav = el("synthetic-wav").files[0];
   const manifest = el("synthetic-manifest").files[0];
@@ -432,6 +460,11 @@ el("synthetic-form").addEventListener("submit", async (event) => {
 async function loadCapture() {
   clearDemodExports();
   state.liveView = false;
+  resetOutputSession();
+  state.waterfall = null;
+  baseCanvas.getContext("2d").clearRect(0, 0, baseCanvas.width, baseCanvas.height);
+  overlayCanvas.getContext("2d").clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+  el("signal-labels")?.replaceChildren();
   state.view = null;
   state.selection = null;
   updateModelButton();
@@ -593,6 +626,7 @@ function sampleToRow(sample) {
 function drawOverlays() {
   const data = state.waterfall;
   if (!data) return;
+  if (!state.view) resetWaterfallView(false);
   const view = waterfallViewBounds();
   const ctx = overlayCanvas.getContext("2d");
   ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
@@ -637,6 +671,7 @@ function drawOverlays() {
     ctx.strokeRect(Math.min(x1, x2), Math.min(y1, y2), Math.max(2, Math.abs(x2 - x1)), Math.max(2, Math.abs(y2 - y1)));
     ctx.setLineDash([]);
   }
+  renderSignalLabels();
 }
 
 function selectTrack(track) {
@@ -654,6 +689,8 @@ function selectTrack(track) {
   const binStep = (highHz - lowHz) / Math.max(1, bins - 1);
   const sampleEnd = Math.min(data.sample_count, track.sample_start + track.sample_count);
   state.selection = { sample_start: track.sample_start, sample_count: Math.max(1, sampleEnd - track.sample_start), frequency_low_hz: track.frequency_low_hz, frequency_high_hz: track.frequency_high_hz, x1, y1, x2, y2 };
+  state.selectedTrack = track;
+  openInspector("label");
   el("selection-summary").textContent = `${state.selection.frequency_low_hz.toFixed(0)}–${state.selection.frequency_high_hz.toFixed(0)} Hz · ${track.modulation_hypothesis}`;
   el("selection-details").textContent = `Provisional candidate · ${(track.time_start_seconds).toFixed(2)}–${track.time_end_seconds.toFixed(2)} s · ${track.tone_count_candidate} tone centers · protocol unknown`;
   el("family").value = "";
@@ -666,7 +703,6 @@ function selectTrack(track) {
   updateModelButton();
   el("hint").classList.add("hidden");
   drawOverlays();
-  el("selection-summary").scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
 function applyTrackToneEstimate(track) {
@@ -677,7 +713,8 @@ function applyTrackToneEstimate(track) {
   el("mfsk-auto-timing").checked = true;
   el("mfsk-auto-rate").checked = true;
   el("mfsk-output").textContent = `Applied provisional tone bank: ${track.tone_centers_hz.map((tone) => tone.toFixed(1)).join(", ")} Hz · spacing ${track.tone_spacing_hz_candidate.toFixed(1)} Hz · grid residual ${track.tone_grid_residual_hz.toFixed(1)} Hz. Review these estimates, then run M-FSK analysis.`;
-  el("mfsk-form").scrollIntoView({ behavior: "smooth", block: "center" });
+  openInspector("raw");
+  showRawTool("mfsk");
 }
 
 function renderTracks() {
@@ -769,6 +806,14 @@ overlayCanvas.addEventListener("pointerup", (event) => {
   const point = canvasPoint(event);
   const data = state.waterfall;
   const view = waterfallViewBounds();
+  const rect = overlayCanvas.getBoundingClientRect();
+  const moved = Math.hypot((state.drag.x - point.x) * rect.width / overlayCanvas.width, (state.drag.y - point.y) * rect.height / overlayCanvas.height);
+  if (moved < 5) {
+    const sample = data.sample_starts[Math.min(view.rowEnd - 1, view.rowStart + point.y)];
+    const frequency = data.frequency_hz[Math.min(view.frequencyEnd - 1, view.frequencyStart + point.x)];
+    const track = hitSignal(state.tracks, sample, frequency);
+    if (track) { state.drag = null; selectTrack(track); return; }
+  }
   const rowStart = Math.min(state.drag.y, point.y);
   const rowEnd = Math.max(state.drag.y, point.y);
   const rowSamples = data.sample_starts;
@@ -789,6 +834,8 @@ overlayCanvas.addEventListener("pointerup", (event) => {
     x1: state.drag.x, y1: state.drag.y, x2: point.x, y2: point.y,
   };
   state.drag = null;
+  state.selectedTrack = null;
+  openInspector("label");
   el("selection-summary").textContent = `${state.selection.frequency_low_hz.toFixed(0)}–${state.selection.frequency_high_hz.toFixed(0)} Hz`;
   const t0 = sampleStart / data.sample_rate;
   const t1 = sampleEnd / data.sample_rate;
@@ -1089,3 +1136,179 @@ for (const [inputId, labelText] of [["synthetic-wav", "Choose fixture WAV"], ["s
     else document.querySelector(`label[for="${inputId}"]`).textContent = labelText;
   });
 }
+
+// Workspace navigation keeps capture and selection state in one place.
+function openInspector(tab = "label") {
+  el("inspector").classList.remove("hidden");
+  for (const node of document.querySelectorAll("[data-inspector-view]")) node.hidden = node.dataset.inspectorView !== tab;
+  for (const button of document.querySelectorAll("[data-inspector-tab]")) button.setAttribute("aria-pressed", String(button.dataset.inspectorTab === tab));
+}
+function showOutput(tab) {
+  for (const node of document.querySelectorAll("[data-output-view]")) node.hidden = node.dataset.outputView !== tab;
+  for (const button of document.querySelectorAll("[data-output-tab]")) button.setAttribute("aria-pressed", String(button.dataset.outputTab === tab));
+  el("output-dock").classList.remove("collapsed");
+  el("toggle-output").textContent = "Collapse";
+  el("toggle-output").setAttribute("aria-expanded", "true");
+}
+function showRawTool(mode) {
+  el("raw-tool").value = mode;
+  for (const node of document.querySelectorAll("[data-raw-tool]")) node.hidden = node.dataset.rawTool !== mode;
+  for (const node of document.querySelectorAll("[data-raw-result]")) node.hidden = node.dataset.rawResult !== mode;
+}
+function resetOutputSession() {
+  state.outputGeneration = (state.outputGeneration || 0) + 1;
+  fldigiOffset = null;
+  el("decoded-text").textContent = "Decoded text will appear here.";
+  el("output-context").textContent = "Shared Fldigi output · audio route external";
+  if (trialPoll) clearInterval(trialPoll);
+  trialPoll = null;
+  watchedTrialTrack = null;
+  state.selectedTrack = null;
+  state.frozen = false;
+  el("freeze-view").textContent = "Freeze view";
+  el("freeze-view").disabled = !state.liveView;
+  for (const dialog of document.querySelectorAll("dialog[open]")) dialog.close();
+  el("inspector").classList.add("hidden");
+}
+function renderSignalLabels() {
+  let container = el("signal-labels");
+  if (!container) {
+    container = document.createElement("div");
+    container.id = "signal-labels";
+    container.className = "signal-labels";
+    overlayCanvas.parentElement.append(container);
+  }
+  const data = state.waterfall;
+  if (!data?.db.length) { container.replaceChildren(); return; }
+  const bounds = waterfallViewBounds();
+  const width = container.clientWidth;
+  const height = container.clientHeight;
+  if (!width || !height) return;
+  const low = data.frequency_hz[bounds.frequencyStart];
+  const high = data.frequency_hz[bounds.frequencyEnd - 1];
+  const items = [];
+  for (const [index, track] of state.tracks.entries()) {
+    const start = sampleToRow(track.sample_start) - bounds.rowStart;
+    const end = sampleToRow(track.sample_start + track.sample_count) - bounds.rowStart;
+    if (end < 0 || start >= overlayCanvas.height || track.frequency_high_hz < low || track.frequency_low_hz > high) continue;
+    items.push({
+      track, text: signalCaption(track, index),
+      selected: state.selectedTrack === track || Boolean(track.track_id && state.selectedTrack?.track_id === track.track_id),
+      x: (track.frequency_low_hz - low) / Math.max(1, high - low) * width,
+      y: Math.max(0, start / overlayCanvas.height * height),
+    });
+  }
+  for (const region of state.regions) {
+    const start = sampleToRow(region.sample_start) - bounds.rowStart;
+    const end = sampleToRow(region.sample_start + region.sample_count) - bounds.rowStart;
+    if (end < 0 || start >= overlayCanvas.height || (region.frequency_high_hz ?? high) < low || (region.frequency_low_hz ?? low) > high) continue;
+    items.push({region, text: `Saved · ${region.variant || region.protocol || region.method || region.family || "Unknown"}`,
+      x: ((region.frequency_low_hz ?? low) - low) / Math.max(1, high - low) * width,
+      y: Math.max(0, start / overlayCanvas.height * height)});
+  }
+  const layout = layoutSignalLabels(items, width, height);
+  // Preserve focused controls when possible during live refresh.
+  const focused = document.activeElement?.dataset.signalKey;
+  container.replaceChildren();
+  for (const item of layout.placed) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `signal-tag ${item.region ? "saved" : "candidate"}${item.selected ? " selected" : ""}`;
+    button.textContent = item.text;
+    button.style.left = `${item.x}px`;
+    button.style.top = `${item.y}px`;
+    button.style.width = `${item.width}px`;
+    button.dataset.signalKey = item.track?.track_id || item.region?.id || item.text;
+    button.title = item.track
+      ? `${item.text}\n${item.track.frequency_low_hz.toFixed(0)}–${item.track.frequency_high_hz.toFixed(0)} Hz · peak SNR estimate ${item.track.peak_snr_db?.toFixed(1) ?? "unknown"} dB\nClick to inspect; identification remains provisional.`
+      : `${item.text} · ${item.region.source} / ${item.region.review_state}`;
+    button.addEventListener("click", () => item.track ? selectTrack(item.track) : selectSavedRegion(item.region));
+    container.append(button);
+    if (button.dataset.signalKey === focused) button.focus({preventScroll:true});
+  }
+  if (layout.overflow.length) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "signal-overflow";
+    button.textContent = `+${layout.overflow.length} signals / labels`;
+    button.addEventListener("click", () => openInspector("signals"));
+    container.append(button);
+  }
+}
+function selectSavedRegion(region) {
+  const data = state.waterfall;
+  if (!data) return;
+  state.selection = {sample_start:region.sample_start, sample_count:region.sample_count,
+    frequency_low_hz:region.frequency_low_hz ?? 0, frequency_high_hz:region.frequency_high_hz ?? Math.min(3000,data.sample_rate/2)};
+  state.selectedTrack = null;
+  reprojectSelection();
+  for (const field of ["family","method","protocol","variant","notes"]) el(field).value = region[field] || "";
+  el("selection-summary").textContent = region.variant || region.protocol || region.method || region.family || "Saved unknown region";
+  el("selection-details").textContent = `${region.source} · ${region.review_state} · ${(region.sample_start/data.sample_rate).toFixed(2)}–${((region.sample_start+region.sample_count)/data.sample_rate).toFixed(2)} s`;
+  el("label-state").textContent = "Review this saved annotation. Save creates another region.";
+  el("save-region").disabled = state.liveView;
+  updateModelButton();
+  for (const dialog of document.querySelectorAll("dialog[open]")) dialog.close();
+  openInspector("label");
+  drawOverlays();
+}
+async function refreshLibrary() {
+  const target = el("capture-list");
+  try {
+    const captures = await request("/api/captures");
+    target.replaceChildren();
+    for (const capture of captures) {
+      const row = document.createElement("div");
+      row.className = "capture-row";
+      const title = document.createElement("span");
+      title.textContent = `${capture.source_metadata.uploaded_filename || capture.source_metadata.generator || capture.source_metadata.device_name || "Recording"} · ${(capture.sample_count / capture.sample_rate).toFixed(1)} s`;
+      const open = document.createElement("button"); open.type = "button"; open.textContent = "Open";
+      open.disabled = state.liveView;
+      open.title = state.liveView ? "Stop live recording before opening another source" : "Open recording";
+      open.addEventListener("click", async () => {
+        try { state.capture = capture; await loadCapture(); } catch (error) { showError(error.message); }
+      });
+      row.append(title, open); target.append(row);
+    }
+    if (!captures.length) target.textContent = "No saved recordings yet.";
+  } catch (error) { target.textContent = error.message; }
+}
+for (const button of document.querySelectorAll("[data-inspector-tab]")) button.addEventListener("click", () => openInspector(button.dataset.inspectorTab));
+for (const button of document.querySelectorAll("[data-output-tab]")) button.addEventListener("click", () => showOutput(button.dataset.outputTab));
+for (const button of document.querySelectorAll("[data-close-dialog]")) button.addEventListener("click", () => button.closest("dialog").close());
+el("show-signals").addEventListener("click", () => openInspector("signals"));
+el("close-inspector").addEventListener("click", () => el("inspector").classList.add("hidden"));
+el("show-settings").addEventListener("click", () => el("settings-dialog").showModal());
+for (const id of ["show-library", "open-recording"]) el(id).addEventListener("click", () => { refreshLibrary(); el("library-dialog").showModal(); });
+el("raw-tool").addEventListener("change", () => showRawTool(el("raw-tool").value));
+el("toggle-output").addEventListener("click", () => {
+  const collapsed = el("output-dock").classList.toggle("collapsed");
+  el("toggle-output").textContent = collapsed ? "Expand" : "Collapse";
+  el("toggle-output").setAttribute("aria-expanded", String(!collapsed));
+});
+el("freeze-view").addEventListener("click", () => {
+  state.frozen = !state.frozen;
+  el("freeze-view").textContent = state.frozen ? "Resume view" : "Freeze view";
+  el("live-status").textContent = state.frozen ? "Recording · view frozen" : "Recording · following live audio";
+});
+document.addEventListener("keydown", event => { if (event.key === "Escape") el("inspector").classList.add("hidden"); });
+overlayCanvas.addEventListener("pointermove", event => {
+  if (!state.waterfall) return;
+  const point = canvasPoint(event), bounds = waterfallViewBounds(), data = state.waterfall;
+  const row = Math.min(bounds.rowEnd - 1, bounds.rowStart + point.y);
+  const bin = Math.min(bounds.frequencyEnd - 1, bounds.frequencyStart + point.x);
+  el("cursor-readout").textContent = `${data.frequency_hz[bin].toFixed(1)} Hz · ${(data.sample_starts[row]/data.sample_rate).toFixed(2)} s · ${data.db[row][bin].toFixed(1)} dB`;
+});
+// Move each analysis result into the dock, preserving API handlers and exports.
+for (const mode of Object.keys(DEMOD_EXPORT_BUTTONS)) {
+  const outputId = mode === "2fsk" ? "demod-output" : `${mode}-output`;
+  const wrapper = document.createElement("div"); wrapper.dataset.rawResult = mode;
+  wrapper.append(el(outputId), el(DEMOD_EXPORT_BUTTONS[mode]));
+  el("raw-results").append(wrapper);
+  const form = el(mode === "2fsk" ? "demod-form" : `${mode}-form`);
+  form.addEventListener("submit", () => { showRawTool(mode); showOutput("raw"); });
+}
+el("raw-results").querySelector(":scope > p")?.remove();
+showRawTool("2fsk");
+showOutput("text");
+new ResizeObserver(() => { if (state.waterfall) renderSignalLabels(); }).observe(overlayCanvas.parentElement);

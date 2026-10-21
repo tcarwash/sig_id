@@ -958,6 +958,10 @@ def create_app(
     def demod_export_module() -> FileResponse:
         return FileResponse(WEB_DIR / "demod-export.mjs", media_type="text/javascript")
 
+    @app.get("/signal-overlays.mjs", include_in_schema=False)
+    def signal_overlays_module() -> FileResponse:
+        return FileResponse(WEB_DIR / "signal-overlays.mjs", media_type="text/javascript")
+
     @app.get("/style.css", include_in_schema=False)
     def stylesheet() -> FileResponse:
         return FileResponse(WEB_DIR / "style.css", media_type="text/css")

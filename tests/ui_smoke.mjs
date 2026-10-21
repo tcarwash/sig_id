@@ -1,0 +1,147 @@
+/** Run against an isolated SIGID_UI_URL server. See README's UI verification section. */
+import assert from "node:assert/strict";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { execFileSync } from "node:child_process";
+const { chromium } = await import(
+  process.env.SIGID_PLAYWRIGHT_MODULE || "playwright"
+);
+const root = await mkdtemp(join(tmpdir(), "sigid-ui-smoke-"));
+execFileSync(process.env.SIGID_PYTHON || ".venv/bin/python", [
+  "-c",
+  `
+from pathlib import Path
+from sigid.synthetic import generate_2fsk_wav, generate_mfsk_wav, generate_ook_wav, generate_bpsk_wav, generate_qpsk_wav
+p=Path(${JSON.stringify(root)})
+bits='00110110'*32
+generate_2fsk_wav(p/'2fsk.wav',bits,sample_rate=12000,symbol_rate=100,tone_low_hz=1000,tone_high_hz=1200)
+generate_mfsk_wav(p/'mfsk.wav',[0,1,3,2]*64,tone_count=4,symbol_rate=50,base_tone_hz=1000,tone_spacing_hz=200)
+for name,fn in [('ook',generate_ook_wav),('bpsk',generate_bpsk_wav),('qpsk',generate_qpsk_wav)]: fn(p/(name+'.wav'),bits)
+`,
+]);
+const browser = await chromium.launch({ headless: true });
+const page = await browser.newPage({
+  viewport: { width: 1440, height: 900 },
+  acceptDownloads: true,
+});
+const errors = [];
+page.on("pageerror", (error) => errors.push(error.message));
+let modeChanges = 0;
+// Exercise controls without changing the operator's Fldigi instance.
+await page.route("**/api/fldigi/**", async (route) => {
+  const path = new URL(route.request().url()).pathname;
+  let body = {};
+  if (path.endsWith("/status"))
+    body = {
+      connected: true,
+      name: "Test decoder",
+      version: "1",
+      current_mode: "BPSK31",
+      mode_count: 2,
+      receive_text_length: 0,
+      wefax_output_available: false,
+    };
+  else if (path.endsWith("/modes")) body = ["BPSK31", "RTTY"];
+  else if (path.endsWith("/mode")) {
+    modeChanges++;
+    body = { current_mode: "RTTY", output_offset: 0 };
+  } else if (path.endsWith("/output")) body = { end: 0, text: "" };
+  else if (path.endsWith("/products")) body = [];
+  await route.fulfill({ json: body });
+});
+try {
+  await page.goto(process.env.SIGID_UI_URL || "http://127.0.0.1:8011");
+  for (const mode of ["2fsk", "mfsk", "ook", "bpsk", "qpsk"]) {
+    await page.locator("#open-recording").click();
+    await page.locator("#wav-file").setInputFiles(join(root, `${mode}.wav`));
+    await page.locator("#upload-form button").click();
+    await page.locator("#library-dialog").waitFor({ state: "hidden" });
+    await page.locator("#workspace").waitFor({ state: "visible" });
+    await page.waitForFunction(
+      (name) => document.getElementById("capture-title").textContent === name,
+      `${mode}.wav`,
+    );
+    assert.ok(await page.locator("#error").isHidden());
+    await page.locator("#show-signals").click();
+    await page.locator('[data-inspector-tab="raw"]').click();
+    await page.locator("#raw-tool").selectOption(mode);
+    const submit = mode === "2fsk" ? "demod-run" : `${mode}-run`;
+    await page.locator(`#${submit}`).click();
+    const exportId = `demod-export-${mode}`;
+    await page.waitForFunction(
+      (id) => !document.getElementById(id).disabled,
+      exportId,
+    );
+    const pending = page.waitForEvent("download");
+    await page.locator(`#${exportId}`).click();
+    const download = await pending,
+      destination = join(root, `${mode}-result.json`);
+    await download.saveAs(destination);
+    const result = JSON.parse(await readFile(destination, "utf8"));
+    assert.equal(result.protocol, null);
+    assert.equal(result.modulation_hypothesis, mode);
+    assert.ok(result.result.symbol_count > 0);
+    assert.equal(await page.locator(".raw-tool:visible").count(), 1);
+    assert.equal(await page.locator("[data-raw-result]:visible").count(), 1);
+  }
+  // Manual labeling and direct saved-annotation selection.
+  await page.locator("#close-inspector").click();
+  const box = await page.locator("#overlay").boundingBox();
+  await page.mouse.move(box.x + box.width * 0.25, box.y + box.height * 0.2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.75, {
+    steps: 5,
+  });
+  await page.mouse.up();
+  await page.locator("#family").fill("PSK");
+  await page.locator("#save-region").click();
+  await page.locator(".signal-tag.saved").first().waitFor();
+  await page.locator(".signal-tag.saved").first().click();
+  assert.equal(await page.locator("#family").inputValue(), "PSK");
+  assert.equal(
+    modeChanges,
+    0,
+    "signal selection must not switch decoder modes",
+  );
+  await page.locator('[data-inspector-tab="decode"]').click();
+  await page.locator("#fldigi-mode").selectOption("RTTY");
+  assert.equal(modeChanges, 0, "mode choice requires explicit action");
+  await page.locator("#fldigi-select").click();
+  await page.waitForFunction(() =>
+    document
+      .getElementById("fldigi-status")
+      .textContent.includes("Selected RTTY"),
+  );
+  assert.equal(modeChanges, 1);
+  await page.locator("#show-library").click();
+  await page.locator("#synthetic-wav").setInputFiles(join(root, "2fsk.wav"));
+  await page.locator("#synthetic-manifest").setInputFiles(join(root, "2fsk.wav.json"));
+  await page.locator("#synthetic-form button").click();
+  await page.locator("#library-dialog").waitFor({state:"hidden"});
+  await page.locator(".signal-tag.saved").first().waitFor();
+  assert.ok(await page.locator("#error").isHidden());
+  assert.equal(await page.locator("#decoded-text").textContent(), "Decoded text will appear here.");
+  await page.keyboard.press("Escape");
+  assert.ok(await page.locator("#inspector").isHidden());
+  await page.screenshot({ path: join(root, "desktop.png") });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  );
+  await page.locator("#show-signals").click();
+  await page.screenshot({ path: join(root, "mobile.png") });
+  assert.deepEqual(errors, []);
+  console.log(
+    JSON.stringify({
+      result: "passed",
+      artifacts: root,
+      raw_exports: 5,
+      mode_changes: modeChanges,
+    }),
+  );
+} finally {
+  await browser.close();
+}

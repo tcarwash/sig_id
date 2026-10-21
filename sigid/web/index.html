@@ -6,188 +6,706 @@
     <meta name="theme-color" content="#10151b" />
     <title>Signal ID Workbench</title>
     <link rel="stylesheet" href="/style.css" />
-    <style>.dataset-actions{display:flex;align-items:center;gap:9px}.export-link{font-size:10px;color:#52d6d0;text-decoration:none;border:1px solid #315356;padding:6px 9px;border-radius:7px}.export-link:hover{background:#1a3031}</style>
   </head>
   <body>
     <header class="topbar">
-      <div class="brand"><span class="brand-mark">S</span><span>Signal ID <span class="muted">/ Workbench</span></span></div>
-      <div id="connection" class="status"><span class="status-dot"></span> WAV review</div>
+      <a class="brand" href="/" aria-label="Signal ID home"
+        ><span class="brand-mark">S</span>Signal ID</a
+      >
+      <div class="transport">
+        <button id="live-start" type="button">Start live capture</button
+        ><button id="live-stop" type="button" disabled>Stop and review</button
+        ><button id="freeze-view" type="button" disabled>Freeze view</button>
+      </div>
+      <div class="toolbar-spacer"></div>
+      <button id="open-recording" type="button">Open recording</button
+      ><button id="show-signals" type="button">Signals</button>
+      <button id="show-library" type="button">Library</button
+      ><button id="show-settings" type="button">Settings</button>
     </header>
-    <main>
-      <section class="source-row">
-        <div>
-          <p class="eyebrow">RECEIVE WORKSPACE</p>
-          <h1>Inspect a signal</h1>
-          <p class="subhead">Load an audio recording, mark a signal, and save what you can identify.</p>
+    <main class="app-shell">
+      <div class="receive-layout">
+        <div class="waterfall-stage">
+          <section id="empty-state" class="empty-state">
+            <div class="empty-icon">∿</div>
+            <h2>Start with a recording</h2>
+            <p>
+              Upload a PCM WAV passband recording to see its time and
+              audio-frequency spectrum.
+            </p>
+          </section>
+          <section id="workspace" class="workspace hidden">
+            <div class="panel spectrum-panel">
+              <div class="panel-heading">
+                <div>
+                  <h2 id="capture-title">Recording</h2>
+                  <p id="capture-meta" class="subhead"></p>
+                </div>
+                <a
+                  id="manifest-download"
+                  class="export-link hidden"
+                  href="#"
+                  download
+                  >Download source manifest</a
+                >
+                <div class="spectrum-legend">
+                  <span>−100 dB</span><i></i><span>0 dB</span>
+                </div>
+              </div>
+              <div class="waterfall-layout">
+                <div class="axis-y">
+                  <span id="time-start">0 s</span><span>Time</span
+                  ><span id="time-end">0 s</span>
+                </div>
+                <div class="waterfall-column">
+                  <div class="waterfall-wrap">
+                    <canvas
+                      id="waterfall"
+                      aria-label="Waterfall with time on the vertical axis and audio frequency on the horizontal axis. Drag to mark a signal region."
+                    ></canvas>
+                    <canvas id="overlay" aria-hidden="true"></canvas>
+                    <div id="hint" class="canvas-hint">
+                      Drag across a signal to mark its time and frequency bounds
+                    </div>
+                  </div>
+                  <div class="axis-x">
+                    <span id="freq-low">0 Hz</span><span>Audio frequency →</span
+                    ><span id="freq-high">0 Hz</span>
+                  </div>
+                </div>
+              </div>
+              <div class="capture-controls">
+                <audio id="audio-player" controls preload="none"></audio>
+                <span id="waterfall-state" class="muted">WAV spectrum</span>
+              </div>
+            </div>
+          </section>
         </div>
+        <aside
+          id="inspector"
+          class="inspector hidden"
+          aria-label="Signal inspector"
+        >
+          <div class="inspector-heading">
+            <strong>Signal inspector</strong
+            ><button
+              id="close-inspector"
+              type="button"
+              aria-label="Close inspector"
+            >
+              ×
+            </button>
+          </div>
+          <nav class="inspector-tabs" aria-label="Signal tools">
+            <button data-inspector-tab="label" type="button">Label</button
+            ><button data-inspector-tab="decode" type="button">Decode</button
+            ><button data-inspector-tab="raw" type="button">Raw symbols</button
+            ><button data-inspector-tab="signals" type="button">Signals</button>
+          </nav>
+          <div class="inspector-content">
+            <div data-inspector-view="label">
+              <section class="panel selection-panel">
+                <p class="eyebrow">SELECTED REGION</p>
+                <h2 id="selection-summary">No region selected</h2>
+                <p id="selection-details" class="subhead">
+                  Drag over the waterfall to mark a signal.
+                </p>
+                <div class="form-grid">
+                  <label
+                    >Modulation family<input
+                      id="family"
+                      placeholder="e.g. FSK, MFSK, PSK"
+                  /></label>
+                  <label
+                    >Modulation method<input
+                      id="method"
+                      placeholder="e.g. binary FSK"
+                  /></label>
+                  <label
+                    >Protocol<input
+                      id="protocol"
+                      placeholder="Leave blank if unknown"
+                  /></label>
+                  <label
+                    >Variant<input id="variant" placeholder="e.g. THOR16"
+                  /></label>
+                </div>
+                <label class="notes-label"
+                  >Notes<textarea
+                    id="notes"
+                    rows="2"
+                    placeholder="What supports this label? What remains uncertain?"
+                  ></textarea>
+                </label>
+                <div class="save-row">
+                  <button id="model-propose" type="button" disabled>
+                    Suggest method</button
+                  ><span id="model-status" class="muted"
+                    >No model loaded · configure SIG_ID_MODEL_PATH</span
+                  >
+                </div>
+                <div class="save-row">
+                  <span id="label-state" class="muted"
+                    >Partial labels are welcome.</span
+                  ><button id="save-region" class="primary" disabled>
+                    Save region label
+                  </button>
+                </div>
+              </section>
+            </div>
+            <div data-inspector-view="decode" hidden>
+              <section class="panel decoder-panel">
+                <p class="eyebrow">DECODER</p>
+                <h2>Fldigi receive decoder</h2>
+                <p id="fldigi-status" class="subhead">
+                  Checking local Fldigi connection…
+                </p>
+                <label class="fldigi-mode-label"
+                  >Mode<select id="fldigi-mode" disabled>
+                    <option>Connect to Fldigi</option>
+                  </select></label
+                >
+                <button id="fldigi-select" type="button" disabled>
+                  Select receive mode
+                </button>
+
+                <div class="decoder-evidence">
+                  <span class="status-dot amber"></span
+                  ><span
+                    >Audio must be routed into Fldigi. Unknown mode remains a
+                    valid result.</span
+                  >
+                </div>
+              </section>
+            </div>
+            <div data-inspector-view="raw" hidden>
+              <section class="panel raw-demod-panel">
+                <h2>Raw symbols</h2>
+                <p class="subhead">
+                  Recover symbols and bits without assuming a protocol.
+                </p>
+                <label class="field"
+                  >Modulation<select id="raw-tool">
+                    <option value="2fsk">2-FSK</option>
+                    <option value="mfsk">M-FSK</option>
+                    <option value="ook">OOK</option>
+                    <option value="bpsk">BPSK</option>
+                    <option value="qpsk">QPSK</option>
+                  </select></label
+                >
+                <div class="raw-tool" data-raw-tool="2fsk">
+                  <h3>2-FSK raw bits</h3>
+                  <form id="demod-form" class="demod-form">
+                    <label
+                      >Symbol rate<input
+                        id="demod-rate"
+                        type="number"
+                        min="1"
+                        step="any"
+                        value="100"
+                        required
+                    /></label>
+                    <label
+                      >Tone for bit 0 (Hz)<input
+                        id="demod-tone0"
+                        type="number"
+                        min="1"
+                        step="any"
+                        value="1000"
+                        required
+                    /></label>
+                    <label
+                      >Tone for bit 1 (Hz)<input
+                        id="demod-tone1"
+                        type="number"
+                        min="1"
+                        step="any"
+                        value="1200"
+                        required
+                    /></label>
+                    <label
+                      >Timing offset (samples)<input
+                        id="demod-offset"
+                        type="number"
+                        min="0"
+                        step="any"
+                        value="0"
+                        required
+                    /></label>
+                    <label class="demod-check"
+                      ><input id="demod-auto-timing" type="checkbox" /> Estimate
+                      timing phase automatically</label
+                    >
+                    <button id="demod-run" type="submit" disabled>
+                      Recover raw bits
+                    </button>
+                  </form>
+                  <pre
+                    id="demod-output"
+                    class="decoded-text"
+                    aria-live="polite"
+                  >
+Select a saved capture or region to analyze.</pre>
+                  <button
+                    id="demod-export-2fsk"
+                    class="demod-export"
+                    type="button"
+                    disabled
+                  >
+                    Export 2-FSK analysis JSON
+                  </button>
+                </div>
+                <div class="raw-tool" data-raw-tool="ook" hidden>
+                  <h3>OOK raw bits</h3>
+                  <p class="subhead">
+                    Noncoherent amplitude decisions estimate the off/on levels
+                    from this capture. Timing search is available; bit framing
+                    and protocol remain unknown.
+                  </p>
+                  <form id="ook-form" class="demod-form">
+                    <label
+                      >Symbol rate<input
+                        id="ook-rate"
+                        type="number"
+                        min="1"
+                        step="any"
+                        value="100"
+                        required
+                    /></label>
+                    <label
+                      >Carrier frequency (Hz)<input
+                        id="ook-carrier"
+                        type="number"
+                        min="1"
+                        step="any"
+                        value="1500"
+                        required
+                    /></label>
+                    <label
+                      >Timing offset (samples)<input
+                        id="ook-offset"
+                        type="number"
+                        min="0"
+                        step="any"
+                        value="0"
+                        required
+                    /></label>
+                    <label class="demod-check"
+                      ><input id="ook-auto-timing" type="checkbox" /> Estimate
+                      timing phase automatically</label
+                    >
+                    <button id="ook-run" type="submit" disabled>
+                      Recover OOK bits
+                    </button>
+                  </form>
+                  <pre id="ook-output" class="decoded-text" aria-live="polite">
+Select a saved capture or region to analyze.</pre>
+                  <button
+                    id="demod-export-ook"
+                    class="demod-export"
+                    type="button"
+                    disabled
+                  >
+                    Export OOK analysis JSON
+                  </button>
+                </div>
+                <div class="raw-tool" data-raw-tool="mfsk" hidden>
+                  <h2>M-FSK tone and bit analysis</h2>
+                  <p class="subhead">
+                    Natural-binary bits are reported only when the tone count is
+                    a power of two; otherwise the recovered tone indices remain
+                    available. Optional rate search ranks a bounded range of
+                    symbol rates.
+                  </p>
+                  <form id="mfsk-form" class="demod-form">
+                    <label
+                      >Symbol rate<input
+                        id="mfsk-rate"
+                        type="number"
+                        min="1"
+                        step="any"
+                        value="50"
+                        required
+                    /></label>
+                    <label
+                      >Tone count<input
+                        id="mfsk-count"
+                        type="number"
+                        min="2"
+                        max="64"
+                        step="1"
+                        value="4"
+                        required
+                    /></label>
+                    <label
+                      >Base tone (Hz)<input
+                        id="mfsk-base"
+                        type="number"
+                        min="1"
+                        step="any"
+                        value="1000"
+                        required
+                    /></label>
+                    <label
+                      >Tone spacing (Hz)<input
+                        id="mfsk-spacing"
+                        type="number"
+                        min="1"
+                        step="any"
+                        value="200"
+                        required
+                    /></label>
+                    <label
+                      >Timing offset (samples)<input
+                        id="mfsk-offset"
+                        type="number"
+                        min="0"
+                        step="any"
+                        value="0"
+                        required
+                    /></label>
+                    <label class="demod-check"
+                      ><input id="mfsk-auto-timing" type="checkbox" /> Estimate
+                      timing phase automatically</label
+                    >
+                    <label class="demod-check"
+                      ><input id="mfsk-auto-rate" type="checkbox" /> Search
+                      symbol-rate range</label
+                    >
+                    <label
+                      >Minimum rate (baud)<input
+                        id="mfsk-rate-min"
+                        type="number"
+                        min="1"
+                        step="any"
+                        value="12.5"
+                        required
+                    /></label>
+                    <label
+                      >Maximum rate (baud)<input
+                        id="mfsk-rate-max"
+                        type="number"
+                        min="1"
+                        step="any"
+                        value="200"
+                        required
+                    /></label>
+                    <label
+                      >Rate hypotheses<input
+                        id="mfsk-rate-steps"
+                        type="number"
+                        min="3"
+                        max="24"
+                        step="1"
+                        value="9"
+                        required
+                    /></label>
+                    <button id="mfsk-run" type="submit" disabled>
+                      Recover tone symbols
+                    </button>
+                  </form>
+                  <pre id="mfsk-output" class="decoded-text" aria-live="polite">
+Select a saved capture or region to analyze.</pre>
+                  <button
+                    id="demod-export-mfsk"
+                    class="demod-export"
+                    type="button"
+                    disabled
+                  >
+                    Export M-FSK analysis JSON
+                  </button>
+                </div>
+                <div class="raw-tool" data-raw-tool="bpsk" hidden>
+                  <h3>BPSK raw bits</h3>
+                  <p class="subhead">
+                    The absolute bit polarity is ambiguous without a known
+                    preamble or framing; both hypotheses are returned.
+                  </p>
+                  <form id="bpsk-form" class="demod-form">
+                    <label
+                      >Symbol rate<input
+                        id="bpsk-rate"
+                        type="number"
+                        min="1"
+                        step="any"
+                        value="100"
+                        required
+                    /></label>
+                    <label
+                      >Carrier frequency (Hz)<input
+                        id="bpsk-carrier"
+                        type="number"
+                        min="1"
+                        step="any"
+                        value="1500"
+                        required
+                    /></label>
+                    <label
+                      >Timing offset (samples)<input
+                        id="bpsk-offset"
+                        type="number"
+                        min="0"
+                        step="any"
+                        value="0"
+                        required
+                    /></label>
+                    <button id="bpsk-run" type="submit" disabled>
+                      Recover BPSK bits
+                    </button>
+                  </form>
+                  <pre id="bpsk-output" class="decoded-text" aria-live="polite">
+Select a saved capture or region to analyze.</pre>
+                  <button
+                    id="demod-export-bpsk"
+                    class="demod-export"
+                    type="button"
+                    disabled
+                  >
+                    Export BPSK analysis JSON
+                  </button>
+                </div>
+                <div class="raw-tool" data-raw-tool="qpsk" hidden>
+                  <h3>QPSK raw symbols and bits</h3>
+                  <p class="subhead">
+                    Four 90° rotation hypotheses are shown because absolute
+                    constellation rotation is unknown.
+                  </p>
+                  <form id="qpsk-form" class="demod-form">
+                    <label
+                      >Symbol rate<input
+                        id="qpsk-rate"
+                        type="number"
+                        min="1"
+                        step="any"
+                        value="100"
+                        required
+                    /></label>
+                    <label
+                      >Carrier frequency (Hz)<input
+                        id="qpsk-carrier"
+                        type="number"
+                        min="1"
+                        step="any"
+                        value="1500"
+                        required
+                    /></label>
+                    <label
+                      >Timing offset (samples)<input
+                        id="qpsk-offset"
+                        type="number"
+                        min="0"
+                        step="any"
+                        value="0"
+                        required
+                    /></label>
+                    <button id="qpsk-run" type="submit" disabled>
+                      Recover QPSK symbols
+                    </button>
+                  </form>
+                  <pre id="qpsk-output" class="decoded-text" aria-live="polite">
+Select a saved capture or region to analyze.</pre>
+                  <button
+                    id="demod-export-qpsk"
+                    class="demod-export"
+                    type="button"
+                    disabled
+                  >
+                    Export QPSK analysis JSON
+                  </button>
+                </div>
+              </section>
+            </div>
+            <div data-inspector-view="signals" hidden>
+              <section class="panel tracks-panel">
+                <div class="panel-heading">
+                  <div>
+                    <p class="eyebrow">AUTOMATIC SCAN</p>
+                    <h2>Provisional signal candidates</h2>
+                    <p id="track-status" class="subhead">
+                      Analyzing spectral activity…
+                    </p>
+                  </div>
+                  <span id="track-count" class="count">0</span>
+                </div>
+                <p class="track-disclaimer">
+                  Tone-count and spacing hypotheses are heuristic evidence only.
+                  Regular tone sets can prefill M-FSK analysis, but verify them
+                  before decoding; they do not identify a protocol or guarantee
+                  a decoded message.
+                </p>
+                <div id="track-list" class="track-list">
+                  <p class="subhead">No candidates analyzed yet.</p>
+                </div>
+              </section>
+            </div>
+          </div>
+        </aside>
+      </div>
+      <section
+        id="output-dock"
+        class="output-dock"
+        aria-label="Receiver output"
+      >
+        <div class="dock-heading">
+          <nav aria-label="Output type">
+            <button data-output-tab="text" type="button">Fldigi text</button
+            ><button data-output-tab="raw" type="button">Raw results</button
+            ><button data-output-tab="images" type="button">Images</button>
+          </nav>
+          <span id="output-context" class="muted"
+            >Shared decoder output · audio route external</span
+          ><button id="toggle-output" type="button" aria-expanded="true">
+            Collapse
+          </button>
+        </div>
+        <div class="dock-content">
+          <div data-output-view="text">
+            <pre id="decoded-text" class="decoded-text" aria-live="polite">
+Decoded text will appear here.</pre>
+          </div>
+          <div id="raw-results" data-output-view="raw" hidden>
+            <p class="subhead">
+              Select a region, open Raw symbols, and run an analysis.
+            </p>
+          </div>
+          <div data-output-view="images" hidden>
+            <div class="receive-products">
+              <button id="fldigi-check-wefax" type="button" disabled>
+                Check for received WEFAX image</button
+              ><span id="wefax-status" class="muted"
+                >Image products unavailable</span
+              >
+              <div id="received-images" class="received-images"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+      <footer class="statusbar">
+        <div id="connection" class="status">
+          <span class="status-dot"></span> WAV review
+        </div>
+        <span id="live-status" class="muted">Audio input idle</span
+        ><span id="cursor-readout">0–3 kHz · frequency → · time ↓</span>
+      </footer>
+      <p id="error" class="error hidden" role="alert"></p>
+    </main>
+    <dialog
+      id="library-dialog"
+      class="drawer-dialog"
+      aria-labelledby="library-title"
+    >
+      <header>
+        <h2 id="library-title">Library</h2>
+        <button data-close-dialog type="button" aria-label="Close library">
+          ×
+        </button>
+      </header>
+      <section class="panel">
+        <h3>Open audio</h3>
         <form id="upload-form" class="upload-form">
           <label class="file-button" for="wav-file">Choose WAV</label>
           <input id="wav-file" type="file" accept="audio/wav,.wav" required />
           <button type="submit" class="primary">Load recording</button>
         </form>
-        <div class="live-controls">
-          <label>Audio input<select id="audio-device"><option value="">Default input</option></select></label>
-          <label>Rate<select id="audio-rate"><option value="48000">48 kHz</option><option value="96000">96 kHz</option><option value="192000">192 kHz</option></select></label>
-          <button id="live-start" type="button">Start live capture</button>
-          <button id="live-stop" type="button" disabled>Stop and review</button>
-          <label class="auto-trial-toggle" title="Opt in to receive-only Fldigi mode changes after a persistent, accepted model proposal. Decoded text remains tentative."><span>Auto-try accepted model IDs</span><input id="auto-trial" type="checkbox" /></label>
-          <span id="live-status" class="muted">Audio input idle</span>
-        </div>
       </section>
-
+      <section class="panel">
+        <h3>Saved recordings</h3>
+        <div id="capture-list"><p class="subhead">Loading recordings…</p></div>
+      </section>
       <section class="synthetic-import panel">
         <div>
           <p class="eyebrow">SYNTHETIC DATASET</p>
-          <p class="subhead">Import a generated WAV with its reference manifest. The modulation label is saved; unknown protocol stays blank.</p>
+          <p class="subhead">
+            Import a generated WAV with its reference manifest. The modulation
+            label is saved; unknown protocol stays blank.
+          </p>
         </div>
         <form id="synthetic-form">
-          <label class="file-button" for="synthetic-wav">Choose fixture WAV</label>
-          <input id="synthetic-wav" type="file" accept="audio/wav,.wav" required />
-          <label class="file-button" for="synthetic-manifest">Choose manifest</label>
-          <input id="synthetic-manifest" type="file" accept="application/json,.json" required />
+          <label class="file-button" for="synthetic-wav"
+            >Choose fixture WAV</label
+          >
+          <input
+            id="synthetic-wav"
+            type="file"
+            accept="audio/wav,.wav"
+            required
+          />
+          <label class="file-button" for="synthetic-manifest"
+            >Choose manifest</label
+          >
+          <input
+            id="synthetic-manifest"
+            type="file"
+            accept="application/json,.json"
+            required
+          />
           <button type="submit" class="primary">Import labeled fixture</button>
         </form>
       </section>
-
-      <section id="empty-state" class="empty-state">
-        <div class="empty-icon">∿</div>
-        <h2>Start with a recording</h2>
-        <p>Upload a PCM WAV passband recording to see its time and audio-frequency spectrum.</p>
-      </section>
-
-      <section id="workspace" class="workspace hidden">
-        <div class="panel spectrum-panel">
-          <div class="panel-heading">
-            <div>
-              <h2 id="capture-title">Recording</h2>
-              <p id="capture-meta" class="subhead"></p>
-            </div>
-            <a id="manifest-download" class="export-link hidden" href="#" download>Download source manifest</a>
-            <div class="spectrum-legend"><span>−100 dB</span><i></i><span>0 dB</span></div>
+      <section class="panel regions-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">DATASET</p>
+            <h2>Saved regions</h2>
           </div>
-          <div class="waterfall-layout">
-            <div class="axis-y"><span id="time-start">0 s</span><span>Time</span><span id="time-end">0 s</span></div>
-            <div class="waterfall-column">
-              <div class="waterfall-wrap">
-                <canvas id="waterfall" aria-label="Waterfall with time on the vertical axis and audio frequency on the horizontal axis. Drag to mark a signal region."></canvas>
-                <canvas id="overlay" aria-hidden="true"></canvas>
-                <div id="hint" class="canvas-hint">Drag across a signal to mark its time and frequency bounds</div>
-              </div>
-              <div class="axis-x"><span id="freq-low">0 Hz</span><span>Audio frequency →</span><span id="freq-high">0 Hz</span></div>
-            </div>
-          </div>
-          <div class="capture-controls">
-            <audio id="audio-player" controls preload="none"></audio>
-            <span id="waterfall-state" class="muted">WAV spectrum</span>
+          <div class="dataset-actions">
+            <span id="region-count" class="count">0</span
+            ><a class="export-link" href="/api/exports/regions.jsonl" download
+              >Export labels</a
+            >
           </div>
         </div>
-
-        <div class="details-grid">
-          <section class="panel selection-panel">
-            <p class="eyebrow">SELECTED REGION</p>
-            <h2 id="selection-summary">No region selected</h2>
-            <p id="selection-details" class="subhead">Drag over the waterfall to mark a signal.</p>
-            <div class="form-grid">
-              <label>Modulation family<input id="family" placeholder="e.g. FSK, MFSK, PSK" /></label>
-              <label>Modulation method<input id="method" placeholder="e.g. binary FSK" /></label>
-              <label>Protocol<input id="protocol" placeholder="Leave blank if unknown" /></label>
-              <label>Variant<input id="variant" placeholder="e.g. THOR16" /></label>
-            </div>
-            <label class="notes-label">Notes<textarea id="notes" rows="2" placeholder="What supports this label? What remains uncertain?"></textarea></label>
-            <div class="save-row"><button id="model-propose" type="button" disabled>Suggest method</button><span id="model-status" class="muted">No model loaded · configure SIG_ID_MODEL_PATH</span></div>
-            <div class="save-row"><span id="label-state" class="muted">Partial labels are welcome.</span><button id="save-region" class="primary" disabled>Save region label</button></div>
-          </section>
-
-          <section class="panel decoder-panel">
-            <p class="eyebrow">DECODER</p>
-            <h2>Fldigi receive decoder</h2>
-            <p id="fldigi-status" class="subhead">Checking local Fldigi connection…</p>
-            <label class="fldigi-mode-label">Mode<select id="fldigi-mode" disabled><option>Connect to Fldigi</option></select></label>
-            <button id="fldigi-select" type="button" disabled>Select receive mode</button>
-            <pre id="decoded-text" class="decoded-text" aria-live="polite">Decoded text will appear here.</pre>
-            <div class="receive-products"><button id="fldigi-check-wefax" type="button" disabled>Check for received WEFAX image</button><span id="wefax-status" class="muted">Image products unavailable</span><div id="received-images" class="received-images"></div></div>
-            <div class="decoder-evidence"><span class="status-dot amber"></span><span>Audio must be routed into Fldigi. Unknown mode remains a valid result.</span></div>
-          </section>
+        <div id="region-list" class="region-list">
+          <p class="subhead">No labeled regions in this recording yet.</p>
         </div>
-
-        <section class="panel raw-demod-panel">
-          <p class="eyebrow">PROTOCOL-INDEPENDENT ANALYSIS</p>
-          <h2>Protocol-independent demodulators</h2>
-          <p class="subhead">Supply modulation parameters to recover uncoded symbols and bits. 2-FSK, M-FSK and OOK can search timing phase automatically; these tools do not identify framing or a protocol.</p>
-          <h3>2-FSK raw bits</h3>
-          <form id="demod-form" class="demod-form">
-            <label>Symbol rate<input id="demod-rate" type="number" min="1" step="any" value="100" required /></label>
-            <label>Tone for bit 0 (Hz)<input id="demod-tone0" type="number" min="1" step="any" value="1000" required /></label>
-            <label>Tone for bit 1 (Hz)<input id="demod-tone1" type="number" min="1" step="any" value="1200" required /></label>
-            <label>Timing offset (samples)<input id="demod-offset" type="number" min="0" step="any" value="0" required /></label>
-            <label class="demod-check"><input id="demod-auto-timing" type="checkbox" /> Estimate timing phase automatically</label>
-            <button id="demod-run" type="submit" disabled>Recover raw bits</button>
-          </form>
-          <pre id="demod-output" class="decoded-text" aria-live="polite">Select a saved capture or region to analyze.</pre>
-          <button id="demod-export-2fsk" class="demod-export" type="button" disabled>Export 2-FSK analysis JSON</button>
-          <h3>OOK raw bits</h3>
-          <p class="subhead">Noncoherent amplitude decisions estimate the off/on levels from this capture. Timing search is available; bit framing and protocol remain unknown.</p>
-          <form id="ook-form" class="demod-form">
-            <label>Symbol rate<input id="ook-rate" type="number" min="1" step="any" value="100" required /></label>
-            <label>Carrier frequency (Hz)<input id="ook-carrier" type="number" min="1" step="any" value="1500" required /></label>
-            <label>Timing offset (samples)<input id="ook-offset" type="number" min="0" step="any" value="0" required /></label>
-            <label class="demod-check"><input id="ook-auto-timing" type="checkbox" /> Estimate timing phase automatically</label>
-            <button id="ook-run" type="submit" disabled>Recover OOK bits</button>
-          </form>
-          <pre id="ook-output" class="decoded-text" aria-live="polite">Select a saved capture or region to analyze.</pre>
-          <button id="demod-export-ook" class="demod-export" type="button" disabled>Export OOK analysis JSON</button>
-          <h2>M-FSK tone and bit analysis</h2>
-          <p class="subhead">Natural-binary bits are reported only when the tone count is a power of two; otherwise the recovered tone indices remain available. Optional rate search ranks a bounded range of symbol rates.</p>
-          <form id="mfsk-form" class="demod-form">
-            <label>Symbol rate<input id="mfsk-rate" type="number" min="1" step="any" value="50" required /></label>
-            <label>Tone count<input id="mfsk-count" type="number" min="2" max="64" step="1" value="4" required /></label>
-            <label>Base tone (Hz)<input id="mfsk-base" type="number" min="1" step="any" value="1000" required /></label>
-            <label>Tone spacing (Hz)<input id="mfsk-spacing" type="number" min="1" step="any" value="200" required /></label>
-            <label>Timing offset (samples)<input id="mfsk-offset" type="number" min="0" step="any" value="0" required /></label>
-            <label class="demod-check"><input id="mfsk-auto-timing" type="checkbox" /> Estimate timing phase automatically</label>
-            <label class="demod-check"><input id="mfsk-auto-rate" type="checkbox" /> Search symbol-rate range</label>
-            <label>Minimum rate (baud)<input id="mfsk-rate-min" type="number" min="1" step="any" value="12.5" required /></label>
-            <label>Maximum rate (baud)<input id="mfsk-rate-max" type="number" min="1" step="any" value="200" required /></label>
-            <label>Rate hypotheses<input id="mfsk-rate-steps" type="number" min="3" max="24" step="1" value="9" required /></label>
-            <button id="mfsk-run" type="submit" disabled>Recover tone symbols</button>
-          </form>
-          <pre id="mfsk-output" class="decoded-text" aria-live="polite">Select a saved capture or region to analyze.</pre>
-          <button id="demod-export-mfsk" class="demod-export" type="button" disabled>Export M-FSK analysis JSON</button>
-          <h3>BPSK raw bits</h3>
-          <p class="subhead">The absolute bit polarity is ambiguous without a known preamble or framing; both hypotheses are returned.</p>
-          <form id="bpsk-form" class="demod-form">
-            <label>Symbol rate<input id="bpsk-rate" type="number" min="1" step="any" value="100" required /></label>
-            <label>Carrier frequency (Hz)<input id="bpsk-carrier" type="number" min="1" step="any" value="1500" required /></label>
-            <label>Timing offset (samples)<input id="bpsk-offset" type="number" min="0" step="any" value="0" required /></label>
-            <button id="bpsk-run" type="submit" disabled>Recover BPSK bits</button>
-          </form>
-          <pre id="bpsk-output" class="decoded-text" aria-live="polite">Select a saved capture or region to analyze.</pre>
-          <button id="demod-export-bpsk" class="demod-export" type="button" disabled>Export BPSK analysis JSON</button>
-          <h3>QPSK raw symbols and bits</h3>
-          <p class="subhead">Four 90° rotation hypotheses are shown because absolute constellation rotation is unknown.</p>
-          <form id="qpsk-form" class="demod-form">
-            <label>Symbol rate<input id="qpsk-rate" type="number" min="1" step="any" value="100" required /></label>
-            <label>Carrier frequency (Hz)<input id="qpsk-carrier" type="number" min="1" step="any" value="1500" required /></label>
-            <label>Timing offset (samples)<input id="qpsk-offset" type="number" min="0" step="any" value="0" required /></label>
-            <button id="qpsk-run" type="submit" disabled>Recover QPSK symbols</button>
-          </form>
-          <pre id="qpsk-output" class="decoded-text" aria-live="polite">Select a saved capture or region to analyze.</pre>
-          <button id="demod-export-qpsk" class="demod-export" type="button" disabled>Export QPSK analysis JSON</button>
-        </section>
-
-        <section class="panel tracks-panel">
-          <div class="panel-heading"><div><p class="eyebrow">AUTOMATIC SCAN</p><h2>Provisional signal candidates</h2><p id="track-status" class="subhead">Analyzing spectral activity…</p></div><span id="track-count" class="count">0</span></div>
-          <p class="track-disclaimer">Tone-count and spacing hypotheses are heuristic evidence only. Regular tone sets can prefill M-FSK analysis, but verify them before decoding; they do not identify a protocol or guarantee a decoded message.</p>
-          <div id="track-list" class="track-list"><p class="subhead">No candidates analyzed yet.</p></div>
-        </section>
-
-        <section class="panel regions-panel">
-          <div class="panel-heading"><div><p class="eyebrow">DATASET</p><h2>Saved regions</h2></div><div class="dataset-actions"><span id="region-count" class="count">0</span><a class="export-link" href="/api/exports/regions.jsonl" download>Export labels</a></div></div>
-          <div id="region-list" class="region-list"><p class="subhead">No labeled regions in this recording yet.</p></div>
-        </section>
       </section>
-      <p id="error" class="error hidden" role="alert"></p>
-    </main>
+    </dialog>
+    <dialog
+      id="settings-dialog"
+      class="drawer-dialog settings-dialog"
+      aria-labelledby="settings-title"
+    >
+      <header>
+        <h2 id="settings-title">Receive settings</h2>
+        <button data-close-dialog type="button" aria-label="Close settings">
+          ×
+        </button>
+      </header>
+      <section class="panel">
+        <h3>Audio input</h3>
+        <div class="live-controls">
+          <label
+            >Audio input<select id="audio-device">
+              <option value="">Default input</option>
+            </select></label
+          >
+          <label
+            >Rate<select id="audio-rate">
+              <option value="48000">48 kHz</option>
+              <option value="96000">96 kHz</option>
+              <option value="192000">192 kHz</option>
+            </select></label
+          >
+
+          <label
+            class="auto-trial-toggle"
+            title="Opt in to receive-only Fldigi mode changes after a persistent, accepted model proposal. Decoded text remains tentative."
+            ><span>Auto-try accepted model IDs</span
+            ><input id="auto-trial" type="checkbox"
+          /></label>
+        </div>
+        <p class="subhead">
+          Input sample rate is independent of the fixed 0–3 kHz display.
+        </p>
+      </section>
+      <section class="panel">
+        <h3>Decoder and identification</h3>
+        <p class="subhead">
+          Select a signal and open Decode to choose a Fldigi receive mode.
+          Automatic trials require an explicit opt-in and remain tentative.
+        </p>
+      </section>
+    </dialog>
     <script src="/app.js" type="module"></script>
   </body>
 </html>

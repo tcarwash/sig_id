@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 
 import httpx
 import pytest
@@ -36,11 +37,13 @@ def test_upload_waterfall_manual_label_audio_and_jsonl_export(tmp_path):
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
             assert (await client.get("/api/health")).json()["status"] == "ok"
             page = (await client.get("/")).text
+            compact_page = re.sub(r">\s+<", "><", page)
+            compact_page = re.sub(r"\s+>", ">", compact_page)
             assert "Signal ID Workbench" in page
-            assert 'class="axis-y"><span id="time-start"' in page
-            assert '<span>Time</span><span id="time-end"' in page
-            assert 'class="axis-x"><span id="freq-low"' in page
-            assert '<span>Audio frequency →</span><span id="freq-high"' in page
+            assert 'class="axis-y"><span id="time-start"' in compact_page
+            assert '<span>Time</span><span id="time-end"' in compact_page
+            assert 'class="axis-x"><span id="freq-low"' in compact_page
+            assert '<span>Audio frequency →</span><span id="freq-high"' in compact_page
             assert 'id="mfsk-auto-rate"' in page
             assert 'id="mfsk-rate-min"' in page
             assert "time on the vertical axis and audio frequency on the horizontal axis" in page
@@ -48,6 +51,7 @@ def test_upload_waterfall_manual_label_audio_and_jsonl_export(tmp_path):
             assert "Use tone estimates" in (await client.get("/app.js")).text
             assert (await client.get("/waterfall-window.mjs")).status_code == 200
             assert (await client.get("/demod-export.mjs")).status_code == 200
+            assert (await client.get("/signal-overlays.mjs")).status_code == 200
             assert "Provisional signal candidates" in (await client.get("/")).text
             assert "waterfall-layout" in (await client.get("/style.css")).text
             uploaded = await client.post(

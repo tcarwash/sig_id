@@ -18,6 +18,15 @@ validation remain open.
 
 ## Current implementation slice
 
+- Waterfall-centered UI: viewport workspace, source toolbar, settings/library drawers,
+  selected-signal inspector, one raw-demodulator selector and a collapsible output dock.
+  Readable track/annotation labels select signals in place, with collision overflow,
+  keyboard access and provisional evidence text. Library reopens saved recordings.
+  Chromium workflow checks cover five demodulator exports, partial labels, saved-region
+  selection and explicit decoder-mode activation at desktop/mobile sizes. The first
+  layout checkpoint retains the existing ten-second live analysis cadence; incremental
+  display transport and longer history are the next GUI step.
+
 - WAV upload/playback, sample-indexed audio replay, bounded spectrogram, drag-selected
   time/frequency regions, manual hierarchical labels, saved-region list and JSONL
   annotation download.
