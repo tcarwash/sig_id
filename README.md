@@ -7,10 +7,11 @@ the current engineering checkpoint is [NEXT.md](NEXT.md).
 ## Current state
 
 Current code includes a receive-only Fldigi XML-RPC client, a catalog capability
-probe, blockwise PCM WAV replay, a clean labeled 2-FSK fixture generator, and unit
-tests. It does not yet provide live audio capture, a waterfall, decoder UI, or
-audio-to-decoded-text proof. Catalog presence is reported as pending validation and
-must not be treated as supported decoding.
+probe, blockwise PCM WAV replay, a clean labeled 2-FSK fixture generator, a SQLite
+capture/region index with label history and JSONL export, and unit tests. It does not
+yet provide live audio capture, a waterfall, decoder UI, or audio-to-decoded-text
+proof. Catalog presence is reported as pending validation and must not be treated as
+supported decoding.
 
 ## Development
 
