@@ -1,0 +1,31 @@
+services:
+  workbench:
+    build: .
+    image: sig-id:local
+    # Linux host networking reaches a host Fldigi bound to 127.0.0.1.
+    # The web server still binds to loopback unless explicitly configured otherwise.
+    network_mode: host
+    command: ["sig-id-serve", "--host", "${SIG_ID_HOST:-127.0.0.1}", "--port", "${SIG_ID_PORT:-8010}"]
+    environment:
+      SIG_ID_DATA_DIR: /data
+      SIG_ID_PORT: ${SIG_ID_PORT:-8010}
+      SIG_ID_FLDIGI_URL: ${SIG_ID_FLDIGI_URL:-http://127.0.0.1:7362/RPC2}
+      SIG_ID_MODEL_PATH: ${SIG_ID_MODEL_PATH:-}
+    volumes:
+      - captures:/data
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=256m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 20s
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.environ['SIG_ID_PORT']+'/api/health',timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+volumes:
+  captures:

@@ -18,6 +18,15 @@ validation remain open.
 
 ## Current implementation slice
 
+- Linux Compose packaging uses a digest-pinned Python base, hashed runtime/build
+  dependency locks, a non-root service, loopback web binding and persistent `/data`.
+  Isolated Docker validation covers actual UI workflows, raw demodulation, label
+  revision/audio-hash persistence across restart, active synthetic capture finalization
+  on container stop, and backup/restore into a fresh project. See `OPERATIONS.md` and
+  `reports/compose-validation-2026-10-21.json`. Host audio-device routing is not
+  automatically passed into the container; native capture and independent RF checks
+  remain separate validation gates.
+
 - Waterfall-centered UI: viewport workspace, source toolbar, settings/library drawers,
   selected-signal inspector, one raw-demodulator selector and a collapsible output dock.
   Readable track/annotation labels select signals in place, with collision overflow,
@@ -209,6 +218,13 @@ validation remain open.
 
 ## Next action
 
+The core GUI overhaul and Linux Compose run path are implemented. Continue toward
+1.0 with track-scoped decoder input/replay, durable output association and broader
+Fldigi decode fixtures; shared external Fldigi routing does not establish independent
+decoding of every detected track. Keep the full-catalog issues, remote capture agent,
+job/review workflows, quotas and prolonged hardware/resource soak on the release gate.
+The classifier's clean-source coverage weakness also remains open, as detailed below.
+
 The reproducible historical multi-ASK calibration/evaluation report is saved at
 `reports/ask-ood-benchmark-2026-10-21.json`, with generation and training commands in
 README. An end-to-end experiment with 12 known source groups per mode and 30 separate
@@ -260,7 +276,7 @@ FSK/MFSK files carry modulation labels while leaving protocol unknown. Live hard
 capture, radio audio routing, trained identification model, and RF validation remain
 unverified. Current heuristic candidates pass clean 2-FSK/MFSK, quiet-noise rejection
 and two separated simultaneous 2-FSK signals; real-capture performance is unknown.
-The tested Fldigi modes are a three-family sample, not full-catalog validation.
+The tested Fldigi modes remain a small sample, not full-catalog validation.
 2-FSK/M-FSK/OOK/BPSK/QPSK recovery is verified against generated source symbols/bits;
 2-FSK and BPSK also pass seeded AWGN cases. M-FSK rate search is verified on a small
 synthetic 4-FSK grid. Independent-capture performance and automatic tone/carrier

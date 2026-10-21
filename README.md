@@ -22,6 +22,8 @@ Graceful server shutdown finalizes live audio. A writer failure preserves comple
 blocks as a partial capture; if metadata cannot be saved, the error reports the retained
 WAV path so it can be recovered through Open recording.
 
+![Waterfall workspace showing a synthetic FSK fixture](reports/gui-overhaul-desktop.png)
+
 Current code includes WAV upload/playback with a fixed 0–3 kHz browser waterfall
 (4096-point FFT at the default 48 kHz capture rate, about 11.7 Hz per bin), manual
 time/frequency selection and label export; blockwise PCM replay; deterministic
@@ -52,6 +54,20 @@ protocol decoders. Each demodulator can export a JSON artifact containing the ca
 hash, sample bounds, settings, raw decisions, ambiguity/soft metrics and protocol-unknown
 status so a manual analysis can be reproduced or used as training evidence.
 
+## Run with Docker Compose on Linux
+
+```sh
+docker compose up --build -d
+```
+
+Open <http://127.0.0.1:8010>. If the native app already uses that port, prefix the
+command with `SIG_ID_PORT=8012` and open port 8012 instead. Recordings and labels
+persist in a named volume. The default listener is local; host networking reaches
+the separately running host Fldigi XML-RPC service. Direct host audio-device routing
+into the container is not configured automatically; use the native audio setup for it.
+See [OPERATIONS.md](OPERATIONS.md) for updates, models, tested backup/restore and
+repeatable container checks.
+
 ## Development
 
 Requires Python 3.11 or newer and pytest. From the repository root:
@@ -59,10 +75,13 @@ Requires Python 3.11 or newer and pytest. From the repository root:
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install -e '.[dev]'
+python -m pip install -e '.[dev,audio]'
 pytest
 sig-id-serve
 ```
+
+Local audio capture also needs the platform PortAudio runtime (`libportaudio2` on
+Debian/Ubuntu). Select the radio input in Settings before starting live capture.
 
 The opt-in, RF-free Fldigi audio loopback tests exercise BPSK31, RTTY, THOR16, MFSK16,
 and MT63-500S using isolated profiles and a temporary PulseAudio/PipeWire null sink.

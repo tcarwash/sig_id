@@ -7,3 +7,6 @@ build/
 dist/
 data/
 models/
+
+.env
+backups/

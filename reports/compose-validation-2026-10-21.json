@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "scope": "isolated Linux Docker Compose and synthetic browser/capture checks; no hardware or RF validation",
+  "image_id": "sha256:2d5286047895b000f311ff603717d44ceae1d412b5f6361bc63d054d6cffc445",
+  "runtime": {
+    "uid": 10001,
+    "python": "3.12.15",
+    "numpy": "2.5.4",
+    "scipy": "1.18.1",
+    "fastapi": "0.159.1",
+    "model_feature_count": 266
+  },
+  "read_only_rootfs": true,
+  "capture_survived_restart": true,
+  "annotation_revision_survived_restart": 2,
+  "replayed_audio_sha256": "3ca5f5006ae5b73da552451fb528835539806e608a36066fa87c1b79e319324b",
+  "raw_bpsk_symbols": 256,
+  "active_recording_finalized_on_container_stop": true,
+  "backup_restore_verified": true,
+  "finalized_live_sample_count": 14400,
+  "browser": {
+    "result": "passed",
+    "artifacts": "/tmp/sigid-ui-smoke-pBpFpo",
+    "raw_exports": 5,
+    "mode_changes": 1
+  }
+}

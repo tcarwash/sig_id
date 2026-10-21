@@ -334,6 +334,15 @@ bits during lost-lock intervals; gaps are represented explicitly.
 
 ## Milestone 6: 1.0 release hardening
 
+Implemented checkpoints: digest-pinned Linux Compose packaging with hashed Python
+dependency locks, a non-root/read-only runtime, persistent data, and operational
+update/backup/restore instructions. Container checks exercise the actual UI and DSP,
+verify label revisions and audio hashes across restart, finalize an active synthetic
+recording on shutdown, and restore a backup into a fresh project. These checks do not
+replace a clean-host audio setup, hardware/RF testing or the eight-hour soak below.
+Native graceful shutdown and writer/index fault tests preserve completed or retained
+audio instead of deleting it.
+
 - Compose build/start/update instructions, pinned reference backend, persistent
   data volumes and reproducible native capture setup. Test on a clean Linux host.
 - Remote capture agent for a radio on another machine, with explicit format,
