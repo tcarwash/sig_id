@@ -13,12 +13,18 @@ from .splits import FAMILY_BY_MODE, METHOD_BY_MODE
 from .corpus import MODES
 
 
-FEATURE_VERSION = "passband-log-spectrum-v1"
+LEGACY_FEATURE_VERSION = "passband-log-spectrum-v1"
+FEATURE_VERSION = "passband-log-spectrum-envelope-v2"
+FEATURE_COUNT_BY_VERSION = {LEGACY_FEATURE_VERSION: 260, FEATURE_VERSION: 266}
 NOISE_CLASS = "noise"
 
 
-def extract_features(samples: Any, sample_rate: int) -> np.ndarray:
-    """Create fixed-size, gain-normalized spectral and temporal occupancy features."""
+def extract_features(
+    samples: Any, sample_rate: int, *, feature_version: str = FEATURE_VERSION
+) -> np.ndarray:
+    """Create fixed-size, gain-normalized spectral and optional envelope features."""
+    if feature_version not in FEATURE_COUNT_BY_VERSION:
+        raise ValueError(f"unsupported model feature version: {feature_version}")
     values = np.asarray(samples, dtype=np.float64)
     if values.ndim != 1 or values.size < 1024 or not np.all(np.isfinite(values)):
         raise ValueError("classifier input must be finite mono audio with at least 1024 samples")
@@ -61,7 +67,32 @@ def extract_features(samples: Any, sample_rate: int) -> np.ndarray:
         entropy / np.log(128),
         temporal_activity / 128,
     ])
-    return np.concatenate((mean_log, variation_log, summary)).astype(np.float32)
+    result = np.concatenate((mean_log, variation_log, summary))
+    if feature_version == FEATURE_VERSION:
+        from scipy.signal import hilbert
+
+        envelope = np.abs(hilbert(values))
+        block_size = max(8, round(sample_rate / 1000.0))
+        usable = (envelope.size // block_size) * block_size
+        blocks = envelope[:usable].reshape(-1, block_size)
+        block_rms = np.sqrt(np.mean(blocks * blocks, axis=1))
+        normalized = block_rms / max(float(np.mean(block_rms)), 1e-12)
+        centered = normalized - float(np.mean(normalized))
+        denominator = float(np.dot(centered, centered))
+        lag_one_correlation = (
+            float(np.dot(centered[:-1], centered[1:]) / denominator)
+            if normalized.size > 1 and denominator > 1e-12 else 0.0
+        )
+        envelope_features = np.asarray([
+            np.quantile(normalized, 0.1),
+            np.quantile(normalized, 0.5),
+            np.quantile(normalized, 0.9),
+            float(np.std(normalized)),
+            float(np.mean(normalized > 0.25)),
+            lag_one_correlation,
+        ])
+        result = np.concatenate((result, envelope_features))
+    return result.astype(np.float32)
 
 
 def _softmax(logits: np.ndarray) -> np.ndarray:
@@ -116,6 +147,19 @@ def predict_probabilities(features: np.ndarray, parameters: dict[str, np.ndarray
     return _softmax(normalized @ parameters["weights"] + parameters["bias"])
 
 
+def support_distances(features: np.ndarray, parameters: dict[str, np.ndarray]) -> np.ndarray:
+    """Return RMS distance to the nearest trained modulation prototype."""
+    centers = parameters.get("support_centers")
+    if centers is None:
+        raise ValueError("model does not contain novelty support prototypes")
+    matrix = np.atleast_2d(np.asarray(features, dtype=np.float64))
+    if matrix.shape[1] != len(parameters["mean"]):
+        raise ValueError("feature dimension does not match the trained model")
+    normalized = (matrix - parameters["mean"]) / parameters["scale"]
+    delta = normalized[:, None, :] - centers[None, :, :]
+    return np.sqrt(np.min(np.mean(delta * delta, axis=2), axis=1))
+
+
 def propose(
     features: np.ndarray,
     parameters: dict[str, np.ndarray],
@@ -123,12 +167,20 @@ def propose(
     *,
     threshold: float,
     family_threshold: float | None = None,
+    novelty_threshold: float | None = None,
 ) -> dict[str, Any]:
     probabilities = predict_probabilities(features, parameters)[0]
     top = int(np.argmax(probabilities))
     confidence = float(probabilities[top])
     noise_detected = classes[top] == NOISE_CLASS
-    accepted = confidence >= threshold and not noise_detected
+    novelty_distance = (
+        float(support_distances(features, parameters)[0])
+        if "support_centers" in parameters else None
+    )
+    within_support = novelty_threshold is None or (
+        novelty_distance is not None and novelty_distance <= novelty_threshold
+    )
+    accepted = confidence >= threshold and not noise_detected and within_support
     family_names = ("FSK", "MFSK", "PSK")
     family_probabilities = np.asarray([
         sum(probabilities[index] for index, method in enumerate(classes) if method in FAMILY_BY_MODE and FAMILY_BY_MODE[method] == family)
@@ -137,7 +189,7 @@ def propose(
     family_index = int(np.argmax(family_probabilities))
     family_confidence = float(family_probabilities[family_index])
     chosen_family_threshold = threshold if family_threshold is None else family_threshold
-    family_accepted = family_confidence >= chosen_family_threshold
+    family_accepted = family_confidence >= chosen_family_threshold and within_support
     method_family = FAMILY_BY_MODE.get(classes[top])
     if accepted:
         family_result = method_family
@@ -158,6 +210,9 @@ def propose(
         "family_confidence": family_result_confidence,
         "family_threshold": chosen_family_threshold,
         "family_abstained": family_result_abstained,
+        "novelty_distance": novelty_distance,
+        "novelty_threshold": novelty_threshold,
+        "novelty_rejected": bool(novelty_threshold is not None and not within_support),
         "protocol": None,
         "variant": None,
         "top_candidate": classes[top],
@@ -176,10 +231,15 @@ def load_model(path: str | Path) -> tuple[dict[str, Any], dict[str, np.ndarray]]
         raise ValueError("unsupported model schema version")
     if hashlib.sha256(path.read_bytes()).hexdigest() != metadata.get("model_sha256"):
         raise ValueError("model weight file does not match its metadata hash")
+    feature_version = metadata.get("feature_version")
+    if feature_version not in FEATURE_COUNT_BY_VERSION:
+        raise ValueError("unsupported model feature version")
     with np.load(path, allow_pickle=False) as archive:
         parameters = {name: archive[name].copy() for name in ("mean", "scale", "weights", "bias")}
-    if metadata.get("feature_version") != FEATURE_VERSION:
-        raise ValueError("unsupported model feature version")
+        if feature_version == FEATURE_VERSION:
+            if "support_centers" not in archive.files:
+                raise ValueError("model lacks modulation novelty support prototypes")
+            parameters["support_centers"] = archive["support_centers"].copy()
     if metadata.get("classes") not in (list(MODES), [*MODES, NOISE_CLASS]):
         raise ValueError("model taxonomy does not match the supported modulation methods")
     threshold = metadata.get("abstention_threshold")
@@ -189,10 +249,18 @@ def load_model(path: str | Path) -> tuple[dict[str, Any], dict[str, np.ndarray]]
     if not isinstance(family_threshold, (int, float)) or not np.isfinite(family_threshold) or not 0 <= family_threshold <= 1.000001:
         raise ValueError("model family abstention threshold is invalid")
     expected = metadata.get("feature_count")
+    if expected != FEATURE_COUNT_BY_VERSION[feature_version]:
+        raise ValueError("model feature count does not match its feature version")
     if any(parameters[name].dtype.kind not in "fiu" for name in parameters):
         raise ValueError("model arrays must be numeric")
     if parameters["mean"].shape != (expected,) or parameters["scale"].shape != (expected,):
         raise ValueError("model feature arrays do not match metadata")
     if parameters["weights"].shape != (expected, len(metadata["classes"])) or parameters["bias"].shape != (len(metadata["classes"]),):
         raise ValueError("model classifier arrays do not match taxonomy")
+    if feature_version == FEATURE_VERSION:
+        novelty_threshold = metadata.get("novelty_distance_threshold")
+        if not isinstance(novelty_threshold, (int, float)) or not np.isfinite(novelty_threshold):
+            raise ValueError("model novelty threshold is invalid")
+        if parameters["support_centers"].shape != (len(MODES), expected):
+            raise ValueError("model novelty support prototypes do not match the known modulation taxonomy")
     return metadata, parameters

@@ -5,7 +5,7 @@ import json
 import numpy as np
 import pytest
 
-from sigid.classifier import extract_features, load_model, propose
+from sigid.classifier import FEATURE_COUNT_BY_VERSION, FEATURE_VERSION, LEGACY_FEATURE_VERSION, extract_features, load_model, propose
 from sigid.corpus import MODES, build_corpus
 from sigid.dataset import CaptureStore
 from sigid.scenes import create_mixed_scene, import_mixed_scene
@@ -20,9 +20,12 @@ def test_feature_extractor_has_fixed_shape_and_gain_invariance():
     samples = np.sin(2 * np.pi * 1500 * np.arange(6000) / sample_rate)
     baseline = extract_features(samples, sample_rate)
     scaled = extract_features(samples * 0.25, sample_rate)
-    assert baseline.shape == (260,)
+    assert baseline.shape == (FEATURE_COUNT_BY_VERSION[FEATURE_VERSION],)
     assert np.all(np.isfinite(baseline))
     assert scaled == pytest.approx(baseline, abs=1e-6)
+    legacy = extract_features(samples, sample_rate, feature_version=LEGACY_FEATURE_VERSION)
+    assert legacy.shape == (FEATURE_COUNT_BY_VERSION[LEGACY_FEATURE_VERSION],)
+    assert baseline[: len(legacy)] == pytest.approx(legacy, abs=1e-6)
 
 
 def test_calibration_enforces_zero_noise_false_positive_target():
@@ -47,6 +50,59 @@ def test_calibration_rejects_unknown_modulation_without_fitting_it_as_a_class():
     assert result["threshold"] > 0.8
 
 
+def test_novelty_calibration_chooses_widest_radius_without_negative_overlap():
+    from sigid.training import _calibrate_novelty_threshold
+
+    distances = np.asarray([0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 1.1])
+    labels = np.asarray([0, 0, 0, 0, 0, 0, 6])
+    result = _calibrate_novelty_threshold(
+        distances, labels, np.asarray([1.2, 1.4]), noise_class_index=6
+    )
+    assert result["status"] == "calibrated"
+    assert result["threshold"] == pytest.approx(0.7)
+    assert result["validation_known_within_support"] == 6
+    assert result["validation_negative_within_support"] == 0
+
+
+def test_method_calibration_applies_novelty_gate_before_false_accept_rates():
+    probabilities = np.asarray([[0.9, 0.1]] * 6 + [[0.999, 0.001]])
+    labels = np.asarray([0] * 6 + [-1])
+    distances = np.asarray([0.2] * 6 + [4.0])
+    result = _calibrate_threshold(
+        probabilities,
+        labels,
+        novelty_distances=distances,
+        novelty_threshold=1.0,
+    )
+    assert result["status"] == "calibrated"
+    assert result["validation_accepted"] == 6
+    assert result["validation_unknown_false_positive_rate"] == 0.0
+
+
+def test_proposal_abstains_when_nearest_known_prototype_is_too_far():
+    classes = [*MODES, "noise"]
+    params = {
+        "mean": np.zeros(3),
+        "scale": np.ones(3),
+        "weights": np.zeros((3, len(classes))),
+        "bias": np.asarray([8.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+        "support_centers": np.zeros((len(MODES), 3)),
+    }
+    result = propose(
+        np.asarray([2.0, 0.0, 0.0]),
+        params,
+        classes,
+        threshold=0.5,
+        novelty_threshold=1.0,
+    )
+    assert result["top_candidate"] == "2fsk"
+    assert result["confidence"] > 0.5
+    assert result["novelty_distance"] == pytest.approx(2 / np.sqrt(3))
+    assert result["novelty_rejected"] is True
+    assert result["method_id"] is None
+    assert result["abstained"] is True
+
+
 def test_training_uses_split_groups_calibrates_abstention_and_exports_loadable_model(tmp_path):
     output = tmp_path / "corpus"
     data = tmp_path / "data"
@@ -64,6 +120,9 @@ def test_training_uses_split_groups_calibrates_abstention_and_exports_loadable_m
     assert metadata["noise_class"] == "noise"
     assert metadata["noise_class_trained"] is True
     assert metadata["protocol_prediction_enabled"] is False
+    assert metadata["feature_version"] == FEATURE_VERSION
+    assert parameters["support_centers"].shape == (len(MODES), FEATURE_COUNT_BY_VERSION[FEATURE_VERSION])
+    assert np.isfinite(metadata["novelty_distance_threshold"])
     assert metadata["unknown_rejection_validated"] is False
     assert metadata["noise_class_validated"] is True
     assert metadata["noise_rejection_scope"] == "synthetic_noise_only"

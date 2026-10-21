@@ -205,8 +205,11 @@ async function refreshModelStatus() {
     const model = await request("/api/model/status");
     state.modelAvailable = model.available;
     el("auto-trial").disabled = !model.available;
+    const unknownStatus = model.unknown_rejection_validated
+      ? ` · held-out ${model.unknown_rejection_scope} rejection`
+      : " · unknown rejection unvalidated";
     el("model-status").textContent = model.available
-      ? `Method model ready · family threshold ${(100 * model.family_threshold).toFixed(0)}% · method ${(100 * model.threshold).toFixed(0)}% · synthetic only`
+      ? `Method model ready · method ${(100 * model.threshold).toFixed(0)}% · family ${(100 * model.family_threshold).toFixed(0)}%${unknownStatus} · synthetic only`
       : `No model loaded${model.error ? ` · ${model.error}` : " · configure SIG_ID_MODEL_PATH"}`;
     updateModelButton();
   } catch (error) {
@@ -234,13 +237,18 @@ el("model-propose").addEventListener("click", async () => {
       body: JSON.stringify({ sample_start: selection.sample_start, sample_count: Math.min(1_000_000, selection.sample_count) }),
     });
     if (!result.family && !result.method) {
-      el("label-state").textContent = `Model abstained · top guess ${result.top_candidate} at ${(100 * result.confidence).toFixed(1)}%`;
+      el("label-state").textContent = result.novelty_rejected
+        ? `Model abstained · outside trained modulation range (distance ${result.novelty_distance.toFixed(2)} > ${result.novelty_threshold.toFixed(2)})`
+        : `Model abstained · top guess ${result.top_candidate} at ${(100 * result.confidence).toFixed(1)}%`;
     } else {
       el("family").value = result.family || "";
       el("method").value = result.method || "";
       el("protocol").value = "";
       el("variant").value = "";
-      const evidence = `Model proposal ${result.method || result.family} (${(100 * (result.method ? result.confidence : result.family_confidence)).toFixed(1)}%; calibrated threshold). Review before saving; protocol remains unknown.`;
+      const noveltyEvidence = Number.isFinite(result.novelty_distance)
+        ? ` Nearest known-mode distance ${result.novelty_distance.toFixed(2)} (limit ${result.novelty_threshold.toFixed(2)}).`
+        : "";
+      const evidence = `Model proposal ${result.method || result.family} (${(100 * (result.method ? result.confidence : result.family_confidence)).toFixed(1)}%; calibrated threshold).${noveltyEvidence} Review before saving; protocol remains unknown.`;
       el("notes").value = [el("notes").value.trim(), evidence].filter(Boolean).join(" ");
       el("label-state").textContent = `Proposed ${result.method || result.family} · review then save to accept`;
     }
@@ -693,6 +701,8 @@ function renderTracks() {
       const modelLabel = proposal?.available
         ? proposal.noise_detected
           ? ` · model noise-only (${(100 * proposal.confidence).toFixed(0)}%)`
+          : proposal.novelty_rejected
+          ? ` · model abstained (outside trained range)`
           : proposal.abstained
           ? ` · model abstained (${proposal.top_candidate}, ${(100 * proposal.confidence).toFixed(0)}%)`
           : ` · model ${proposal.method_id} ${(100 * proposal.confidence).toFixed(0)}%`

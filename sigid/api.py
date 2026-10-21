@@ -181,6 +181,9 @@ def create_app(
             "threshold": metadata["abstention_threshold"],
             "family_threshold": metadata["family_abstention_threshold"],
             "unknown_rejection_validated": metadata["unknown_rejection_validated"],
+            "unknown_rejection_scope": metadata.get("unknown_rejection_scope", "unvalidated"),
+            "novelty_distance_threshold": metadata.get("novelty_distance_threshold"),
+            "novelty_rejection_validated": metadata.get("novelty_rejection_validated", False),
             "noise_class_trained": metadata.get("noise_class_trained", False),
             "noise_class_validated": metadata.get("noise_class_validated", False),
             "model_sha256": metadata["model_sha256"],
@@ -273,13 +276,18 @@ def create_app(
                     left = segment_start - ring_start
                     right = segment_end - ring_start
                     try:
-                        features = extract_features(mono[left:right], int(snapshot["sample_rate"]))
+                        features = extract_features(
+                            mono[left:right],
+                            int(snapshot["sample_rate"]),
+                            feature_version=model["metadata"]["feature_version"],
+                        )
                         proposal = propose(
                             features,
                             model["parameters"],
                             model["metadata"]["classes"],
                             threshold=float(model["metadata"]["abstention_threshold"]),
                             family_threshold=float(model["metadata"]["family_abstention_threshold"]),
+                            novelty_threshold=model["metadata"].get("novelty_distance_threshold"),
                         )
                         track["model_proposal"] = {
                             "available": True,
@@ -665,13 +673,18 @@ def create_app(
                 right = min(block.sample_count, end - block.first_sample)
                 values.extend(block.samples[left:right])
             model = app.state.classifier
-            features = extract_features(values, int(capture["sample_rate"]))
+            features = extract_features(
+                values,
+                int(capture["sample_rate"]),
+                feature_version=model["metadata"]["feature_version"],
+            )
             result = propose(
                 features,
                 model["parameters"],
                 model["metadata"]["classes"],
                 threshold=float(model["metadata"]["abstention_threshold"]),
                 family_threshold=float(model["metadata"]["family_abstention_threshold"]),
+                novelty_threshold=model["metadata"].get("novelty_distance_threshold"),
             )
             return {
                 **result,

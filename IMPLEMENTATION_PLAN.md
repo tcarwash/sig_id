@@ -231,9 +231,12 @@ Learning track:
   thresholds, held-out confusion metrics and hashed model export. Deterministic
   noise-only captures now train a separate noise class while their dataset signal
   labels remain empty; lineage-safe validation and test splits report noise detection
-  and false positives. Older method-only model artifacts remain loadable. No-threshold
-  cases abstain on every method. App inference is opt-in through `SIG_ID_MODEL_PATH`;
-  rejection of unseen modulated families and real-radio evaluation remain open.
+  and false positives. Feature v2 adds normalized envelope statistics and a
+  calibrated nearest-modulation-centroid novelty gate; v1 artifacts remain loadable.
+  On one synthetic ASK/PPM split it rejected 12/12 unknowns while retaining 84.6%
+  known test coverage at 86.4% accepted accuracy. No-threshold cases still abstain on
+  every method. App inference is opt-in through `SIG_ID_MODEL_PATH`; additional seeds,
+  impaired captures, unseen families and real-radio evaluation remain open.
 - Keep protocol heads limited to supported classes; calibrate candidate/rejection
   thresholds on held-out validation data, then freeze before test evaluation.
 - Hold entire protocols out and test whether their families are still recognized.

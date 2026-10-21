@@ -43,13 +43,18 @@ def evaluate_unmodeled_wavs(model_path: str | Path, waveforms: list[str | Path])
         values = np.asarray(
             [sample for block in audio.blocks() for sample in block.samples], dtype=np.float64
         )
-        feature = extract_features(values, int(manifest["sample_rate"]))
+        feature = extract_features(
+            values,
+            int(manifest["sample_rate"]),
+            feature_version=metadata["feature_version"],
+        )
         prediction = propose(
             feature,
             parameters,
             classes,
             threshold=float(metadata["abstention_threshold"]),
             family_threshold=float(metadata["family_abstention_threshold"]),
+            novelty_threshold=metadata.get("novelty_distance_threshold"),
         )
         digest = hashlib.sha256(wav_path.read_bytes()).hexdigest()
         examples.append({

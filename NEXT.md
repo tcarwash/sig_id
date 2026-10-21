@@ -80,6 +80,11 @@ validation remain open.
   negatives, reports held-out method/family confusion and noise false positives, and
   exports hashed weights plus versioned metadata. The API can load
   that artifact and propose labels for a saved region; proposals require explicit review.
+- Feature version `passband-log-spectrum-envelope-v2` adds six normalized envelope
+  statistics and stores one standardized centroid per trained modulation method. The
+  trainer calibrates a nearest-centroid RMS distance gate on known validation sources
+  against noise and separate unknown-family validation sources. The workbench reports
+  the distance and gate decision with each proposal; legacy v1 artifacts still load.
 - Bounded Signal Identification Wiki metadata importer covers identified and
   unidentified page categories. It stores revision, source-reported fields, media links
   and retrieval time, while leaving source labels unreviewed and media link-only pending
@@ -171,12 +176,13 @@ The reproducible historical multi-ASK calibration/evaluation report is saved at
 README. An end-to-end experiment with 12 known source groups per mode and 30 separate
 ASK sources (15 OOK and 15 4-ASK) produced 0/12 method and family false accepts on the
 ASK test set. Known-mode method coverage was 34.6% with 100% accuracy among accepted
-examples; family calibration rejected every proposal. The follow-up ASK/PPM evaluation
-also had 0/12 unknown false accepts, but rejected all known examples (0% coverage;
-80.8% raw accuracy). Both reproducible reports are in `reports/`. This is synthetic-only
-evidence, not general unknown-mode or RF performance. Next improve the feature/rejection
-model so it can separate PPM while retaining useful known-mode coverage, then calibrate
-live proposals on held-out mixed scenes. An opt-in
+examples; family calibration rejected every proposal. The spectral-only ASK/PPM baseline
+also rejected all known examples. The envelope/prototype v2 result is recorded at
+`reports/ask-ppm-novelty-benchmark-2026-10-21.json`: on the same split it retained 84.6%
+known test coverage with 86.4% accepted accuracy and had 0/12 ASK/PPM false accepts.
+This is synthetic-only evidence, not general unknown-mode or RF performance. Next test
+multiple seeds, stronger channel impairments and held-out mixed scenes before using the
+novelty threshold for routine live proposals. An opt-in
 automatic trial now requires a persistent track and an accepted
 method proposal, while abstentions never trigger mode changes. Keep it opt-in until
 unseen-family and real-capture validation establish useful operating limits. The
@@ -195,7 +201,7 @@ Verified: Fldigi 4.2.13 and its XML-RPC method catalog are installed; unit tests
 cover receive-only client semantics, PCM WAV block indexing/normalization and
 synthetic 2-FSK/MFSK metadata, exact symbols/bits and tone frequencies, SQLite
 capture hashes/regions/label history, JSONL export, spectrogram peak detection, upload/region APIs, and Fldigi
-status/catalog/mode/output APIs, WEFAX product import and image delivery. Current full suite: 159 passed, 7 skipped;
+status/catalog/mode/output APIs, WEFAX product import and image delivery. Current full suite: 164 passed, 7 skipped;
 the opt-in isolated selection audit checks all 169 entries (165 selectable, four unresolved),
 and `node --test tests/test_waterfall_window.mjs`, module syntax validation, headless
 Chromium loading, and `git diff --check` pass. The generic text-backend

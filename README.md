@@ -261,27 +261,30 @@ sig-id-split-corpus --corpus /tmp/sig-id-ask-benchmark/known/corpus.json \
 sig-id-build-ood-corpus --output-dir /tmp/sig-id-ask-benchmark/ask --examples 30 --seed 1717 --generator-version 0.2.0
 sig-id-train-method-model --split /tmp/sig-id-ask-benchmark/known/splits.json \
   --data-dir "$SIG_ID_DATA_DIR" --ood-corpus /tmp/sig-id-ask-benchmark/ask/ood-corpus.json \
-  --output-model /tmp/sig-id-ask-benchmark/model/method.npz --epochs 1200
+  --output-model /tmp/sig-id-ask-benchmark/model/method.npz --epochs 1200 \
+  --feature-version passband-log-spectrum-v1
 ```
 
-The current diverse benchmark uses the same known corpus and split, but the default
-OOD generator now adds binary PPM alongside OOK and 4-ASK. To reproduce its archived
-result, use the new benchmark output paths and train against that index:
+The initial diverse benchmark above uses spectral features only and reproduces the
+zero-coverage result with feature version `passband-log-spectrum-v1`. The current model
+adds six temporal envelope features and a novelty gate based on distance to trained
+modulation centroids. The default OOD generator adds binary PPM alongside OOK and 4-ASK.
+To reproduce the current result, use the new benchmark output paths and train against
+that index:
 
 ```sh
 sig-id-build-ood-corpus --output-dir /tmp/sig-id-ask-benchmark/diverse --examples 30 --seed 1717
 sig-id-train-method-model --split /tmp/sig-id-ask-benchmark/known/splits.json \
   --data-dir "$SIG_ID_DATA_DIR" --ood-corpus /tmp/sig-id-ask-benchmark/diverse/ood-corpus.json \
-  --output-model /tmp/sig-id-ask-benchmark/model/ask-ppm.npz --epochs 1200
+  --output-model /tmp/sig-id-ask-benchmark/model/ask-ppm.npz --epochs 1200 \
+  --feature-version passband-log-spectrum-envelope-v2
 ```
 
 The measured result is preserved in
-[`reports/ask-ppm-ood-benchmark-2026-10-21.json`](reports/ask-ppm-ood-benchmark-2026-10-21.json).
-On this split, zero of 12 held-out unknown examples were accepted, but the constraints
-also rejected every known test example (0% coverage; raw accuracy before rejection was
-80.8%). This demonstrates conservative rejection, not a useful detection operating
-point. The confidence-only classifier needs better temporal features or a calibrated
-novelty score before these thresholds can be used for live proposals.
+[`reports/ask-ppm-novelty-benchmark-2026-10-21.json`](reports/ask-ppm-novelty-benchmark-2026-10-21.json).
+On this split it retains 84.6% known test coverage at 86.4% accepted accuracy, while
+rejecting 12/12 held-out OOK, 4-ASK and PPM sources. These are synthetic recipe results;
+independent recordings and radio captures remain untested.
 
 Build independent synthetic OOK, 4-ASK and pulse-position sources with varied payload,
 baud rate, carrier, amplitude, phase and pulse width. This diverse corpus is separate

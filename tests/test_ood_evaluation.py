@@ -6,7 +6,7 @@ import json
 import numpy as np
 import pytest
 
-from sigid.classifier import FEATURE_VERSION, load_model
+from sigid.classifier import FEATURE_COUNT_BY_VERSION, FEATURE_VERSION, load_model
 from sigid.corpus import MODES
 from sigid.ood_evaluation import evaluate_unmodeled_wavs
 from sigid.synthetic import generate_2fsk_wav, generate_ook_wav
@@ -14,25 +14,28 @@ from sigid.synthetic import generate_2fsk_wav, generate_ook_wav
 
 def _model(path, *, accept_known: bool):
     classes = [*MODES, "noise"]
-    weights = np.zeros((260, len(classes)), dtype=np.float32)
+    feature_count = FEATURE_COUNT_BY_VERSION[FEATURE_VERSION]
+    weights = np.zeros((feature_count, len(classes)), dtype=np.float32)
     bias = np.full(len(classes), -10.0, dtype=np.float32)
     bias[classes.index("2fsk" if accept_known else "noise")] = 10.0
     with path.open("wb") as output:
         np.savez_compressed(
             output,
-            mean=np.zeros(260, dtype=np.float32),
-            scale=np.ones(260, dtype=np.float32),
+            mean=np.zeros(feature_count, dtype=np.float32),
+            scale=np.ones(feature_count, dtype=np.float32),
             weights=weights,
             bias=bias,
+            support_centers=np.zeros((len(MODES), feature_count), dtype=np.float32),
         )
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     path.with_suffix(".json").write_text(json.dumps({
         "schema_version": 1,
         "feature_version": FEATURE_VERSION,
-        "feature_count": 260,
+        "feature_count": feature_count,
         "classes": classes,
         "abstention_threshold": 0.5,
         "family_abstention_threshold": 0.5,
+        "novelty_distance_threshold": 100.0,
         "model_sha256": digest,
     }))
     return path
