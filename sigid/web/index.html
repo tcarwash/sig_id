@@ -34,6 +34,20 @@
         </div>
       </section>
 
+      <section class="synthetic-import panel">
+        <div>
+          <p class="eyebrow">SYNTHETIC DATASET</p>
+          <p class="subhead">Import a generated WAV with its reference manifest. The modulation label is saved; unknown protocol stays blank.</p>
+        </div>
+        <form id="synthetic-form">
+          <label class="file-button" for="synthetic-wav">Choose fixture WAV</label>
+          <input id="synthetic-wav" type="file" accept="audio/wav,.wav" required />
+          <label class="file-button" for="synthetic-manifest">Choose manifest</label>
+          <input id="synthetic-manifest" type="file" accept="application/json,.json" required />
+          <button type="submit" class="primary">Import labeled fixture</button>
+        </form>
+      </section>
+
       <section id="empty-state" class="empty-state">
         <div class="empty-icon">∿</div>
         <h2>Start with a recording</h2>
@@ -47,6 +61,7 @@
               <h2 id="capture-title">Recording</h2>
               <p id="capture-meta" class="subhead"></p>
             </div>
+            <a id="manifest-download" class="export-link hidden" href="#" download>Download source manifest</a>
             <div class="spectrum-legend"><span>−100 dB</span><i></i><span>0 dB</span></div>
           </div>
           <div class="waterfall-layout">

@@ -8,10 +8,10 @@ the current engineering checkpoint is [NEXT.md](NEXT.md).
 
 Current code includes WAV upload/playback with a browser waterfall, manual
 time/frequency selection and label export; blockwise PCM replay; deterministic
-2-FSK and generic MFSK fixture generators; SQLite capture, region and label history; and a
-receive-only Fldigi XML-RPC probe. Local device capture and the Fldigi path from
-audio input to recovered text are represented in the workbench: when a running
-Fldigi XML-RPC service is available, users can select a catalog mode and view its
+2-FSK and generic MFSK fixture generators; verified synthetic import into the SQLite
+capture/label dataset; and a receive-only Fldigi XML-RPC probe. Local device capture
+and the Fldigi path from audio input to recovered text are represented in the
+workbench: when a running Fldigi XML-RPC service is available, users can select a catalog mode and view its
 receive-text output. A synthetic BPSK31 loopback has decoded end to end through a
 temporary virtual audio sink. Routing actual radio input to Fldigi remains an
 external setup and is not yet validated.
@@ -75,6 +75,17 @@ binary tone mapping, modulation-method labels, and no invented protocol label:
 ```sh
 sig-id-generate-mfsk data/fixtures/mfsk4.wav 0,1,3,2 --symbol-rate 100
 ```
+
+Register the waveform and validated sidecar in the local dataset from the command
+line, or choose both files in the workbench's **Synthetic Dataset** panel:
+
+```sh
+sig-id-import-synthetic data/fixtures/mfsk4.wav
+```
+
+The importer verifies that the WAV exactly matches the deterministic generator
+manifest, then stores a full-capture modulation label and the source manifest. It
+does not invent a named protocol.
 
 Replay it blockwise from Python with `sigid.wav.WavSource`; blocks carry exact sample
 offsets and normalized mono samples. This is a modulation fixture, not a named

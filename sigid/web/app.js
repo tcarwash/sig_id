@@ -167,11 +167,42 @@ el("upload-form").addEventListener("submit", async (event) => {
   }
 });
 
+el("synthetic-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  clearError();
+  const wav = el("synthetic-wav").files[0];
+  const manifest = el("synthetic-manifest").files[0];
+  if (!wav || !manifest) return;
+  const button = event.currentTarget.querySelector("button");
+  button.disabled = true;
+  button.textContent = "Validating…";
+  try {
+    const form = new FormData();
+    form.append("wav_file", wav);
+    form.append("manifest_file", manifest);
+    const imported = await request("/api/synthetic/import", { method: "POST", body: form });
+    state.capture = imported.capture;
+    await loadCapture();
+  } catch (error) {
+    showError(error.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = "Import labeled fixture";
+  }
+});
+
 async function loadCapture() {
   el("empty-state").classList.add("hidden");
   el("workspace").classList.remove("hidden");
   const c = state.capture;
-  el("capture-title").textContent = c.source_metadata.uploaded_filename || c.source_metadata.device_name || "Audio recording";
+  el("capture-title").textContent = c.source_metadata.uploaded_filename || c.source_metadata.device_name || c.source_metadata.generator || "Audio recording";
+  const manifestLink = el("manifest-download");
+  if (c.source_kind === "synthetic" && c.source_metadata.manifest_file) {
+    manifestLink.href = `/api/captures/${c.id}/manifest`;
+    manifestLink.classList.remove("hidden");
+  } else {
+    manifestLink.classList.add("hidden");
+  }
   const duration = c.sample_count / c.sample_rate;
   el("capture-meta").textContent = `${c.sample_rate.toLocaleString()} samples/s · ${c.channels} channel${c.channels === 1 ? "" : "s"} · ${duration.toFixed(2)} seconds · ${c.source_kind}`;
   el("duration").textContent = `${duration.toFixed(2)} s`;
@@ -381,7 +412,8 @@ function renderRegions() {
       protocol.textContent = region.protocol ? `${region.protocol}${region.variant ? ` / ${region.variant}` : ""}` : "Protocol unknown";
       const badge = document.createElement("span");
       badge.className = "region-badge";
-      badge.textContent = region.review_state === "accepted" ? "HUMAN LABEL" : "PENDING";
+      const badgeLabels = { synthetic: "SYNTHETIC", human: "HUMAN LABEL", decoder: "DECODER", external: "EXTERNAL", rsid: "RSID", prediction: "PREDICTION", unknown: "UNKNOWN" };
+      badge.textContent = region.review_state === "accepted" ? (badgeLabels[region.source] || "ACCEPTED") : "PENDING REVIEW";
       row.append(left, protocol, badge);
       list.append(row);
     }
@@ -393,3 +425,11 @@ el("wav-file").addEventListener("change", (event) => {
   const file = event.target.files[0];
   if (file) document.querySelector(".file-button").textContent = file.name;
 });
+
+for (const [inputId, labelText] of [["synthetic-wav", "Choose fixture WAV"], ["synthetic-manifest", "Choose manifest"]]) {
+  el(inputId).addEventListener("change", (event) => {
+    const file = event.target.files[0];
+    if (file) document.querySelector(`label[for="${inputId}"]`).textContent = file.name;
+    else document.querySelector(`label[for="${inputId}"]`).textContent = labelText;
+  });
+}

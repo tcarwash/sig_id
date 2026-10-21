@@ -26,6 +26,10 @@ workbench API; radio-input routing and independent-signal validation remain open
 - Generic 2–64-tone FSK fixture generation with exact tone symbols and, for
   power-of-two tone counts, exact natural-binary reference bits. MFSK fixtures
   carry family and method labels while protocol and variant remain null.
+- Synthetic WAV/manifest import through CLI and web API. It regenerates the
+  deterministic waveform to verify exact sample equality, stores the sidecar,
+  records a full-capture synthetic modulation label and makes the manifest
+  downloadable from the workbench.
 - Local input-device discovery and bounded mono/stereo PCM recording through a
   background writer; live audio is saved as a normal capture with device provenance.
 - Browser controls to start/stop live recording and immediately review its waterfall.
@@ -46,7 +50,7 @@ Verified: Fldigi 4.2.13 and its XML-RPC method catalog are installed; unit tests
 cover receive-only client semantics, PCM WAV block indexing/normalization and
 synthetic 2-FSK/MFSK metadata, exact symbols/bits and tone frequencies, SQLite
 capture hashes/regions/label history, JSONL export, spectrogram peak detection, upload/region APIs, and Fldigi
-status/catalog/mode/output APIs. `pytest`: 44 passed, 2 skipped;
+status/catalog/mode/output APIs. `pytest`: 51 passed, 2 skipped;
 `node --check sigid/web/app.js` and wheel build pass. Deterministic fake-device tests
 exercise WAV writing, capture indexing, API start/status/stop and waterfall access.
 An isolated live Fldigi 4.2.13 process served the API with the documented receive-only

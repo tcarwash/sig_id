@@ -242,6 +242,12 @@ class CaptureStore:
             result.append(item)
         return result
 
+    def delete_capture(self, capture_id: str) -> bool:
+        """Remove a capture and its regions/labels from the local index."""
+        with self._connect() as db:
+            cursor = db.execute("DELETE FROM captures WHERE id = ?", (capture_id,))
+        return cursor.rowcount > 0
+
     def regions(self, capture_id: str) -> list[dict[str, Any]]:
         with self._connect() as db:
             exists = db.execute("SELECT 1 FROM captures WHERE id = ?", (capture_id,)).fetchone()

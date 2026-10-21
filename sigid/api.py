@@ -16,6 +16,7 @@ from .dataset import CaptureStore, SignalLabel
 from .fldigi import FldigiClient
 from .live_audio import LiveCaptureManager
 from .spectrum import waterfall
+from .synthetic_dataset import MAX_MANIFEST_BYTES, import_synthetic_wav
 
 
 MAX_UPLOAD_BYTES = 100 * 1024 * 1024
@@ -190,6 +191,48 @@ def create_app(
             file.file.close()
         return store.capture(capture_id)
 
+    @app.post("/api/synthetic/import")
+    def import_synthetic(
+        wav_file: UploadFile = File(...),
+        manifest_file: UploadFile = File(...),
+    ) -> dict[str, Any]:
+        if wav_file.filename is None or Path(wav_file.filename).suffix.lower() != ".wav":
+            raise HTTPException(status_code=415, detail="synthetic audio must be a PCM WAV file")
+        if manifest_file.filename is None or Path(manifest_file.filename).suffix.lower() != ".json":
+            raise HTTPException(status_code=415, detail="include the generated .wav.json manifest")
+        incoming_wav = capture_dir / f".incoming-{uuid4()}.wav"
+        incoming_manifest = incoming_wav.with_suffix(incoming_wav.suffix + ".json")
+
+        def save_upload(upload: UploadFile, destination: Path, maximum: int) -> None:
+            size = 0
+            with destination.open("wb") as output:
+                while chunk := upload.file.read(1024 * 1024):
+                    size += len(chunk)
+                    if size > maximum:
+                        raise HTTPException(status_code=413, detail="synthetic upload exceeds its size limit")
+                    output.write(chunk)
+            if size == 0:
+                raise HTTPException(status_code=422, detail="synthetic upload file is empty")
+
+        try:
+            save_upload(wav_file, incoming_wav, MAX_UPLOAD_BYTES)
+            save_upload(manifest_file, incoming_manifest, MAX_MANIFEST_BYTES)
+            return import_synthetic_wav(
+                incoming_wav,
+                incoming_manifest,
+                store=store,
+                capture_dir=capture_dir,
+            )
+        except HTTPException:
+            raise
+        except (OSError, EOFError, ValueError, wave.Error) as exc:
+            raise HTTPException(status_code=422, detail=f"invalid synthetic WAV/manifest: {exc}") from exc
+        finally:
+            incoming_wav.unlink(missing_ok=True)
+            incoming_manifest.unlink(missing_ok=True)
+            wav_file.file.close()
+            manifest_file.file.close()
+
     @app.get("/api/captures/{capture_id}")
     def get_capture(capture_id: str) -> dict[str, Any]:
         try:
@@ -205,6 +248,20 @@ def create_app(
             raise HTTPException(status_code=404, detail="capture not found") from exc
         path = Path(capture["audio_path"])
         return FileResponse(path, media_type="audio/wav", filename=f"{capture_id}.wav")
+
+    @app.get("/api/captures/{capture_id}/manifest")
+    def synthetic_manifest(capture_id: str) -> FileResponse:
+        try:
+            capture = store.capture(capture_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="capture not found") from exc
+        manifest_name = capture["source_metadata"].get("manifest_file")
+        if capture["source_kind"] != "synthetic" or not manifest_name:
+            raise HTTPException(status_code=404, detail="capture has no synthetic manifest")
+        path = (capture_dir / manifest_name).resolve()
+        if not path.is_relative_to(capture_dir.resolve()) or not path.is_file():
+            raise HTTPException(status_code=404, detail="synthetic manifest not found")
+        return FileResponse(path, media_type="application/json", filename=f"{capture_id}.synthetic.json")
 
     @app.get("/api/captures/{capture_id}/waterfall")
     def get_waterfall(
