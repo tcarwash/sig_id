@@ -35,6 +35,9 @@ the workbench API; radio-input routing and independent-signal validation remain 
 - Deterministic AWGN augmentation for imported synthetic parents, with declared SNR
   convention, seed, gain, clipping and measured SNR. Import validates parent waveform
   and manifest hashes, regenerates the child exactly, and stores its parent capture ID.
+- Resumable synthetic corpus command for 2-FSK, 4/8/16-FSK, BPSK and QPSK across
+  configurable source counts and AWGN levels. Atomic `corpus.json` indexing groups
+  each clean source with all derived SNR variants and avoids duplicate capture imports.
 - Local input-device discovery and bounded mono/stereo PCM recording through a
   background writer; live audio is saved as a normal capture with device provenance.
 - Browser controls to start/stop live recording and immediately review its waterfall.
@@ -82,7 +85,7 @@ Verified: Fldigi 4.2.13 and its XML-RPC method catalog are installed; unit tests
 cover receive-only client semantics, PCM WAV block indexing/normalization and
 synthetic 2-FSK/MFSK metadata, exact symbols/bits and tone frequencies, SQLite
 capture hashes/regions/label history, JSONL export, spectrogram peak detection, upload/region APIs, and Fldigi
-status/catalog/mode/output APIs. Current full suite: 74 passed, 4 skipped;
+status/catalog/mode/output APIs. Current full suite: 78 passed, 4 skipped;
 `node --check sigid/web/app.js` and `git diff --check` pass. Deterministic fake-device tests
 exercise WAV writing, capture indexing, API start/status/stop and rolling live
 analysis. The live analysis ring is capped at ten seconds and absolute sample

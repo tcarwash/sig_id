@@ -7,7 +7,7 @@ name = "sig-id"
 version = "0.1.0"
 description = "Digital radio signal identification and decoding workbench"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["numpy>=2.0"]
 
 [project.optional-dependencies]
 audio = ["numpy>=2.0", "scipy>=1.13", "soundfile>=0.12", "sounddevice>=0.5"]
@@ -21,6 +21,7 @@ sig-id-generate-mfsk = "sigid.synthetic:mfsk_main"
 sig-id-generate-bpsk = "sigid.synthetic:bpsk_main"
 sig-id-generate-qpsk = "sigid.synthetic:qpsk_main"
 sig-id-augment-awgn = "sigid.augmentation:main"
+sig-id-build-corpus = "sigid.corpus:main"
 sig-id-import-synthetic = "sigid.synthetic_dataset:main"
 sig-id-serve = "sigid.server:main"
 

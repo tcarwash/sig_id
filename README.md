@@ -119,6 +119,20 @@ sig-id-augment-awgn data/fixtures/bpsk.wav data/fixtures/bpsk-10db.wav --snr-db 
 sig-id-import-synthetic data/fixtures/bpsk-10db.wav
 ```
 
+Build a small resumable corpus across six modulation methods. Each clean source and
+its AWGN descendants share a `lineage_group` in the index so they can be kept in one
+train/validation/test split:
+
+```sh
+sig-id-build-corpus --output-dir data/corpus --examples-per-mode 4 --snr-db 0 10 20 --seed 42
+```
+
+This creates 96 labeled captures (six methods × four source examples × one clean plus
+three SNR variants). The index and generated audio stay in `data/corpus`; imported
+captures and labels are stored under `SIG_ID_DATA_DIR` or the normal application data
+directory. Re-running the same command resumes without duplicating captures; changing
+the recipe requires a new output directory.
+
 Replay it blockwise from Python with `sigid.wav.WavSource`; blocks carry exact sample
 offsets and normalized mono samples. This is a modulation fixture, not a named
 protocol waveform.

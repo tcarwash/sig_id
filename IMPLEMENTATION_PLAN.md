@@ -178,6 +178,10 @@ Synthetic track:
   order, seed, gain, clipping and measured SNR. Import requires an exact imported
   clean parent, regenerates the child for verification, and keeps parent lineage;
   frequency offsets, filtering, clock error and mixtures remain open.
+- A resumable command now creates and imports six modulation methods across clean
+  and configurable AWGN variants, atomically indexing capture IDs and a shared
+  lineage group for future split-safe evaluation. Cancellation UI, quotas and richer
+  impairment matrices remain open.
 - Store SNR convention/bandwidth and transform order. Choose parameter ranges
   against actual passband observations. Track desired versus measured placement.
 - Add payload-only/partial crops, negative examples and mixtures. Preserve RSID
