@@ -74,6 +74,8 @@ def evaluate_split_seeds(
                 "model_file": duplicate["model_file"],
                 "duplicate_of_seed": duplicate["seed"],
                 "test": duplicate["test"],
+                "test_by_condition": duplicate["test_by_condition"],
+                "validation_by_condition": duplicate["validation_by_condition"],
                 "ood_test": duplicate["ood_test"],
             }
             records.append(record)
@@ -94,6 +96,8 @@ def evaluate_split_seeds(
             "model_sha256": trained["model"]["model_sha256"],
             "model_file": model_path.name,
             "test": evaluation["test"],
+            "test_by_condition": evaluation.get("test_by_condition", {}),
+            "validation_by_condition": evaluation.get("validation_by_condition", {}),
             "ood_test": evaluation.get("ood_test", {}).get("metrics"),
         }
         records.append(record)
@@ -106,6 +110,29 @@ def evaluate_split_seeds(
         summary[f"ood_{key}"] = _summary([
             row["ood_test"].get(key) if row["ood_test"] is not None else None for row in independent_runs
         ])
+    conditions = sorted({
+        condition
+        for row in independent_runs
+        for condition in row["test_by_condition"]
+    })
+    summary["by_condition"] = {}
+    for scope in ("validation", "test"):
+        field = f"{scope}_by_condition"
+        summary_key = f"{scope}_by_condition"
+        scope_conditions = sorted({
+            condition for row in independent_runs for condition in row[field]
+        })
+        summary[summary_key] = {
+            condition: {
+                metric: _summary([
+                    row[field].get(condition, {}).get("metrics", {}).get(metric)
+                    for row in independent_runs
+                ])
+                for metric in ("coverage", "accepted_accuracy", "raw_accuracy")
+            }
+            for condition in scope_conditions
+        }
+    summary["by_condition"] = summary["test_by_condition"]
     return {
         "schema_version": 1,
         "evaluation_kind": "multi-seed lineage-safe synthetic model evaluation",

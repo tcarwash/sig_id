@@ -497,6 +497,49 @@ def _evaluate(
     }
 
 
+def _evaluate_test_conditions(
+    probabilities: np.ndarray,
+    labels: np.ndarray,
+    rows: list[dict[str, Any]],
+    classes: list[str],
+    threshold: float,
+    family_threshold: float,
+    novelty_distances: np.ndarray | None,
+    novelty_threshold: float | None,
+) -> dict[str, Any]:
+    """Report held-out behavior by clean/noise condition and AWGN SNR."""
+    if len(probabilities) < len(rows) or len(labels) < len(rows):
+        raise ValueError("test condition rows exceed the model evaluation arrays")
+    groups: dict[str, list[int]] = {}
+    for index, row in enumerate(rows):
+        if row["mode"] == "noise":
+            condition = "noise"
+        elif row.get("kind") == "clean":
+            condition = "clean"
+        elif row.get("kind") == "awgn" and isinstance(row.get("snr_db"), (int, float)):
+            condition = f"awgn_snr_db_{float(row['snr_db']):g}"
+        else:
+            condition = str(row.get("kind", "unknown"))
+        groups.setdefault(condition, []).append(index)
+    result = {}
+    for condition, indices in sorted(groups.items()):
+        selected = np.asarray(indices, dtype=np.int64)
+        result[condition] = {
+            "condition": condition,
+            "examples": len(indices),
+            "metrics": _evaluate(
+                probabilities[selected],
+                labels[selected],
+                classes,
+                threshold,
+                family_threshold,
+                novelty_distances[selected] if novelty_distances is not None else None,
+                novelty_threshold,
+            ),
+        }
+    return result
+
+
 def train_and_evaluate(
     split_manifest_path: str | Path,
     data_dir: str | Path,
@@ -627,7 +670,27 @@ def train_and_evaluate(
         novelty_threshold=novelty_threshold,
     )
     family_threshold = float(family_calibration["threshold"])
+    validation_by_condition = _evaluate_test_conditions(
+        validation_probabilities,
+        validation_indices,
+        validation_rows,
+        classes,
+        threshold,
+        family_threshold,
+        validation_novelty,
+        novelty_threshold,
+    )
     test_probabilities = predict_probabilities(x_test, parameters)
+    test_by_condition = _evaluate_test_conditions(
+        test_probabilities,
+        test_indices,
+        test_rows,
+        classes,
+        threshold,
+        family_threshold,
+        test_novelty,
+        novelty_threshold,
+    )
     ood_test_metrics = None
     if len(x_ood_test):
         ood_test_probabilities = predict_probabilities(x_ood_test, parameters)
@@ -660,7 +723,9 @@ def train_and_evaluate(
         "family_calibration": family_calibration,
         "novelty_calibration": novelty_calibration,
         "validation": _evaluate(validation_probabilities, validation_indices, classes, threshold, family_threshold, validation_novelty, novelty_threshold),
+        "validation_by_condition": validation_by_condition,
         "test": _evaluate(test_probabilities, test_indices, classes, threshold, family_threshold, test_novelty, novelty_threshold),
+        "test_by_condition": test_by_condition,
         "ood_validation": {
             "examples": len(ood_validation_rows),
             "source_indices": [row["index"] for row in ood_validation_rows],

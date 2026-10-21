@@ -308,6 +308,28 @@ Across five distinct splits, mean known test coverage was 64.6%, mean accepted a
 from 58.8% to 93.8%, showing that the earlier single-split estimate was optimistic. This
 remains synthetic-only evidence.
 
+The runner also reports held-out metrics by clean, noise and AWGN SNR. A 444-capture
+corpus with clean sources and 0, 3, 6, 10 and 20 dB AWGN siblings produced five distinct
+test splits. Mean coverage ranged from 78.3% to 85.0% across noisy conditions, but clean-
+source coverage was only 13.3% (76.7% accuracy among the few accepted clean examples).
+That is a weakness in the current rejection behavior; all per-SNR results and provenance
+hashes are in [`reports/channel-snr-multiseed-2026-10-21.json`](reports/channel-snr-multiseed-2026-10-21.json).
+This sweep tests AWGN only, not fading, multipath or impulsive interference.
+
+To reproduce the SNR sweep, point both corpus builders at the same data directory so
+the split tool can verify the indexed captures:
+
+```sh
+export SIG_ID_DATA_DIR=/tmp/sig-id-channel-benchmark/data
+sig-id-build-corpus --output-dir /tmp/sig-id-channel-benchmark/known --data-dir "$SIG_ID_DATA_DIR" \
+  --examples-per-mode 12 --snr-db 0 3 6 10 20 --seed 20261021
+sig-id-build-ood-corpus --output-dir /tmp/sig-id-channel-benchmark/unknown --examples 30 --seed 1717
+sig-id-evaluate-split-seeds --corpus /tmp/sig-id-channel-benchmark/known/corpus.json \
+  --data-dir "$SIG_ID_DATA_DIR" --output-dir /tmp/sig-id-channel-benchmark/runs \
+  --seeds 11 23 37 51 79 --epochs 1200 \
+  --ood-corpus /tmp/sig-id-channel-benchmark/unknown/ood-corpus.json
+```
+
 Build independent synthetic OOK, 4-ASK and pulse-position sources with varied payload,
 baud rate, carrier, amplitude, phase and pulse width. This diverse corpus is separate
 from the six-class training index and is passed separately to the trainer above. Version

@@ -92,6 +92,12 @@ validation remain open.
   method/family false accepts on each 12-source OOD test. Accepted accuracy ranged from
   58.8% to 93.8%, so the earlier single-split result was optimistic. See
   `reports/multiseed-ask-ppm-2026-10-21.json`.
+- Training reports now separate held-out test metrics by clean, noise and AWGN SNR.
+  Across five seeds and 0/3/6/10/20 dB variants, AWGN coverage averaged 78.3–85.0%;
+  clean-source coverage was only 13.3%, despite 71.7% raw accuracy. This flags a model
+  calibration/feature weakness. The 444-capture sweep is archived at
+  `reports/channel-snr-multiseed-2026-10-21.json`; multipath, fading and impulsive
+  interference remain untested.
 - Bounded Signal Identification Wiki metadata importer covers identified and
   unidentified page categories. It stores revision, source-reported fields, media links
   and retrieval time, while leaving source labels unreviewed and media link-only pending
@@ -187,9 +193,9 @@ examples; family calibration rejected every proposal. The spectral-only ASK/PPM 
 also rejected all known examples. The envelope/prototype v2 result is recorded at
 `reports/ask-ppm-novelty-benchmark-2026-10-21.json`: on the same split it retained 84.6%
 known test coverage with 86.4% accepted accuracy and had 0/12 ASK/PPM false accepts.
-This is synthetic-only evidence, not general unknown-mode or RF performance. Next test
-stronger channel impairments and held-out mixed scenes before using the novelty threshold
-for routine live proposals. An opt-in
+This is synthetic-only evidence, not general unknown-mode or RF performance. Next fix
+the low clean-source coverage and test multipath, impulsive interference and held-out
+mixed scenes before using the novelty threshold for routine live proposals. An opt-in
 automatic trial now requires a persistent track and an accepted
 method proposal, while abstentions never trigger mode changes. Keep it opt-in until
 unseen-family and real-capture validation establish useful operating limits. The

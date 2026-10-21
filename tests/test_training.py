@@ -137,6 +137,9 @@ def test_training_uses_split_groups_calibrates_abstention_and_exports_loadable_m
     assert evaluation["test"]["noise_accepted"] == 0
     assert evaluation["test"]["noise_class_correct"] == 1
     assert evaluation["test"]["unknown_family_false_positive_rate"] == 0.0
+    assert {"clean", "awgn_snr_db_10", "noise"}.issubset(evaluation["test_by_condition"])
+    assert evaluation["test_by_condition"]["awgn_snr_db_10"]["metrics"]["examples"] == 6
+    assert {"clean", "awgn_snr_db_10", "noise"}.issubset(evaluation["validation_by_condition"])
     assert evaluation["calibration"]["validation_noise_false_positive_rate"] == 0.0
     assert evaluation["calibration"]["status"] == "reject_all_no_threshold_meets_validation_constraints"
     assert evaluation["test"]["coverage"] == 0.0

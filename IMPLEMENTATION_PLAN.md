@@ -237,9 +237,12 @@ Learning track:
   known test coverage at 86.4% accepted accuracy. No-threshold cases still abstain on
   every method. A five-seed runner now summarizes unique lineage assignments and found
   zero method/family false accepts across these synthetic OOD tests, with mean known
-  coverage 64.6% and accepted accuracy 79.8%. App inference is opt-in through
-  `SIG_ID_MODEL_PATH`; stronger impairment, unseen-family breadth and real-radio
-  evaluation remain open.
+  coverage 64.6% and accepted accuracy 79.8%. A 0–20 dB AWGN sweep reports condition-
+  specific results across five splits; noisy coverage averaged 78.3–85.0%, while clean-
+  source coverage was only 13.3%. Fix this rejection weakness before treating the model
+  as a useful live proposal source. Multipath/impulsive impairment, unseen-family
+  breadth and real-radio evaluation remain open. App inference is opt-in through
+  `SIG_ID_MODEL_PATH`.
 - Keep protocol heads limited to supported classes; calibrate candidate/rejection
   thresholds on held-out validation data, then freeze before test evaluation.
 - Hold entire protocols out and test whether their families are still recognized.

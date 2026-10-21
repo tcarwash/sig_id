@@ -9,7 +9,7 @@ from sigid.seed_evaluation import evaluate_split_seeds
 def test_multi_seed_runner_trains_and_reports_a_lineage_safe_run(tmp_path):
     corpus_dir = tmp_path / "corpus"
     data_dir = tmp_path / "data"
-    build_corpus(corpus_dir, data_dir, examples_per_mode=3, snr_levels_db=[], seed=712)
+    build_corpus(corpus_dir, data_dir, examples_per_mode=3, snr_levels_db=[10], seed=712)
     result = evaluate_split_seeds(
         corpus_dir / "corpus.json",
         data_dir,
@@ -22,6 +22,8 @@ def test_multi_seed_runner_trains_and_reports_a_lineage_safe_run(tmp_path):
     assert result["runs"][0]["split_sha256"]
     assert result["runs"][0]["model_sha256"]
     assert result["summary"]["coverage"]["count"] == 1
+    assert "awgn_snr_db_10" in result["summary"]["by_condition"]
+    assert "clean" in result["summary"]["validation_by_condition"]
     assert (tmp_path / "runs" / "split-21.json").is_file()
     assert (tmp_path / "runs" / "model-21.npz").is_file()
 
