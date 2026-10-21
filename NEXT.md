@@ -73,6 +73,12 @@ the workbench API; radio-input routing and independent-signal validation remain 
   candidate persistent; this is spectral continuity evidence, not mode confirmation.
 - Receive-only Fldigi API/UI: connection status, catalog list, manual mode selection
   and incremental decoded-text polling. Transmit, rig and macro calls are not exposed.
+- A mode-by-mode isolated Fldigi 4.2.13 selection audit now records all 169 catalog
+  entries: 165 select as named; OFDM500F, OFDM750F, OFDM3500 and RSID_EOT return
+  BPSK31. This is selection evidence only, not decode support. See the report in
+  `reports/fldigi-4.2.13-catalog-selection.json`.
+- Live waterfall follow mode expands from available startup history to ten seconds,
+  then keeps the trailing ten seconds in view.
 - Fldigi WEFAX receive products can be polled, validated as bounded supported image
   files, stored by content hash, and shown in the received-image gallery.
 - Added a generic receive-text backend contract for mode listing, mode selection
@@ -119,8 +125,10 @@ Verified: Fldigi 4.2.13 and its XML-RPC method catalog are installed; unit tests
 cover receive-only client semantics, PCM WAV block indexing/normalization and
 synthetic 2-FSK/MFSK metadata, exact symbols/bits and tone frequencies, SQLite
 capture hashes/regions/label history, JSONL export, spectrogram peak detection, upload/region APIs, and Fldigi
-status/catalog/mode/output APIs, WEFAX product import and image delivery. Current full suite: 108 passed, 4 skipped;
-`node --check sigid/web/app.js` and `git diff --check` pass. The generic text-backend
+status/catalog/mode/output APIs, WEFAX product import and image delivery. Current full suite: 108 passed, 5 skipped;
+the opt-in isolated selection audit checks all 169 entries (165 selectable, four unresolved),
+and `node --test tests/test_waterfall_window.mjs`, module syntax validation, headless
+Chromium loading, and `git diff --check` pass. The generic text-backend
 contract is exercised by the Fldigi adapter and trial-runner tests. Deterministic fake-device tests
 exercise WAV writing, capture indexing, API start/status/stop and rolling live
 analysis. The live analysis ring is capped at ten seconds and absolute sample

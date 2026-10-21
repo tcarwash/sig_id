@@ -7,6 +7,8 @@ The temporary null sink and copied profiles prevent audio or PTT from reaching a
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
+import json
 import os
 from pathlib import Path
 import re
@@ -23,12 +25,6 @@ import pytest
 
 from sigid.api import create_app
 from sigid.fldigi import FldigiClient
-
-
-pytestmark = pytest.mark.skipif(
-    os.environ.get("SIGID_TEST_FLDIGI_AUDIO") != "1",
-    reason="set SIGID_TEST_FLDIGI_AUDIO=1 for isolated Fldigi audio loopback",
-)
 
 
 def _run(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -138,6 +134,10 @@ def _stop_process(process: subprocess.Popen[bytes]) -> None:
 
 
 @pytest.mark.parametrize("mode", ["BPSK31", "RTTY", "THOR16"])
+@pytest.mark.skipif(
+    os.environ.get("SIGID_TEST_FLDIGI_AUDIO") != "1",
+    reason="set SIGID_TEST_FLDIGI_AUDIO=1 for isolated Fldigi audio loopback",
+)
 def test_fldigi_payload_reaches_workbench_api_through_virtual_audio(tmp_path, socket_enabled, mode):
     for executable in ("fldigi", "xvfb-run", "pactl"):
         if shutil.which(executable) is None:
@@ -205,5 +205,69 @@ def test_fldigi_payload_reaches_workbench_api_through_virtual_audio(tmp_path, so
         asyncio.run(verify_workbench_decode())
     finally:
         for process in processes:
+            _stop_process(process)
+        _run("pactl", "unload-module", module_id, check=False)
+
+
+@pytest.mark.skipif(
+    os.environ.get("SIGID_TEST_FLDIGI_CATALOG") != "1",
+    reason="set SIGID_TEST_FLDIGI_CATALOG=1 to audit selection of the installed catalog",
+)
+def test_every_installed_catalog_entry_is_selectable_in_isolated_fldigi(tmp_path):
+    for executable in ("fldigi", "xvfb-run", "pactl"):
+        if shutil.which(executable) is None:
+            pytest.skip(f"{executable} is required for the Fldigi catalog audit")
+
+    sink = f"sigid_catalog_{os.getpid()}"
+    try:
+        module_id = _run(
+            "pactl", "load-module", "module-null-sink",
+            f"sink_name={sink}", "rate=48000", "channels=2",
+        ).stdout.strip()
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        pytest.skip(f"could not create an isolated PulseAudio null sink: {exc}")
+
+    process = None
+    try:
+        try:
+            port = _free_port()
+            process = _isolated_profile(tmp_path, "catalog", sink, port)
+        except RuntimeError as exc:
+            pytest.skip(str(exc))
+        client, _ = _connect(f"http://127.0.0.1:{port}/RPC2", process)
+        original = client.current_modem()
+        modes = client.mode_names()
+        failures = []
+        results = []
+        for mode in modes:
+            try:
+                selected = client.select_mode(mode)
+                if selected != mode:
+                    result = {"mode": mode, "selectable": False, "selected": selected, "reason": "backend reported a different current mode"}
+                    failures.append(result)
+                else:
+                    result = {"mode": mode, "selectable": True}
+            except Exception as exc:
+                result = {"mode": mode, "selectable": False, "reason": f"{type(exc).__name__}: {exc}"}
+                failures.append(result)
+            results.append(result)
+        report = {
+            "backend": "fldigi",
+            "version": client.version().version,
+            "tested_at_utc": datetime.now(timezone.utc).isoformat(),
+            "catalog_count": len(modes),
+            "selectable_count": len(modes) - len(failures),
+            "selection_failures": failures,
+            "results": results,
+            "original_mode": original,
+            "scope": "mode selection only; audio routing, decode, generation, and specialized output are not tested",
+        }
+        (tmp_path / "fldigi-catalog-audit.json").write_text(json.dumps(report, indent=2) + "\n")
+        print(json.dumps({key: value for key, value in report.items() if key != "results"}, sort_keys=True))
+        assert report["catalog_count"] == len(modes)
+        assert report["selectable_count"] + len(failures) == len(modes)
+        assert [result["mode"] for result in results] == modes
+    finally:
+        if process is not None:
             _stop_process(process)
         _run("pactl", "unload-module", module_id, check=False)

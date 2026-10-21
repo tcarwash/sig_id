@@ -1,0 +1,721 @@
+{
+  "backend": "fldigi",
+  "version": "4.2.13",
+  "tested_at_utc": "2026-10-21T20:51:57.464737+00:00",
+  "catalog_count": 169,
+  "selectable_count": 165,
+  "selection_failures": [
+    {
+      "mode": "OFDM500F",
+      "selectable": false,
+      "selected": "BPSK31",
+      "reason": "backend reported a different current mode"
+    },
+    {
+      "mode": "OFDM750F",
+      "selectable": false,
+      "selected": "BPSK31",
+      "reason": "backend reported a different current mode"
+    },
+    {
+      "mode": "OFDM3500",
+      "selectable": false,
+      "selected": "BPSK31",
+      "reason": "backend reported a different current mode"
+    },
+    {
+      "mode": "RSID_EOT",
+      "selectable": false,
+      "selected": "BPSK31",
+      "reason": "backend reported a different current mode"
+    }
+  ],
+  "results": [
+    {
+      "mode": "NULL",
+      "selectable": true
+    },
+    {
+      "mode": "CW",
+      "selectable": true
+    },
+    {
+      "mode": "CONTESTIA",
+      "selectable": true
+    },
+    {
+      "mode": "Cont-4/125",
+      "selectable": true
+    },
+    {
+      "mode": "Cont-4/250",
+      "selectable": true
+    },
+    {
+      "mode": "Cont-4/500",
+      "selectable": true
+    },
+    {
+      "mode": "Cont-4/1K",
+      "selectable": true
+    },
+    {
+      "mode": "Cont-4/2K",
+      "selectable": true
+    },
+    {
+      "mode": "Cont-8/125",
+      "selectable": true
+    },
+    {
+      "mode": "Cont-8/250",
+      "selectable": true
+    },
+    {
+      "mode": "Cont-8/500",
+      "selectable": true
+    },
+    {
+      "mode": "Cont-8/1K",
+      "selectable": true
+    },
+    {
+      "mode": "Cont-8/2K",
+      "selectable": true
+    },
+    {
+      "mode": "Cont-16/250",
+      "selectable": true
+    },
+    {
+      "mode": "Cont-16/500",
+      "selectable": true
+    },
+    {
+      "mode": "Cont-16/1K",
+      "selectable": true
+    },
+    {
+      "mode": "Cont-16/2K",
+      "selectable": true
+    },
+    {
+      "mode": "Cont-32/1K",
+      "selectable": true
+    },
+    {
+      "mode": "Cont-32/2K",
+      "selectable": true
+    },
+    {
+      "mode": "Cont-64/500",
+      "selectable": true
+    },
+    {
+      "mode": "Cont-64/1K",
+      "selectable": true
+    },
+    {
+      "mode": "Cont-64/2K",
+      "selectable": true
+    },
+    {
+      "mode": "DOMEXM",
+      "selectable": true
+    },
+    {
+      "mode": "DOMEX4",
+      "selectable": true
+    },
+    {
+      "mode": "DOMEX5",
+      "selectable": true
+    },
+    {
+      "mode": "DOMEX8",
+      "selectable": true
+    },
+    {
+      "mode": "DOMX11",
+      "selectable": true
+    },
+    {
+      "mode": "DOMX16",
+      "selectable": true
+    },
+    {
+      "mode": "DOMX22",
+      "selectable": true
+    },
+    {
+      "mode": "DOMX44",
+      "selectable": true
+    },
+    {
+      "mode": "DOMX88",
+      "selectable": true
+    },
+    {
+      "mode": "FELDHELL",
+      "selectable": true
+    },
+    {
+      "mode": "SLOWHELL",
+      "selectable": true
+    },
+    {
+      "mode": "HELLX5",
+      "selectable": true
+    },
+    {
+      "mode": "HELLX9",
+      "selectable": true
+    },
+    {
+      "mode": "FSKH245",
+      "selectable": true
+    },
+    {
+      "mode": "FSKH105",
+      "selectable": true
+    },
+    {
+      "mode": "HELL80",
+      "selectable": true
+    },
+    {
+      "mode": "MFSK8",
+      "selectable": true
+    },
+    {
+      "mode": "MFSK16",
+      "selectable": true
+    },
+    {
+      "mode": "MFSK32",
+      "selectable": true
+    },
+    {
+      "mode": "MFSK4",
+      "selectable": true
+    },
+    {
+      "mode": "MFSK11",
+      "selectable": true
+    },
+    {
+      "mode": "MFSK22",
+      "selectable": true
+    },
+    {
+      "mode": "MFSK31",
+      "selectable": true
+    },
+    {
+      "mode": "MFSK64",
+      "selectable": true
+    },
+    {
+      "mode": "MFSK128",
+      "selectable": true
+    },
+    {
+      "mode": "MFSK64L",
+      "selectable": true
+    },
+    {
+      "mode": "MFSK128L",
+      "selectable": true
+    },
+    {
+      "mode": "WEFAX576",
+      "selectable": true
+    },
+    {
+      "mode": "WEFAX288",
+      "selectable": true
+    },
+    {
+      "mode": "NAVTEX",
+      "selectable": true
+    },
+    {
+      "mode": "SITORB",
+      "selectable": true
+    },
+    {
+      "mode": "MT63-500S",
+      "selectable": true
+    },
+    {
+      "mode": "MT63-500L",
+      "selectable": true
+    },
+    {
+      "mode": "MT63-1KS",
+      "selectable": true
+    },
+    {
+      "mode": "MT63-1KL",
+      "selectable": true
+    },
+    {
+      "mode": "MT63-2KS",
+      "selectable": true
+    },
+    {
+      "mode": "MT63-2KL",
+      "selectable": true
+    },
+    {
+      "mode": "BPSK31",
+      "selectable": true
+    },
+    {
+      "mode": "BPSK63",
+      "selectable": true
+    },
+    {
+      "mode": "BPSK63F",
+      "selectable": true
+    },
+    {
+      "mode": "BPSK125",
+      "selectable": true
+    },
+    {
+      "mode": "BPSK250",
+      "selectable": true
+    },
+    {
+      "mode": "BPSK500",
+      "selectable": true
+    },
+    {
+      "mode": "BPSK1000",
+      "selectable": true
+    },
+    {
+      "mode": "PSK125C12",
+      "selectable": true
+    },
+    {
+      "mode": "PSK250C6",
+      "selectable": true
+    },
+    {
+      "mode": "PSK500C2",
+      "selectable": true
+    },
+    {
+      "mode": "PSK500C4",
+      "selectable": true
+    },
+    {
+      "mode": "PSK800C2",
+      "selectable": true
+    },
+    {
+      "mode": "PSK1000C2",
+      "selectable": true
+    },
+    {
+      "mode": "QPSK31",
+      "selectable": true
+    },
+    {
+      "mode": "QPSK63",
+      "selectable": true
+    },
+    {
+      "mode": "QPSK125",
+      "selectable": true
+    },
+    {
+      "mode": "QPSK250",
+      "selectable": true
+    },
+    {
+      "mode": "QPSK500",
+      "selectable": true
+    },
+    {
+      "mode": "8PSK125",
+      "selectable": true
+    },
+    {
+      "mode": "8PSK125FL",
+      "selectable": true
+    },
+    {
+      "mode": "8PSK125F",
+      "selectable": true
+    },
+    {
+      "mode": "8PSK250",
+      "selectable": true
+    },
+    {
+      "mode": "8PSK250FL",
+      "selectable": true
+    },
+    {
+      "mode": "8PSK250F",
+      "selectable": true
+    },
+    {
+      "mode": "8PSK500",
+      "selectable": true
+    },
+    {
+      "mode": "8PSK500F",
+      "selectable": true
+    },
+    {
+      "mode": "8PSK1000",
+      "selectable": true
+    },
+    {
+      "mode": "8PSK1000F",
+      "selectable": true
+    },
+    {
+      "mode": "8PSK1200F",
+      "selectable": true
+    },
+    {
+      "mode": "OFDM500F",
+      "selectable": false,
+      "selected": "BPSK31",
+      "reason": "backend reported a different current mode"
+    },
+    {
+      "mode": "OFDM750F",
+      "selectable": false,
+      "selected": "BPSK31",
+      "reason": "backend reported a different current mode"
+    },
+    {
+      "mode": "OFDM3500",
+      "selectable": false,
+      "selected": "BPSK31",
+      "reason": "backend reported a different current mode"
+    },
+    {
+      "mode": "OLIVIA",
+      "selectable": true
+    },
+    {
+      "mode": "OLIVIA-4/125",
+      "selectable": true
+    },
+    {
+      "mode": "OLIVIA-4/250",
+      "selectable": true
+    },
+    {
+      "mode": "OLIVIA-4/500",
+      "selectable": true
+    },
+    {
+      "mode": "OLIVIA-4/1K",
+      "selectable": true
+    },
+    {
+      "mode": "OLIVIA-4/2K",
+      "selectable": true
+    },
+    {
+      "mode": "OLIVIA-8/125",
+      "selectable": true
+    },
+    {
+      "mode": "OLIVIA-8/250",
+      "selectable": true
+    },
+    {
+      "mode": "OLIVIA-8/500",
+      "selectable": true
+    },
+    {
+      "mode": "OLIVIA-8/1K",
+      "selectable": true
+    },
+    {
+      "mode": "OLIVIA-8/2K",
+      "selectable": true
+    },
+    {
+      "mode": "OLIVIA-16/500",
+      "selectable": true
+    },
+    {
+      "mode": "OLIVIA-16/1K",
+      "selectable": true
+    },
+    {
+      "mode": "OLIVIA-16/2K",
+      "selectable": true
+    },
+    {
+      "mode": "OLIVIA-32/1K",
+      "selectable": true
+    },
+    {
+      "mode": "OLIVIA-32/2K",
+      "selectable": true
+    },
+    {
+      "mode": "OLIVIA-64/500",
+      "selectable": true
+    },
+    {
+      "mode": "OLIVIA-64/1K",
+      "selectable": true
+    },
+    {
+      "mode": "OLIVIA-64/2K",
+      "selectable": true
+    },
+    {
+      "mode": "RTTY",
+      "selectable": true
+    },
+    {
+      "mode": "SCAMPFSK",
+      "selectable": true
+    },
+    {
+      "mode": "SCAMPOOK",
+      "selectable": true
+    },
+    {
+      "mode": "SCFSKFST",
+      "selectable": true
+    },
+    {
+      "mode": "SCFSKSLW",
+      "selectable": true
+    },
+    {
+      "mode": "SCOOKSLW",
+      "selectable": true
+    },
+    {
+      "mode": "SCFSKVSL",
+      "selectable": true
+    },
+    {
+      "mode": "THORM",
+      "selectable": true
+    },
+    {
+      "mode": "THOR4",
+      "selectable": true
+    },
+    {
+      "mode": "THOR5",
+      "selectable": true
+    },
+    {
+      "mode": "THOR8",
+      "selectable": true
+    },
+    {
+      "mode": "THOR11",
+      "selectable": true
+    },
+    {
+      "mode": "THOR16",
+      "selectable": true
+    },
+    {
+      "mode": "THOR22",
+      "selectable": true
+    },
+    {
+      "mode": "THOR25",
+      "selectable": true
+    },
+    {
+      "mode": "THOR32",
+      "selectable": true
+    },
+    {
+      "mode": "THOR44",
+      "selectable": true
+    },
+    {
+      "mode": "THOR56",
+      "selectable": true
+    },
+    {
+      "mode": "THOR25x4",
+      "selectable": true
+    },
+    {
+      "mode": "THOR50x1",
+      "selectable": true
+    },
+    {
+      "mode": "THOR50x2",
+      "selectable": true
+    },
+    {
+      "mode": "THOR100",
+      "selectable": true
+    },
+    {
+      "mode": "THROB1",
+      "selectable": true
+    },
+    {
+      "mode": "THROB2",
+      "selectable": true
+    },
+    {
+      "mode": "THROB4",
+      "selectable": true
+    },
+    {
+      "mode": "THRBX1",
+      "selectable": true
+    },
+    {
+      "mode": "THRBX2",
+      "selectable": true
+    },
+    {
+      "mode": "THRBX4",
+      "selectable": true
+    },
+    {
+      "mode": "PSK125R",
+      "selectable": true
+    },
+    {
+      "mode": "PSK250R",
+      "selectable": true
+    },
+    {
+      "mode": "PSK500R",
+      "selectable": true
+    },
+    {
+      "mode": "PSK1000R",
+      "selectable": true
+    },
+    {
+      "mode": "PSK63RC4",
+      "selectable": true
+    },
+    {
+      "mode": "PSK63RC5",
+      "selectable": true
+    },
+    {
+      "mode": "PSK63RC10",
+      "selectable": true
+    },
+    {
+      "mode": "PSK63RC20",
+      "selectable": true
+    },
+    {
+      "mode": "PSK63RC32",
+      "selectable": true
+    },
+    {
+      "mode": "PSK125RC4",
+      "selectable": true
+    },
+    {
+      "mode": "PSK125RC5",
+      "selectable": true
+    },
+    {
+      "mode": "PSK125RC10",
+      "selectable": true
+    },
+    {
+      "mode": "PSK125RC12",
+      "selectable": true
+    },
+    {
+      "mode": "PSK125RC16",
+      "selectable": true
+    },
+    {
+      "mode": "PSK250RC2",
+      "selectable": true
+    },
+    {
+      "mode": "PSK250RC3",
+      "selectable": true
+    },
+    {
+      "mode": "PSK250RC5",
+      "selectable": true
+    },
+    {
+      "mode": "PSK250RC6",
+      "selectable": true
+    },
+    {
+      "mode": "PSK250RC7",
+      "selectable": true
+    },
+    {
+      "mode": "PSK500RC2",
+      "selectable": true
+    },
+    {
+      "mode": "PSK500RC3",
+      "selectable": true
+    },
+    {
+      "mode": "PSK500RC4",
+      "selectable": true
+    },
+    {
+      "mode": "PSK800RC2",
+      "selectable": true
+    },
+    {
+      "mode": "PSK1000RC2",
+      "selectable": true
+    },
+    {
+      "mode": "FSQ",
+      "selectable": true
+    },
+    {
+      "mode": "IFKP",
+      "selectable": true
+    },
+    {
+      "mode": "SSB",
+      "selectable": true
+    },
+    {
+      "mode": "WWV",
+      "selectable": true
+    },
+    {
+      "mode": "ANALYSIS",
+      "selectable": true
+    },
+    {
+      "mode": "FMT",
+      "selectable": true
+    },
+    {
+      "mode": "RSID_EOT",
+      "selectable": false,
+      "selected": "BPSK31",
+      "reason": "backend reported a different current mode"
+    }
+  ],
+  "original_mode": "FELDHELL",
+  "scope": "mode selection only; audio routing, decode, generation, and specialized output are not tested"
+}

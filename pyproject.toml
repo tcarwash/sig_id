@@ -29,7 +29,7 @@ sig-id-import-sigidwiki = "sigid.sigidwiki:main"
 sig-id-serve = "sigid.server:main"
 
 [tool.setuptools.package-data]
-sigid = ["web/*.html", "web/*.js", "web/*.css"]
+sigid = ["web/*.html", "web/*.js", "web/*.mjs", "web/*.css"]
 
 [tool.setuptools.packages.find]
 include = ["sigid*"]

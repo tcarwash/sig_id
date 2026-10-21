@@ -858,6 +858,10 @@ def create_app(
     def javascript() -> FileResponse:
         return FileResponse(WEB_DIR / "app.js", media_type="text/javascript")
 
+    @app.get("/waterfall-window.mjs", include_in_schema=False)
+    def waterfall_window_module() -> FileResponse:
+        return FileResponse(WEB_DIR / "waterfall-window.mjs", media_type="text/javascript")
+
     @app.get("/style.css", include_in_schema=False)
     def stylesheet() -> FileResponse:
         return FileResponse(WEB_DIR / "style.css", media_type="text/css")

@@ -37,6 +37,7 @@ def test_upload_waterfall_manual_label_audio_and_jsonl_export(tmp_path):
             assert '<span>Audio frequency →</span><span id="freq-high"' in page
             assert "time on the vertical axis and audio frequency on the horizontal axis" in page
             assert "drawWaterfall" in (await client.get("/app.js")).text
+            assert (await client.get("/waterfall-window.mjs")).status_code == 200
             assert "Provisional signal candidates" in (await client.get("/")).text
             assert "waterfall-layout" in (await client.get("/style.css")).text
             uploaded = await client.post(

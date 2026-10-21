@@ -1,3 +1,5 @@
+import { liveTimeWindow } from "/waterfall-window.mjs";
+
 const el = (id) => document.getElementById(id);
 const state = { capture: null, waterfall: null, drag: null, selection: null, regions: [], tracks: [], liveView: false, modelAvailable: false, view: null };
 const baseCanvas = el("waterfall");
@@ -289,9 +291,9 @@ el("live-start").addEventListener("click", async () => {
         state.waterfall = analysis.spectrum;
         if (!state.view) resetWaterfallView(false);
         else if (state.view.followTime) {
-          const span = state.view.timeEndSample - state.view.timeStartSample;
-          state.view.timeEndSample = analysis.spectrum.sample_count;
-          state.view.timeStartSample = Math.max(0, state.view.timeEndSample - span);
+          const window = liveTimeWindow(analysis.spectrum.sample_count, analysis.spectrum.sample_rate);
+          state.view.timeEndSample = window.endSample;
+          state.view.timeStartSample = window.startSample;
         }
         state.tracks = analysis.tracks;
         if (analysis.automatic_trial?.status === "running") watchDecoderTrial(analysis.automatic_trial);

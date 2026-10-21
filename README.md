@@ -49,6 +49,17 @@ configured `~/.fldigi`, `xvfb-run`, and `pactl`:
 SIGID_TEST_FLDIGI_AUDIO=1 pytest tests/test_fldigi_audio_integration.py
 ```
 
+To audit selection of every mode in an isolated Fldigi profile (without changing
+the operator's running Fldigi mode), run:
+
+```sh
+SIGID_TEST_FLDIGI_CATALOG=1 pytest -s tests/test_fldigi_audio_integration.py -k every_installed_catalog_entry
+```
+
+The reference Fldigi 4.2.13 selection results are in
+[`reports/fldigi-4.2.13-catalog-selection.json`](reports/fldigi-4.2.13-catalog-selection.json).
+This tests mode selection only; it does not establish audio routing or decode support.
+
 Then open <http://127.0.0.1:8010>, choose a PCM WAV, and mark a signal region on
 the waterfall. The local service stores audio under `~/.local/share/sig-id` by
 default. Set `SIG_ID_DATA_DIR` before starting it to use another data directory.
