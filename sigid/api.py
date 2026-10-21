@@ -20,6 +20,7 @@ from .fldigi import FldigiClient
 from .live_audio import LiveCaptureManager
 from .spectrum import waterfall, waterfall_samples
 from .synthetic_dataset import MAX_MANIFEST_BYTES, import_synthetic_wav
+from .tracking import LiveTrackRegistry
 from .wav import WavSource
 
 
@@ -110,6 +111,7 @@ def create_app(
     app.state.capture_store = store
     app.state.live_capture = live_capture
     app.state.fldigi = fldigi
+    app.state.live_track_registry = None
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
@@ -161,12 +163,22 @@ def create_app(
                 sample_offset=snapshot["sample_offset"],
                 total_sample_count=snapshot["sample_count"],
             )
+            detections = detect_tracks(spectrum, threshold_db=threshold_db)
+            registry = app.state.live_track_registry
+            if registry is None or registry.session_id != snapshot["session_id"]:
+                registry = LiveTrackRegistry(snapshot["session_id"])
+                app.state.live_track_registry = registry
+            tracks = registry.update(
+                detections,
+                sample_position=int(snapshot["sample_count"]),
+                sample_rate=int(snapshot["sample_rate"]),
+            )
             return {
                 "active": True,
                 "warming_up": False,
                 "session_id": snapshot["session_id"],
                 "spectrum": spectrum,
-                "tracks": detect_tracks(spectrum, threshold_db=threshold_db),
+                "tracks": tracks,
                 "analysis": {"threshold_db": threshold_db, "method": "row-median threshold with persistent peak clusters"},
             }
         except ValueError as exc:
@@ -175,12 +187,14 @@ def create_app(
     @app.post("/api/live/start")
     def start_live_capture(data: LiveCaptureStart) -> dict[str, Any]:
         try:
-            return live_capture.start(
+            started = live_capture.start(
                 device_id=data.device_id,
                 sample_rate=data.sample_rate,
                 channels=data.channels,
                 max_duration_seconds=data.max_duration_seconds,
             )
+            app.state.live_track_registry = LiveTrackRegistry(started["session_id"])
+            return started
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except RuntimeError as exc:

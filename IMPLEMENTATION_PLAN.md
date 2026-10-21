@@ -135,6 +135,9 @@ Ship this as soon as the gate passes. No classifier is required for 0.1.
   preserving absolute capture sample positions and keeping callback work nonblocking.
 - Add multiresolution signal detection/noise estimation and persistent tracks;
   support manual correction when segmentation merges or splits signals badly.
+- Live detections now receive stable per-session IDs, tolerate limited frequency drift,
+  expire after five seconds without a match, and become persistent after three new
+  sample-position observations. This persistence is spectral evidence only.
 - Estimate bandwidth, tone structure, spacing/rate candidates and drift. Start
   with interpretable family hypotheses; do not force a protocol on every track.
 - Associate RSID announcements with tracks. Validate the event interface instead

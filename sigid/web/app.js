@@ -334,7 +334,7 @@ function drawOverlays() {
     const rowB = Math.max(rowA + 1, sampleToRow(track.sample_start + track.sample_count));
     const x = Math.max(0, Math.floor((track.frequency_low_hz / nyquist) * (bins - 1)));
     const right = Math.min(bins - 1, Math.ceil((track.frequency_high_hz / nyquist) * (bins - 1)));
-    ctx.strokeStyle = "#f1be69";
+    ctx.strokeStyle = track.track_state === "persistent" ? "#52d6d0" : "#f1be69";
     ctx.lineWidth = 1.5;
     ctx.setLineDash([5, 3]);
     ctx.strokeRect(x, rowA, Math.max(2, right - x), Math.max(2, rowB - rowA));
@@ -379,7 +379,8 @@ function selectTrack(track) {
   el("method").value = "";
   el("protocol").value = "";
   el("variant").value = "";
-  el("notes").value = `Auto-detected candidate (${track.modulation_hypothesis}); review before labeling. SNR ${track.peak_snr_db.toFixed(1)} dB.`;
+  const trackEvidence = track.track_id ? ` Track ${track.track_id} observed ${track.track_observations} times (${track.track_state}).` : "";
+  el("notes").value = `Auto-detected candidate (${track.modulation_hypothesis}); review before labeling.${trackEvidence} SNR ${track.peak_snr_db.toFixed(1)} dB.`;
   el("save-region").disabled = state.liveView || !state.capture;
   el("hint").classList.add("hidden");
   drawOverlays();
@@ -401,7 +402,8 @@ function renderTracks() {
       row.className = "track-row";
       const summary = document.createElement("div");
       summary.className = "track-summary";
-      summary.textContent = `${track.modulation_hypothesis} · ${track.tone_count_candidate} tone centers`;
+      const identity = track.track_id ? `${track.track_id.split(":").at(-1)} · ${track.track_state}` : "single analysis";
+      summary.textContent = `${identity} · ${track.modulation_hypothesis} · ${track.tone_count_candidate} tone centers`;
       const detail = document.createElement("div");
       detail.className = "region-detail";
       detail.textContent = `${track.frequency_low_hz.toFixed(0)}–${track.frequency_high_hz.toFixed(0)} Hz · ${track.time_start_seconds.toFixed(2)}–${track.time_end_seconds.toFixed(2)} s · ${track.peak_snr_db.toFixed(1)} dB peak SNR`;

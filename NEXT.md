@@ -38,6 +38,9 @@ the workbench API; radio-input routing and independent-signal validation remain 
 - Live capture also exposes a bounded rolling ten-second waterfall and provisional
   signal candidates while recording. The 10-second audio analysis ring is bounded in
   memory; final labels continue to reference the saved capture's absolute samples.
+- Live candidate IDs persist across rolling analyses, tolerate limited center-frequency
+  drift, and expire after five seconds without a detection. Three observations mark a
+  candidate persistent; this is spectral continuity evidence, not mode confirmation.
 - Receive-only Fldigi API/UI: connection status, catalog list, manual mode selection
   and incremental decoded-text polling. Transmit, rig and macro calls are not exposed.
 - Provisional automatic candidates from persistent spectral peaks, shown as amber
@@ -72,7 +75,7 @@ Verified: Fldigi 4.2.13 and its XML-RPC method catalog are installed; unit tests
 cover receive-only client semantics, PCM WAV block indexing/normalization and
 synthetic 2-FSK/MFSK metadata, exact symbols/bits and tone frequencies, SQLite
 capture hashes/regions/label history, JSONL export, spectrogram peak detection, upload/region APIs, and Fldigi
-status/catalog/mode/output APIs. Current full suite: 68 passed, 4 skipped;
+status/catalog/mode/output APIs. Current full suite: 70 passed, 4 skipped;
 `node --check sigid/web/app.js` and `git diff --check` pass. Deterministic fake-device tests
 exercise WAV writing, capture indexing, API start/status/stop and rolling live
 analysis. The live analysis ring is capped at ten seconds and absolute sample

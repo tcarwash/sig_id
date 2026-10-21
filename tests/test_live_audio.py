@@ -86,7 +86,19 @@ def test_live_capture_rejects_invalid_or_duplicate_start(tmp_path):
     manager.stop()
 
 
-def test_live_capture_api_flow(tmp_path):
+def test_live_capture_api_flow(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "sigid.api.detect_tracks",
+        lambda spectrum, threshold_db: [{
+            "id": "track-001",
+            "sample_start": 0,
+            "sample_count": spectrum["sample_count"],
+            "center_hz": 1000.0,
+            "bandwidth_hz": 200.0,
+            "peak_snr_db": 20.0,
+            "protocol": None,
+        }],
+    )
     app = create_app(tmp_path / "app-data", audio_backend=FakeAudio())
 
     async def exercise():
@@ -106,6 +118,12 @@ def test_live_capture_api_flow(tmp_path):
             assert live_result["spectrum"]["sample_starts"][0] == 0
             assert live_result["spectrum"]["sample_count"] == 1024
             assert live_result["spectrum"]["sample_rate"] == 8000
+            track = live_result["tracks"][0]
+            assert track["track_id"].startswith(started.json()["session_id"] + ":")
+            assert track["track_state"] == "provisional"
+            again = (await client.get("/api/live/analysis", params={"fft_size": 64, "hop_size": 16})).json()
+            assert again["tracks"][0]["track_id"] == track["track_id"]
+            assert again["tracks"][0]["track_observations"] == 1
             stopped = await client.post("/api/live/stop")
             assert stopped.status_code == 200, stopped.text
             capture = stopped.json()["capture"]
