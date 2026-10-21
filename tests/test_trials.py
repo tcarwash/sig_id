@@ -15,12 +15,18 @@ class FakeFldigi:
     def modem_names(self):
         return self.modes
 
+    def mode_names(self):
+        return self.modem_names()
+
     def select_modem(self, name):
         if name not in self.modes:
             raise ValueError(name)
         self.mode = name
         self.selections.append(name)
         return name
+
+    def select_mode(self, name):
+        return self.select_modem(name)
 
     def receive_text_length(self):
         return len(self.output)

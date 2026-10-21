@@ -56,9 +56,15 @@ class FakeFldigi:
     def modem_names(self):
         return ["BPSK31", "RTTY", "THOR16"]
 
+    def mode_names(self):
+        return self.modem_names()
+
     def select_modem(self, name):
         self.mode = name
         return name
+
+    def select_mode(self, name):
+        return self.select_modem(name)
 
     def receive_text_length(self):
         return len(self.text)

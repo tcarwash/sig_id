@@ -32,6 +32,8 @@ class FldigiClient:
     Start Fldigi with an XML-RPC allow-list as an additional process boundary.
     """
 
+    backend_name = "fldigi"
+
     def __init__(
         self,
         url: str = "http://127.0.0.1:7362/RPC2",
@@ -55,6 +57,10 @@ class FldigiClient:
         with self._lock:
             return [str(name) for name in self._rpc.modem.get_names()]
 
+    def mode_names(self) -> list[str]:
+        """Return the receive-mode catalog through the generic backend contract."""
+        return self.modem_names()
+
     def current_modem(self) -> str:
         with self._lock:
             return str(self._rpc.modem.get_name())
@@ -67,6 +73,10 @@ class FldigiClient:
         with self._lock:
             self._rpc.modem.set_by_name(name)
             return str(self._rpc.modem.get_name())
+
+    def select_mode(self, name: str) -> str:
+        """Select a receive mode through the generic backend contract."""
+        return self.select_modem(name)
 
     def receive_text(self, *, start: int = 0, length: int = 65536) -> bytes:
         if start < 0 or length < 0:

@@ -243,6 +243,11 @@ Begin this track after milestone 1; do not wait for the model.
   for every family and unusual modes; record remaining per-mode evidence gaps.
 - Implement specialized output adapters/viewers for image and other receive
   products. Keep unsupported output paths explicit until solved.
+- Keep protocol decoders behind a small receive-backend contract (catalog,
+  selection, receive products, and capability evidence). Fldigi is the first
+  backend; additional decoders can be registered without making its XML-RPC
+  catalog or text buffer the application-wide decoder API. A backend only counts
+  as supported after its own routing and output tests pass.
 - Expose every validated mode through manual selection immediately. Expand
   automatic candidate policies and synthetic generation independently.
 

@@ -7,6 +7,8 @@ from threading import RLock
 import time
 from typing import Any
 
+from .decoder_backend import TextReceiveBackend
+
 
 VALIDATED_TRIAL_MODES = ("BPSK31", "RTTY", "THOR16")
 MODULATION_TRIAL_ORDER = {
@@ -16,8 +18,8 @@ MODULATION_TRIAL_ORDER = {
 }
 
 
-class FldigiTrialRunner:
-    """Advance a small tested-mode list against the live Fldigi audio route.
+class DecoderTrialRunner:
+    """Advance a small tested-mode list against a receive backend.
 
     The runner cannot establish that audio routing is correct. New receive bytes
     end a trial sweep as tentative output and are never treated as ground truth.
@@ -25,7 +27,7 @@ class FldigiTrialRunner:
 
     def __init__(
         self,
-        client: Any,
+        client: TextReceiveBackend,
         *,
         dwell_seconds: float = 6.0,
         max_trials_per_candidate: int = 3,
@@ -61,11 +63,11 @@ class FldigiTrialRunner:
             if len(self._starts) >= self.max_starts_per_minute:
                 raise ValueError("automatic decoder trial rate limit reached")
 
-            catalog = set(self.client.modem_names())
+            catalog = set(self.client.mode_names())
             modes = [mode for mode in proposed if mode in catalog][: self.max_trials_per_candidate]
             if not modes:
                 raise ValueError("no loopback-tested trial modes are present in the Fldigi catalog")
-            selected = self.client.select_modem(modes[0])
+            selected = self.client.select_mode(modes[0])
             if selected != modes[0]:
                 raise RuntimeError(f"Fldigi selected {selected!r} instead of {modes[0]!r}")
             baseline = self.client.receive_text_length()
@@ -113,7 +115,7 @@ class FldigiTrialRunner:
                 return dict(state)
 
             next_mode = remaining[0]
-            selected = self.client.select_modem(next_mode)
+            selected = self.client.select_mode(next_mode)
             if selected != next_mode:
                 state["status"] = "failed"
                 state["note"] = f"Fldigi selected {selected!r} instead of {next_mode!r}."
@@ -130,3 +132,7 @@ class FldigiTrialRunner:
                 self._state["status"] = "cancelled"
                 self._state["note"] = "Decoder trial stopped by manual control."
             return dict(self._state)
+
+
+# Kept as an alias for callers that used the original Fldigi-specific name.
+FldigiTrialRunner = DecoderTrialRunner

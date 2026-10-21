@@ -29,8 +29,10 @@ def client(monkeypatch):
 def test_client_lists_selects_and_reads_arbitrary_bytes(client):
     client, state = client
     assert client.modem_names() == ["PSK31", "RTTY", "THOR16"]
+    assert client.mode_names() == ["PSK31", "RTTY", "THOR16"]
     assert client.select_modem("THOR16") == "THOR16"
-    assert state["mode"] == "THOR16"
+    assert client.select_mode("RTTY") == "RTTY"
+    assert state["mode"] == "RTTY"
     assert client.receive_text(start=0) == b"HELLO\xff"
     assert client.receive_text_length() == 6
 

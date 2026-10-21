@@ -56,6 +56,10 @@ the workbench API; radio-input routing and independent-signal validation remain 
   candidate persistent; this is spectral continuity evidence, not mode confirmation.
 - Receive-only Fldigi API/UI: connection status, catalog list, manual mode selection
   and incremental decoded-text polling. Transmit, rig and macro calls are not exposed.
+- Added a generic receive-text backend contract for mode listing, mode selection
+  and incremental text output; Fldigi implements it, and the bounded trial runner
+  now depends on that contract. Fldigi remains the only implemented protocol
+  decoder backend; the contract does not itself add mode coverage.
 - Live provisional candidates can start a bounded Fldigi receive trial across up to
   three loopback-tested modes, with six-second dwell periods, per-track duplicate
   suppression and a six-starts-per-minute limit. New receive text stops the sweep as
@@ -93,7 +97,8 @@ cover receive-only client semantics, PCM WAV block indexing/normalization and
 synthetic 2-FSK/MFSK metadata, exact symbols/bits and tone frequencies, SQLite
 capture hashes/regions/label history, JSONL export, spectrogram peak detection, upload/region APIs, and Fldigi
 status/catalog/mode/output APIs. Current full suite: 84 passed, 4 skipped;
-`node --check sigid/web/app.js` and `git diff --check` pass. Deterministic fake-device tests
+`node --check sigid/web/app.js` and `git diff --check` pass. The generic text-backend
+contract is exercised by the Fldigi adapter and trial-runner tests. Deterministic fake-device tests
 exercise WAV writing, capture indexing, API start/status/stop and rolling live
 analysis. The live analysis ring is capped at ten seconds and absolute sample
 positions match completed-WAV waterfall calculations.
