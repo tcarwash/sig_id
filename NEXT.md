@@ -41,6 +41,10 @@ the workbench API; radio-input routing and independent-signal validation remain 
 - Lineage-safe split manifest generation validates capture hashes, parent links and
   accepted method labels, stratifies source groups by modulation method, requires at
   least three independent groups per method, and proves each method appears in all splits.
+- A NumPy softmax baseline trains method proposals from training groups only, calibrates
+  method/family rejection thresholds on validation groups, reports held-out method and
+  family confusion, and exports hashed weights plus versioned metadata. The API can load
+  that artifact and propose labels for a saved region; proposals require explicit review.
 - Local input-device discovery and bounded mono/stereo PCM recording through a
   background writer; live audio is saved as a normal capture with device provenance.
 - Browser controls to start/stop live recording and immediately review its waterfall.
@@ -73,9 +77,9 @@ the workbench API; radio-input routing and independent-signal validation remain 
 
 ## Next action
 
-Build and evaluate a small first-pass model from the split manifest, then connect
-calibrated modulation proposals to the candidate and decoder-trial workflow. Continue
-automatic identification in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md): measure
+Connect calibrated modulation proposals to live candidate ranking and decoder trials.
+Add unknown/no-signal training examples, then evaluate unseen families and real captures.
+Continue automatic identification in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md): measure
 candidate recall and false alarms across synthetic and mixed scenes, improve tone
 grouping and burst segmentation, and evaluate FSK, BPSK and QPSK against broader
 impairments and independent captures.
@@ -88,7 +92,7 @@ Verified: Fldigi 4.2.13 and its XML-RPC method catalog are installed; unit tests
 cover receive-only client semantics, PCM WAV block indexing/normalization and
 synthetic 2-FSK/MFSK metadata, exact symbols/bits and tone frequencies, SQLite
 capture hashes/regions/label history, JSONL export, spectrogram peak detection, upload/region APIs, and Fldigi
-status/catalog/mode/output APIs. Current full suite: 80 passed, 4 skipped;
+status/catalog/mode/output APIs. Current full suite: 84 passed, 4 skipped;
 `node --check sigid/web/app.js` and `git diff --check` pass. Deterministic fake-device tests
 exercise WAV writing, capture indexing, API start/status/stop and rolling live
 analysis. The live analysis ring is capped at ten seconds and absolute sample
@@ -110,3 +114,7 @@ The tested Fldigi modes are a three-family sample, not full-catalog validation.
 2-FSK/M-FSK/BPSK/QPSK recovery is verified against generated source symbols/bits;
 2-FSK and BPSK also pass seeded AWGN cases. Independent-capture performance and
 automatic rate/tone/carrier acquisition remain unverified.
+The baseline trainer and inference path are tested end to end. An exploratory split
+with 10 independent synthetic sources per method and one 10 dB variant achieved 10/12
+raw method decisions on its held-out groups; a four-source run achieved 11/24. These
+small synthetic-only runs are evidence for the pipeline, not a field-performance claim.

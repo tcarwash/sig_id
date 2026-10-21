@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from .dataset import CaptureStore, SignalLabel
+from .classifier import extract_features, load_model, propose
 from .demod import demodulate_2fsk, demodulate_bpsk, demodulate_mfsk, demodulate_qpsk
 from .detection import detect_tracks
 from .fldigi import FldigiClient
@@ -96,10 +97,16 @@ class QpskDemodRequest(BaseModel):
     integration_fraction: float = Field(default=0.8, ge=0.2, le=1.0)
 
 
+class ClassifyRequest(BaseModel):
+    sample_start: int = Field(default=0, ge=0)
+    sample_count: int = Field(default=120_000, ge=1024, le=1_000_000)
+
+
 def create_app(
     data_dir: str | Path | None = None,
     audio_backend: Any | None = None,
     fldigi_client: Any | None = None,
+    classifier_model_path: str | Path | None = None,
 ) -> FastAPI:
     root = Path(data_dir or os.environ.get("SIG_ID_DATA_DIR", "~/.local/share/sig-id")).expanduser()
     capture_dir = root / "captures"
@@ -110,6 +117,15 @@ def create_app(
         url=os.environ.get("SIG_ID_FLDIGI_URL", "http://127.0.0.1:7362/RPC2"),
         timeout=float(os.environ.get("SIG_ID_FLDIGI_TIMEOUT", "0.75")),
     )
+    configured_model = classifier_model_path or os.environ.get("SIG_ID_MODEL_PATH")
+    classifier = None
+    classifier_error = None
+    if configured_model:
+        try:
+            model_metadata, model_parameters = load_model(configured_model)
+            classifier = {"metadata": model_metadata, "parameters": model_parameters}
+        except Exception as exc:
+            classifier_error = str(exc)
 
     app = FastAPI(title="Signal ID Workbench", version="0.1.0")
     app.state.data_dir = root
@@ -117,12 +133,30 @@ def create_app(
     app.state.capture_store = store
     app.state.live_capture = live_capture
     app.state.fldigi = fldigi
+    app.state.classifier = classifier
+    app.state.classifier_error = classifier_error
     app.state.live_track_registry = None
     app.state.fldigi_trials = FldigiTrialRunner(fldigi)
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
         return {"status": "ok", "release": "0.1"}
+
+    @app.get("/api/model/status")
+    def model_status() -> dict[str, Any]:
+        if app.state.classifier is None:
+            return {"available": False, "error": app.state.classifier_error}
+        metadata = app.state.classifier["metadata"]
+        return {
+            "available": True,
+            "model_type": metadata["model_type"],
+            "feature_version": metadata["feature_version"],
+            "classes": metadata["classes"],
+            "threshold": metadata["abstention_threshold"],
+            "family_threshold": metadata["family_abstention_threshold"],
+            "unknown_rejection_validated": metadata["unknown_rejection_validated"],
+            "model_sha256": metadata["model_sha256"],
+        }
 
     @app.get("/api/captures")
     def list_captures() -> list[dict[str, Any]]:
@@ -445,6 +479,49 @@ def create_app(
                     "threshold_db": threshold_db,
                     "method": "row-median threshold with persistent peak clusters",
                 },
+            }
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/captures/{capture_id}/classify")
+    def classify_capture_region(capture_id: str, settings: ClassifyRequest) -> dict[str, Any]:
+        if app.state.classifier is None:
+            raise HTTPException(status_code=503, detail="no valid modulation model is configured")
+        try:
+            capture = store.capture(capture_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="capture not found") from exc
+        start = settings.sample_start
+        if start >= int(capture["sample_count"]):
+            raise HTTPException(status_code=422, detail="sample_start is outside the capture")
+        end = min(int(capture["sample_count"]), start + settings.sample_count)
+        try:
+            values: list[float] = []
+            for block in WavSource(capture["audio_path"]).blocks():
+                block_end = block.first_sample + block.sample_count
+                if block_end <= start:
+                    continue
+                if block.first_sample >= end:
+                    break
+                left = max(0, start - block.first_sample)
+                right = min(block.sample_count, end - block.first_sample)
+                values.extend(block.samples[left:right])
+            model = app.state.classifier
+            features = extract_features(values, int(capture["sample_rate"]))
+            result = propose(
+                features,
+                model["parameters"],
+                model["metadata"]["classes"],
+                threshold=float(model["metadata"]["abstention_threshold"]),
+                family_threshold=float(model["metadata"]["family_abstention_threshold"]),
+            )
+            return {
+                **result,
+                "model_sha256": model["metadata"]["model_sha256"],
+                "capture_id": capture_id,
+                "sample_start": start,
+                "sample_count": len(values),
+                "capture_sha256": capture["sha256"],
             }
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc

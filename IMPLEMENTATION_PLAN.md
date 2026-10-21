@@ -200,6 +200,11 @@ Learning track:
 - Baseline spectrogram model with masked multi-task losses: predict family first,
   protocol/variant when labeled, and parameters where useful. A protocol label
   must not require an unjustified family/method label.
+- Implemented first: deterministic NumPy spectral-occupancy features and a softmax
+  modulation-method baseline with separately validation-calibrated family/method
+  thresholds, held-out confusion metrics and hashed model export. App inference is
+  opt-in through `SIG_ID_MODEL_PATH`; unknown examples and real-radio evaluation are
+  still required before trusting its rejection or field performance.
 - Keep protocol heads limited to supported classes; calibrate candidate/rejection
   thresholds on held-out validation data, then freeze before test evaluation.
 - Hold entire protocols out and test whether their families are still recognized.

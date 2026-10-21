@@ -1,5 +1,5 @@
 const el = (id) => document.getElementById(id);
-const state = { capture: null, waterfall: null, drag: null, selection: null, regions: [], tracks: [], liveView: false };
+const state = { capture: null, waterfall: null, drag: null, selection: null, regions: [], tracks: [], liveView: false, modelAvailable: false };
 const baseCanvas = el("waterfall");
 const overlayCanvas = el("overlay");
 let livePoll = null;
@@ -111,6 +111,56 @@ async function watchFldigi() {
 }
 watchFldigi();
 
+async function refreshModelStatus() {
+  try {
+    const model = await request("/api/model/status");
+    state.modelAvailable = model.available;
+    el("model-status").textContent = model.available
+      ? `Method model ready · family threshold ${(100 * model.family_threshold).toFixed(0)}% · method ${(100 * model.threshold).toFixed(0)}% · synthetic only`
+      : `No model loaded${model.error ? ` · ${model.error}` : " · configure SIG_ID_MODEL_PATH"}`;
+    updateModelButton();
+  } catch (error) {
+    el("model-status").textContent = `Model status unavailable · ${error.message}`;
+  }
+}
+refreshModelStatus();
+
+function updateModelButton() {
+  el("model-propose").disabled = !state.modelAvailable || !state.capture || !state.selection || state.liveView;
+}
+
+el("model-propose").addEventListener("click", async () => {
+  if (!state.capture || !state.selection || state.liveView || !state.modelAvailable) return;
+  const selection = state.selection;
+  const button = el("model-propose");
+  button.disabled = true;
+  button.textContent = "Analyzing…";
+  el("label-state").textContent = "Calculating a provisional model proposal…";
+  try {
+    const result = await request(`/api/captures/${state.capture.id}/classify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sample_start: selection.sample_start, sample_count: Math.min(1_000_000, selection.sample_count) }),
+    });
+    if (!result.family && !result.method) {
+      el("label-state").textContent = `Model abstained · top guess ${result.top_candidate} at ${(100 * result.confidence).toFixed(1)}%`;
+    } else {
+      el("family").value = result.family || "";
+      el("method").value = result.method || "";
+      el("protocol").value = "";
+      el("variant").value = "";
+      const evidence = `Model proposal ${result.method || result.family} (${(100 * (result.method ? result.confidence : result.family_confidence)).toFixed(1)}%; calibrated threshold). Review before saving; protocol remains unknown.`;
+      el("notes").value = [el("notes").value.trim(), evidence].filter(Boolean).join(" ");
+      el("label-state").textContent = `Proposed ${result.method || result.family} · review then save to accept`;
+    }
+  } catch (error) {
+    el("label-state").textContent = `Model proposal failed · ${error.message}`;
+  } finally {
+    button.textContent = "Suggest method";
+    updateModelButton();
+  }
+});
+
 async function refreshAudioDevices() {
   try {
     const devices = await request("/api/audio/devices");
@@ -158,6 +208,7 @@ el("live-start").addEventListener("click", async () => {
     el("waterfall-state").textContent = "Waiting for audio frames…";
     el("track-status").textContent = "Waiting for enough samples to analyze…";
     el("save-region").disabled = true;
+    updateModelButton();
     renderTracks();
     el("live-status").textContent = `Recording · ${started.device_name} · ${started.sample_rate.toLocaleString()} Hz`;
     renderRegions();
@@ -267,6 +318,7 @@ el("synthetic-form").addEventListener("submit", async (event) => {
 async function loadCapture() {
   state.liveView = false;
   state.selection = null;
+  updateModelButton();
   el("demod-run").disabled = false;
   el("mfsk-run").disabled = false;
   el("bpsk-run").disabled = false;
@@ -417,6 +469,7 @@ function selectTrack(track) {
   const trackEvidence = track.track_id ? ` Track ${track.track_id} observed ${track.track_observations} times (${track.track_state}).` : "";
   el("notes").value = `Auto-detected candidate (${track.modulation_hypothesis}); review before labeling.${trackEvidence} SNR ${track.peak_snr_db.toFixed(1)} dB.`;
   el("save-region").disabled = state.liveView || !state.capture;
+  updateModelButton();
   el("hint").classList.add("hidden");
   drawOverlays();
   el("selection-summary").scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -514,6 +567,7 @@ overlayCanvas.addEventListener("pointerup", (event) => {
   const t1 = sampleEnd / data.sample_rate;
   el("selection-details").textContent = `Samples ${sampleStart.toLocaleString()}–${sampleEnd.toLocaleString()} · ${t0.toFixed(3)}–${t1.toFixed(3)} s`;
   el("save-region").disabled = state.liveView || !state.capture;
+  updateModelButton();
   drawOverlays();
 });
 
@@ -542,6 +596,7 @@ el("save-region").addEventListener("click", async () => {
     state.regions = await request(`/api/captures/${state.capture.id}/regions`);
     renderRegions();
     state.selection = null;
+    updateModelButton();
     el("selection-summary").textContent = "No region selected";
     el("selection-details").textContent = "Drag over the waterfall to mark a signal.";
     for (const field of ["family", "method", "protocol", "variant", "notes"]) el(field).value = "";

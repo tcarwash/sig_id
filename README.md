@@ -126,6 +126,7 @@ train/validation/test split:
 ```sh
 sig-id-build-corpus --output-dir data/corpus --examples-per-mode 4 --snr-db 0 10 20 --seed 42
 sig-id-split-corpus --corpus data/corpus/corpus.json --output data/corpus/splits.json --seed 42
+sig-id-train-method-model --split data/corpus/splits.json --output-model data/models/method.npz
 ```
 
 This creates 96 labeled captures (six methods × four source examples × one clean plus
@@ -136,6 +137,13 @@ the recipe requires a new output directory.
 The split command validates each dataset capture and label, requires at least three
 independent source groups per method, and assigns every clean waveform and all of its
 derived impairments to the same train, validation or test split.
+The training command fits a small NumPy logistic-regression baseline, calibrates
+separate method and family rejection thresholds on validation groups, evaluates once
+on the held-out test groups, and writes weight, metadata and evaluation files. To load
+the exported proposal model in the workbench, set `SIG_ID_MODEL_PATH` to the `.npz`
+file before starting `sig-id-serve`. Proposals never save labels automatically.
+This initial model is trained only on synthetic examples; its unknown-signal rejection
+and performance on real radio captures are unvalidated.
 
 Replay it blockwise from Python with `sigid.wav.WavSource`; blocks carry exact sample
 offsets and normalized mono samples. This is a modulation fixture, not a named
