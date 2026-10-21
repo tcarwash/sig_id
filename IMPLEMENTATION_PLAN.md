@@ -1,8 +1,9 @@
 # Implementation plan
 
-Status: implementation in progress. The first WAV replay and manual dataset workflow
-is partially implemented; see [NEXT.md](NEXT.md) for verified gates. Fldigi audio,
-live capture, automatic identification, model training and RF validation remain open.
+Status: implementation in progress. WAV replay, live capture and the first manual
+dataset workflow are implemented. Fldigi's receive-only UI/API is connected; see
+[NEXT.md](NEXT.md) for the verified gates. Audio routing/decode, automatic
+identification, model training and RF validation remain open.
 
 ## Delivery strategy
 

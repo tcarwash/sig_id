@@ -3,6 +3,78 @@ const state = { capture: null, waterfall: null, drag: null, selection: null, reg
 const baseCanvas = el("waterfall");
 const overlayCanvas = el("overlay");
 let livePoll = null;
+let fldigiPoll = null;
+let fldigiOffset = null;
+
+async function refreshFldigiStatus() {
+  try {
+    const status = await request("/api/fldigi/status");
+    const label = el("fldigi-status");
+    if (!status.connected) {
+      label.textContent = `Fldigi disconnected · ${status.error || "start Fldigi with its XML-RPC server enabled"}`;
+      el("connection").lastChild.textContent = " Decoder offline";
+      el("fldigi-mode").disabled = true;
+      el("fldigi-select").disabled = true;
+      return false;
+    }
+    label.textContent = `${status.name} ${status.version} · ${status.current_mode} · ${status.mode_count} modes · audio route not verified`;
+    el("connection").lastChild.textContent = ` ${status.name} receive connected`;
+    if (fldigiOffset === null) fldigiOffset = status.receive_text_length;
+    const modes = await request("/api/fldigi/modes");
+    const select = el("fldigi-mode");
+    const previous = select.value;
+    select.replaceChildren(...modes.map((name) => new Option(name, name)));
+    if (modes.includes(previous)) select.value = previous;
+    else select.value = status.current_mode;
+    select.disabled = false;
+    el("fldigi-select").disabled = false;
+    return true;
+  } catch (error) {
+    el("fldigi-status").textContent = `Fldigi unavailable · ${error.message}`;
+    return false;
+  }
+}
+
+async function pollFldigiOutput() {
+  try {
+    const result = await request(`/api/fldigi/output?start=${fldigiOffset}&limit=8192`);
+    if (result.end < fldigiOffset) fldigiOffset = 0;
+    fldigiOffset = result.end;
+    if (result.text) {
+      const target = el("decoded-text");
+      const old = target.textContent === "Decoded text will appear here." ? "" : target.textContent;
+      target.textContent = (old + result.text).slice(-20000);
+      target.scrollTop = target.scrollHeight;
+    }
+  } catch (error) {
+    el("fldigi-status").textContent = `Fldigi output unavailable · ${error.message}`;
+    if (fldigiPoll) clearInterval(fldigiPoll);
+    fldigiPoll = setTimeout(watchFldigi, 5000);
+  }
+}
+
+el("fldigi-select").addEventListener("click", async () => {
+  try {
+    const result = await request("/api/fldigi/mode", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: el("fldigi-mode").value }),
+    });
+    el("fldigi-status").textContent = `Selected ${result.current_mode} · audio routing not verified`;
+    fldigiOffset = result.output_offset;
+    el("decoded-text").textContent = "Decoder mode changed. Waiting for receive output…";
+  } catch (error) { showError(error.message); }
+});
+
+async function watchFldigi() {
+  if (await refreshFldigiStatus()) {
+    if (fldigiPoll) clearInterval(fldigiPoll);
+    pollFldigiOutput();
+    fldigiPoll = setInterval(pollFldigiOutput, 1000);
+  } else {
+    fldigiPoll = setTimeout(watchFldigi, 5000);
+  }
+}
+watchFldigi();
 
 async function refreshAudioDevices() {
   try {

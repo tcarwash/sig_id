@@ -8,11 +8,12 @@ import wave
 from typing import Any
 from uuid import uuid4
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from .dataset import CaptureStore, SignalLabel
+from .fldigi import FldigiClient
 from .live_audio import LiveCaptureManager
 from .spectrum import waterfall
 
@@ -40,18 +41,31 @@ class LiveCaptureStart(BaseModel):
     max_duration_seconds: int = Field(default=600, ge=1, le=1800)
 
 
-def create_app(data_dir: str | Path | None = None, audio_backend: Any | None = None) -> FastAPI:
+class FldigiModeSelect(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+
+
+def create_app(
+    data_dir: str | Path | None = None,
+    audio_backend: Any | None = None,
+    fldigi_client: Any | None = None,
+) -> FastAPI:
     root = Path(data_dir or os.environ.get("SIG_ID_DATA_DIR", "~/.local/share/sig-id")).expanduser()
     capture_dir = root / "captures"
     capture_dir.mkdir(parents=True, exist_ok=True)
     store = CaptureStore(root / "dataset.sqlite3")
     live_capture = LiveCaptureManager(store, capture_dir, audio_backend=audio_backend)
+    fldigi = fldigi_client or FldigiClient(
+        url=os.environ.get("SIG_ID_FLDIGI_URL", "http://127.0.0.1:7362/RPC2"),
+        timeout=float(os.environ.get("SIG_ID_FLDIGI_TIMEOUT", "0.75")),
+    )
 
     app = FastAPI(title="Signal ID Workbench", version="0.1.0")
     app.state.data_dir = root
     app.state.capture_dir = capture_dir
     app.state.capture_store = store
     app.state.live_capture = live_capture
+    app.state.fldigi = fldigi
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
@@ -94,6 +108,58 @@ def create_app(data_dir: str | Path | None = None, audio_backend: Any | None = N
             return live_capture.stop()
         except RuntimeError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.get("/api/fldigi/status")
+    def fldigi_status() -> dict[str, Any]:
+        try:
+            version = fldigi.version()
+            return {
+                "connected": True,
+                "name": version.name,
+                "version": version.version,
+                "current_mode": fldigi.current_modem(),
+                "mode_count": len(fldigi.modem_names()),
+                "receive_text_length": fldigi.receive_text_length(),
+                "audio_routed": None,
+                "audio_route_managed": False,
+                "note": "Connect the radio passband to Fldigi's audio input to decode.",
+            }
+        except Exception as exc:
+            return {"connected": False, "error": str(exc)}
+
+    @app.get("/api/fldigi/modes")
+    def fldigi_modes() -> list[str]:
+        try:
+            return fldigi.modem_names()
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"Fldigi is unavailable: {exc}") from exc
+
+    @app.post("/api/fldigi/mode")
+    def select_fldigi_mode(data: FldigiModeSelect) -> dict[str, Any]:
+        try:
+            selected = fldigi.select_modem(data.name)
+            return {"current_mode": selected, "output_offset": fldigi.receive_text_length()}
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"Fldigi mode selection failed: {exc}") from exc
+
+    @app.get("/api/fldigi/output")
+    def fldigi_output(start: int = Query(default=0, ge=0), limit: int = Query(default=8192, ge=1, le=65536)) -> dict[str, Any]:
+        try:
+            end = fldigi.receive_text_length()
+            offset = min(start, end)
+            length = min(limit, max(0, end - offset))
+            raw = fldigi.receive_text(start=offset, length=length)
+            return {
+                "current_mode": fldigi.current_modem(),
+                "start": offset,
+                "end": offset + length,
+                "text": raw.decode("utf-8", errors="replace"),
+                "truncated": end - offset > length,
+            }
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"Fldigi receive output unavailable: {exc}") from exc
 
     @app.post("/api/captures")
     def upload_capture(file: UploadFile = File(...)) -> dict[str, Any]:

@@ -2,7 +2,8 @@
 
 Status: local WAV upload/replay workbench, spectrogram, manual region labels,
 sample-indexed replay, live audio capture, 2-FSK fixtures and SQLite dataset index
-are implemented. Fldigi audio integration remains open.
+are implemented. Receive-only Fldigi catalog selection and decoded-text display are
+implemented; audio routing and end-to-end decode remain open.
 
 ## Agreed scope
 
@@ -24,26 +25,30 @@ are implemented. Fldigi audio integration remains open.
 - Local input-device discovery and bounded mono/stereo PCM recording through a
   background writer; live audio is saved as a normal capture with device provenance.
 - Browser controls to start/stop live recording and immediately review its waterfall.
+- Receive-only Fldigi API/UI: connection status, catalog list, manual mode selection
+  and incremental decoded-text polling. Transmit, rig and macro calls are not exposed.
 
 ## Next action
 
-Continue release 0.1 in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md): prove live
-capture on an actual input device, then solve and integrate Fldigi audio decode.
-The workbench uploads or records audio, draws its spectrogram, selects
-time/frequency regions, saves partial labels and displays saved regions. Persistent
-data is exportable as JSONL through the dataset store.
+Continue release 0.1 in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md): validate
+live capture on an actual input device and connect passband audio to Fldigi for a
+known-payload decode. The current UI can choose a decoder from a connected Fldigi
+catalog and show its receive buffer, but does not yet deliver or replay audio into
+Fldigi.
 
 ## Evidence boundary
 
 Verified: Fldigi 4.2.13 and its XML-RPC method catalog are installed; unit tests
 cover receive-only client semantics, PCM WAV block indexing/normalization and
 synthetic 2-FSK metadata and symbol tones, SQLite capture hashes/regions/label
-history, JSONL export, spectrogram peak detection, and the upload/region API path.
-`pytest`: 33 passed, 1 skipped; `node --check sigid/web/app.js` passes. Deterministic
-fake-device tests exercise WAV writing, capture indexing, API start/status/stop and
-waterfall access. WAV replay is
-sample-indexed and synthetic files carry protocol-unknown FSK labels. Fresh
-isolated profiles show a configuration wizard; after closing it, the configured
-XML-RPC port still did not listen. Live hardware capture has not been validated.
-No Fldigi audio decode, automatic identification, trained model, or hardware/RF
-validation is claimed.
+history, JSONL export, spectrogram peak detection, upload/region APIs, and Fldigi
+status/catalog/mode/output APIs. `pytest`: 34 passed, 1 skipped;
+`node --check sigid/web/app.js` and wheel build pass. Deterministic fake-device tests
+exercise WAV writing, capture indexing, API start/status/stop and waterfall access.
+An isolated live Fldigi 4.2.13 process served the API with the documented receive-only
+allow-list: 169 modes, THOR16 selection, and receive-buffer queries all worked. Its
+copied profile already contained old RX text, so this does not prove new audio
+decoded. A fresh blank profile did not expose XML-RPC until initialized. WAV replay
+is sample-indexed and synthetic files carry protocol-unknown FSK labels. Live
+hardware capture, Fldigi audio routing/decode, automatic identification, trained
+model, and hardware/RF validation remain unverified.

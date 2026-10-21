@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import threading
 from typing import Any
 from xmlrpc.client import ServerProxy, Transport
 
@@ -44,32 +45,39 @@ class FldigiClient:
             use_builtin_types=True,
             transport=_TimeoutTransport(timeout),
         )
+        self._lock = threading.RLock()
 
     def version(self) -> FldigiVersion:
-        return FldigiVersion(self._rpc.fldigi.name(), self._rpc.fldigi.version())
+        with self._lock:
+            return FldigiVersion(self._rpc.fldigi.name(), self._rpc.fldigi.version())
 
     def modem_names(self) -> list[str]:
-        return [str(name) for name in self._rpc.modem.get_names()]
+        with self._lock:
+            return [str(name) for name in self._rpc.modem.get_names()]
 
     def current_modem(self) -> str:
-        return str(self._rpc.modem.get_name())
+        with self._lock:
+            return str(self._rpc.modem.get_name())
 
     def select_modem(self, name: str) -> str:
         """Select a catalog name and return the resulting current mode."""
         catalog = self.modem_names()
         if name not in catalog:
             raise ValueError(f"mode is not present in the Fldigi catalog: {name}")
-        self._rpc.modem.set_by_name(name)
-        return self.current_modem()
+        with self._lock:
+            self._rpc.modem.set_by_name(name)
+            return str(self._rpc.modem.get_name())
 
     def receive_text(self, *, start: int = 0, length: int = 65536) -> bytes:
         if start < 0 or length < 0:
             raise ValueError("start and length must be non-negative")
-        value = self._rpc.text.get_rx(start, length)
-        return value if isinstance(value, bytes) else str(value).encode("utf-8")
+        with self._lock:
+            value = self._rpc.text.get_rx(start, length)
+            return value if isinstance(value, bytes) else str(value).encode("utf-8")
 
     def receive_text_length(self) -> int:
-        return int(self._rpc.text.get_rx_length())
+        with self._lock:
+            return int(self._rpc.text.get_rx_length())
 
 
 @dataclass(frozen=True, slots=True)

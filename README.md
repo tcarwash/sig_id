@@ -10,8 +10,11 @@ Current code includes WAV upload/playback with a browser waterfall, manual
 time/frequency selection and label export; blockwise PCM replay; a deterministic
 2-FSK fixture generator; SQLite capture, region and label history; and a
 receive-only Fldigi XML-RPC probe. Local device capture and the Fldigi path from
-audio input to recovered text are still pending. Catalog presence is reported as pending
-validation and must not be treated as supported decoding.
+audio input to recovered text are now represented in the workbench: when a running
+Fldigi XML-RPC service is available, users can select a catalog mode and view its
+receive-text output. Audio routing remains an external setup and has not yet been
+validated end to end, so the UI reports it as unverified rather than claiming a
+successful decode.
 
 ## Development
 
@@ -33,6 +36,19 @@ The installed Fldigi process can be inspected with:
 
 ```sh
 sig-id-probe-fldigi --url http://127.0.0.1:7362/RPC2
+```
+
+Enable Fldigi's XML-RPC server on loopback before launching the workbench. Set
+`SIG_ID_FLDIGI_URL` if it listens on a different local URL. The decoder panel lists
+the installed catalog, selects a receive mode, and polls incremental receive text.
+Route the radio passband audio to Fldigi's input using the audio system configuration;
+the application does not silently create an audio route or claim decode validation.
+When starting Fldigi from a terminal, its XML-RPC method allow-list can be limited to
+the calls the application uses:
+
+```sh
+fldigi --xmlrpc-server-address 127.0.0.1 \
+  --xmlrpc-allow='^(fldigi\.(name|version)|modem\.(get_names|get_name|set_by_name)|text\.(get_rx|get_rx_length))$'
 ```
 
 Restrict its XML-RPC method allow-list to the receive and inspection methods needed

@@ -108,3 +108,50 @@ def test_rejects_non_wav_uploads_and_region_outside_capture(tmp_path):
             missing = await client.get("/api/captures/not-a-capture/waterfall")
             assert missing.status_code == 404
     asyncio.run(exercise())
+
+
+def test_fldigi_manual_selection_status_and_incremental_receive_output(tmp_path):
+    class FakeFldigi:
+        def __init__(self):
+            self.mode = "PSK31"
+            self.output = "CQ DE TEST"
+
+        def version(self):
+            from sigid.fldigi import FldigiVersion
+            return FldigiVersion("fldigi", "test")
+
+        def current_modem(self):
+            return self.mode
+
+        def modem_names(self):
+            return ["PSK31", "THOR16"]
+
+        def select_modem(self, name):
+            if name not in self.modem_names():
+                raise ValueError("mode is not present in the Fldigi catalog")
+            self.mode = name
+            return self.mode
+
+        def receive_text_length(self):
+            return len(self.output)
+
+        def receive_text(self, start=0, length=65536):
+            return self.output[start : start + length].encode()
+
+    app = create_app(tmp_path / "app-data", fldigi_client=FakeFldigi())
+
+    async def exercise():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            status = (await client.get("/api/fldigi/status")).json()
+            assert status["connected"] is True
+            assert status["audio_routed"] is None
+            assert status["audio_route_managed"] is False
+            assert (await client.get("/api/fldigi/modes")).json() == ["PSK31", "THOR16"]
+            selected = await client.post("/api/fldigi/mode", json={"name": "THOR16"})
+            assert selected.json()["current_mode"] == "THOR16"
+            unknown = await client.post("/api/fldigi/mode", json={"name": "MYSTERY"})
+            assert unknown.status_code == 422
+            output = (await client.get("/api/fldigi/output", params={"start": 7})).json()
+            assert output == {"current_mode": "THOR16", "start": 7, "end": 10, "text": "EST", "truncated": False}
+
+    asyncio.run(exercise())

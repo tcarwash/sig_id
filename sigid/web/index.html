@@ -83,9 +83,12 @@
 
           <section class="panel decoder-panel">
             <p class="eyebrow">DECODER</p>
-            <h2>Decoder integration pending</h2>
-            <p class="subhead">This recording can be reviewed and labeled now. Fldigi audio routing and live decoding are still being validated.</p>
-            <div class="decoder-evidence"><span class="status-dot amber"></span><span>Unknown mode remains a valid result</span></div>
+            <h2>Fldigi receive decoder</h2>
+            <p id="fldigi-status" class="subhead">Checking local Fldigi connection…</p>
+            <label class="fldigi-mode-label">Mode<select id="fldigi-mode" disabled><option>Connect to Fldigi</option></select></label>
+            <button id="fldigi-select" type="button" disabled>Select receive mode</button>
+            <pre id="decoded-text" class="decoded-text" aria-live="polite">Decoded text will appear here.</pre>
+            <div class="decoder-evidence"><span class="status-dot amber"></span><span>Audio must be routed into Fldigi. Unknown mode remains a valid result.</span></div>
           </section>
         </div>
 
