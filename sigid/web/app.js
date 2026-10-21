@@ -151,7 +151,9 @@ function watchDecoderTrial(result) {
   if (trialPoll || watchedTrialTrack === result.track_id) return;
   watchedTrialTrack = result.track_id;
   const generation = state.outputGeneration;
-  el("output-context").textContent = `Trial for ${result.track_id} · tentative · external audio route`;
+  state.decoderTrial = {track_id:result.track_id,status:result.status,mode:result.current_mode};
+  state.textOutputContext = `Trial for ${result.track_id} · tentative · external audio route`;
+  updateOutputContext();
   fldigiOffset = result.output_offset;
   el("fldigi-status").textContent = `Trying ${result.current_mode} for ${result.track_id} · receive only · audio routing is external`;
   el("decoded-text").textContent = `Automatic receive trial: ${result.current_mode}\nTentative only · waiting ${result.note}`;
@@ -159,6 +161,8 @@ function watchDecoderTrial(result) {
     try {
       const trial = await request("/api/fldigi/trials/current");
       if (generation !== state.outputGeneration) return;
+      state.decoderTrial = {track_id:trial.track_id,status:trial.status,mode:trial.current_mode};
+      if (!state.frozen) renderSignalLabels();
       el("fldigi-status").textContent = `${trial.status} · ${trial.attempted_modes.join(" → ")} · ${trial.note}`;
       if (trial.status === "tentative_output") {
         el("decoded-text").textContent = `TENTATIVE · ${trial.current_mode}\n${trial.text}`;
@@ -201,7 +205,8 @@ el("fldigi-select").addEventListener("click", async () => {
     });
     el("fldigi-status").textContent = `Selected ${result.current_mode} · audio routing not verified`;
     fldigiOffset = result.output_offset;
-    el("output-context").textContent = `Shared Fldigi output · ${result.current_mode} · external audio route`;
+    state.textOutputContext = `Shared Fldigi output · ${result.current_mode} · external audio route`;
+    updateOutputContext();
     el("decoded-text").textContent = "Decoder mode changed. Waiting for receive output…";
   } catch (error) { showError(error.message); }
 });
@@ -243,6 +248,7 @@ function updateModelButton() {
 el("model-propose").addEventListener("click", async () => {
   if (!state.capture || !state.selection || state.liveView || !state.modelAvailable) return;
   const selection = state.selection;
+  const sourceCapture = state.capture;
   const button = el("model-propose");
   button.disabled = true;
   button.textContent = "Analyzing…";
@@ -253,6 +259,7 @@ el("model-propose").addEventListener("click", async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sample_start: selection.sample_start, sample_count: Math.min(1_000_000, selection.sample_count) }),
     });
+    if (state.capture !== sourceCapture || state.selection !== selection) return;
     if (!result.family && !result.method) {
       el("label-state").textContent = result.novelty_rejected
         ? `Model abstained · outside trained modulation range (distance ${result.novelty_distance.toFixed(2)} > ${result.novelty_threshold.toFixed(2)})`
@@ -400,7 +407,9 @@ async function request(url, options) {
   const response = await fetch(url, options);
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new Error(body.detail || `Request failed (${response.status})`);
+    const error = new Error(typeof body.detail === "string" ? body.detail : `Request failed (${response.status})`);
+    error.status = response.status;
+    throw error;
   }
   return response.json();
 }
@@ -700,6 +709,10 @@ function selectTrack(track) {
   const sampleEnd = Math.min(data.sample_count, track.sample_start + track.sample_count);
   state.selection = { sample_start: track.sample_start, sample_count: Math.max(1, sampleEnd - track.sample_start), frequency_low_hz: track.frequency_low_hz, frequency_high_hz: track.frequency_high_hz, x1, y1, x2, y2 };
   state.selectedTrack = track;
+  beginNewRegion();
+  const center = (track.frequency_low_hz + track.frequency_high_hz) / 2;
+  const bandwidth = track.frequency_high_hz - track.frequency_low_hz;
+  el("inspector-context").textContent = `${track.modulation_hypothesis} candidate · ${center.toFixed(0)} Hz center · ${bandwidth.toFixed(0)} Hz wide · peak SNR estimate ${track.peak_snr_db?.toFixed(1) ?? "unknown"} dB · ${track.tone_count_candidate ?? "unknown"} tone centers${Number.isFinite(track.drift_hz_per_second) ? ` · drift ${track.drift_hz_per_second.toFixed(1)} Hz/s` : ""}`;
   openInspector("label");
   el("selection-summary").textContent = `${state.selection.frequency_low_hz.toFixed(0)}–${state.selection.frequency_high_hz.toFixed(0)} Hz · ${track.modulation_hypothesis}`;
   el("selection-details").textContent = `Provisional candidate · ${(track.time_start_seconds).toFixed(2)}–${track.time_end_seconds.toFixed(2)} s · ${track.tone_count_candidate} tone centers · protocol unknown`;
@@ -851,11 +864,13 @@ overlayCanvas.addEventListener("pointerup", (event) => {
   };
   state.drag = null;
   state.selectedTrack = null;
+  beginNewRegion();
   openInspector("label");
   el("selection-summary").textContent = `${state.selection.frequency_low_hz.toFixed(0)}–${state.selection.frequency_high_hz.toFixed(0)} Hz`;
   const t0 = sampleStart / data.sample_rate;
   const t1 = sampleEnd / data.sample_rate;
   el("selection-details").textContent = `Samples ${sampleStart.toLocaleString()}–${sampleEnd.toLocaleString()} · ${t0.toFixed(3)}–${t1.toFixed(3)} s`;
+  el("inspector-context").textContent = `Manual region · ${frequencyLow.toFixed(0)}–${frequencyHigh.toFixed(0)} Hz · ${t0.toFixed(2)}–${t1.toFixed(2)} s${state.liveView ? " · stop recording to save labels" : ""}`;
   el("save-region").disabled = state.liveView || !state.capture;
   updateModelButton();
   drawOverlays();
@@ -865,13 +880,17 @@ el("save-region").addEventListener("click", async () => {
   if (!state.selection || !state.capture) return;
   clearError();
   const button = el("save-region");
+  const captureId = state.capture.id;
+  const edit = state.editRegion;
   button.disabled = true;
   try {
     const selection = state.selection;
-    await request(`/api/captures/${state.capture.id}/regions`, {
+    const destination = edit ? `/api/captures/${captureId}/regions/${edit.id}/labels` : `/api/captures/${captureId}/regions`;
+    await request(destination, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        ...(edit ? {expected_revision:edit.revision} : {}),
         sample_start: selection.sample_start,
         sample_count: selection.sample_count,
         frequency_low_hz: selection.frequency_low_hz,
@@ -883,7 +902,10 @@ el("save-region").addEventListener("click", async () => {
         notes: el("notes").value.trim(),
       }),
     });
-    state.regions = await request(`/api/captures/${state.capture.id}/regions`);
+    const regions = await request(`/api/captures/${captureId}/regions`);
+    if (state.capture?.id !== captureId) return;
+    state.regions = regions;
+    beginNewRegion();
     renderRegions();
     state.selection = null;
     updateModelButton();
@@ -892,7 +914,13 @@ el("save-region").addEventListener("click", async () => {
     for (const field of ["family", "method", "protocol", "variant", "notes"]) el(field).value = "";
     drawOverlays();
   } catch (error) {
+    if (state.capture?.id !== captureId) return;
     showError(error.message);
+    if (error.status === 409) {
+      state.regions = await request(`/api/captures/${captureId}/regions`);
+      renderRegions();
+      el("label-state").textContent = "A newer label exists. Reopen its marker to review it; your draft is retained here.";
+    }
     button.disabled = false;
   }
 });
@@ -900,6 +928,7 @@ el("save-region").addEventListener("click", async () => {
 el("demod-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!state.capture || state.liveView) return;
+  const sourceCapture = state.capture;
   clearError();
   const button = el("demod-run");
   button.disabled = true;
@@ -916,11 +945,12 @@ el("demod-form").addEventListener("submit", async (event) => {
       timing_offset_samples: Number(el("demod-offset").value),
       auto_timing: el("demod-auto-timing").checked,
     };
-    const result = await request(`/api/captures/${state.capture.id}/demod/2fsk`, {
+    const result = await request(`/api/captures/${sourceCapture.id}/demod/2fsk`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(settings),
     });
+    if (state.capture !== sourceCapture) return;
     storeDemodExport("2fsk", result, settings);
     const confidence = result.soft_metrics.length
       ? result.soft_metrics.reduce((sum, value) => sum + Math.abs(value), 0) / result.soft_metrics.length
@@ -931,6 +961,7 @@ el("demod-form").addEventListener("submit", async (event) => {
       : ` · timing ${result.timing_offset_samples.toFixed(2)} samples`;
     el("demod-output").textContent = `${result.demodulator} · ${result.symbol_count} symbols${timing} · mean |soft metric| ${confidence.toFixed(3)}\nProtocol: unknown\n\n${groupedBits}`;
   } catch (error) {
+    if (state.capture !== sourceCapture) return;
     el("demod-output").textContent = `Demodulation failed: ${error.message}`;
   } finally {
     button.disabled = !state.capture || state.liveView;
@@ -941,6 +972,7 @@ el("demod-form").addEventListener("submit", async (event) => {
 el("ook-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!state.capture || state.liveView) return;
+  const sourceCapture = state.capture;
   clearError();
   const button = el("ook-run");
   button.disabled = true;
@@ -956,11 +988,12 @@ el("ook-form").addEventListener("submit", async (event) => {
       timing_offset_samples: Number(el("ook-offset").value),
       auto_timing: el("ook-auto-timing").checked,
     };
-    const result = await request(`/api/captures/${state.capture.id}/demod/ook`, {
+    const result = await request(`/api/captures/${sourceCapture.id}/demod/ook`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(settings),
     });
+    if (state.capture !== sourceCapture) return;
     storeDemodExport("ook", result, settings);
     const groupedBits = result.bits.match(/.{1,64}/g)?.join("\n") || "(no complete symbols)";
     const timing = result.timing_offset_estimated
@@ -968,6 +1001,7 @@ el("ook-form").addEventListener("submit", async (event) => {
       : `${result.timing_offset_samples.toFixed(2)} samples`;
     el("ook-output").textContent = `${result.demodulator} · ${result.symbol_count} symbols · timing ${timing}\nEstimated amplitude 0/1: ${result.estimated_zero_amplitude.toFixed(4)} / ${result.estimated_one_amplitude.toFixed(4)} · level separation ${result.level_separation_score.toFixed(3)}\nProtocol: unknown\n\n${groupedBits}`;
   } catch (error) {
+    if (state.capture !== sourceCapture) return;
     el("ook-output").textContent = `Demodulation failed: ${error.message}`;
   } finally {
     button.disabled = !state.capture || state.liveView;
@@ -978,6 +1012,7 @@ el("ook-form").addEventListener("submit", async (event) => {
 el("mfsk-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!state.capture || state.liveView) return;
+  const sourceCapture = state.capture;
   clearError();
   const button = el("mfsk-run");
   button.disabled = true;
@@ -999,11 +1034,12 @@ el("mfsk-form").addEventListener("submit", async (event) => {
       rate_search_max: Number(el("mfsk-rate-max").value),
       rate_search_steps: Number(el("mfsk-rate-steps").value),
     };
-    const result = await request(`/api/captures/${state.capture.id}/demod/mfsk`, {
+    const result = await request(`/api/captures/${sourceCapture.id}/demod/mfsk`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(settings),
     });
+    if (state.capture !== sourceCapture) return;
     storeDemodExport("mfsk", result, settings);
     const confidence = result.soft_confidence.length
       ? result.soft_confidence.reduce((sum, value) => sum + value, 0) / result.soft_confidence.length
@@ -1026,6 +1062,7 @@ el("mfsk-form").addEventListener("submit", async (event) => {
       : ` · timing ${result.timing_offset_samples.toFixed(2)} samples`;
     el("mfsk-output").textContent = `${result.demodulator} · ${result.tone_count} tones · ${result.symbol_count} symbols · ${rate}${timing} · mean soft confidence ${confidence.toFixed(3)}${bestRates}\nProtocol: unknown\n\nTone indices:\n${groupedSymbols}\n\n${bits}`;
   } catch (error) {
+    if (state.capture !== sourceCapture) return;
     el("mfsk-output").textContent = `Demodulation failed: ${error.message}`;
   } finally {
     button.disabled = !state.capture || state.liveView;
@@ -1036,6 +1073,7 @@ el("mfsk-form").addEventListener("submit", async (event) => {
 el("bpsk-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!state.capture || state.liveView) return;
+  const sourceCapture = state.capture;
   clearError();
   const button = el("bpsk-run");
   button.disabled = true;
@@ -1050,11 +1088,12 @@ el("bpsk-form").addEventListener("submit", async (event) => {
       carrier_hz: Number(el("bpsk-carrier").value),
       timing_offset_samples: Number(el("bpsk-offset").value),
     };
-    const result = await request(`/api/captures/${state.capture.id}/demod/bpsk`, {
+    const result = await request(`/api/captures/${sourceCapture.id}/demod/bpsk`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(settings),
     });
+    if (state.capture !== sourceCapture) return;
     storeDemodExport("bpsk", result, settings);
     const grouped = (bits) => bits.match(/.{1,64}/g)?.join("\n") || "(no complete symbols)";
     const confidence = result.soft_metrics.length
@@ -1062,6 +1101,7 @@ el("bpsk-form").addEventListener("submit", async (event) => {
       : 0;
     el("bpsk-output").textContent = `${result.demodulator} · ${result.symbol_count} symbols · mean |soft metric| ${confidence.toFixed(3)}\nPolarity ambiguous: ${result.polarity_ambiguous}\nProtocol: unknown\n\nBit hypothesis A:\n${grouped(result.bits)}\n\nBit hypothesis B (inverted):\n${grouped(result.inverted_bits)}`;
   } catch (error) {
+    if (state.capture !== sourceCapture) return;
     el("bpsk-output").textContent = `Demodulation failed: ${error.message}`;
   } finally {
     button.disabled = !state.capture || state.liveView;
@@ -1072,6 +1112,7 @@ el("bpsk-form").addEventListener("submit", async (event) => {
 el("qpsk-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!state.capture || state.liveView) return;
+  const sourceCapture = state.capture;
   clearError();
   const button = el("qpsk-run");
   button.disabled = true;
@@ -1086,11 +1127,12 @@ el("qpsk-form").addEventListener("submit", async (event) => {
       carrier_hz: Number(el("qpsk-carrier").value),
       timing_offset_samples: Number(el("qpsk-offset").value),
     };
-    const result = await request(`/api/captures/${state.capture.id}/demod/qpsk`, {
+    const result = await request(`/api/captures/${sourceCapture.id}/demod/qpsk`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(settings),
     });
+    if (state.capture !== sourceCapture) return;
     storeDemodExport("qpsk", result, settings);
     const grouped = (bits) => bits.match(/.{1,64}/g)?.join("\n") || "(no complete symbols)";
     const hypotheses = result.symbol_hypotheses.map((item, index) =>
@@ -1098,6 +1140,7 @@ el("qpsk-form").addEventListener("submit", async (event) => {
     ).join("\n\n");
     el("qpsk-output").textContent = `${result.demodulator} · ${result.symbol_count} symbols · absolute rotation unknown\nProtocol: unknown\n\n${hypotheses}`;
   } catch (error) {
+    if (state.capture !== sourceCapture) return;
     el("qpsk-output").textContent = `Demodulation failed: ${error.message}`;
   } finally {
     button.disabled = !state.capture || state.liveView;
@@ -1134,9 +1177,15 @@ function renderRegions() {
       const badgeLabels = { synthetic: "SYNTHETIC", human: "HUMAN LABEL", decoder: "DECODER", external: "EXTERNAL", rsid: "RSID", prediction: "PREDICTION", unknown: "UNKNOWN" };
       badge.textContent = region.review_state === "accepted" ? (badgeLabels[region.source] || "ACCEPTED") : "PENDING REVIEW";
       row.append(left, protocol, badge);
+      const review = document.createElement("button");
+      review.type = "button";
+      review.textContent = "Review";
+      review.addEventListener("click", () => selectSavedRegion(region));
+      row.append(review);
       list.append(row);
     }
   }
+  renderRegionShortcuts();
   drawOverlays();
 }
 
@@ -1160,20 +1209,24 @@ function openInspector(tab = "label") {
   for (const button of document.querySelectorAll("[data-inspector-tab]")) button.setAttribute("aria-pressed", String(button.dataset.inspectorTab === tab));
 }
 function showOutput(tab) {
+  state.outputTab = tab;
   for (const node of document.querySelectorAll("[data-output-view]")) node.hidden = node.dataset.outputView !== tab;
   for (const button of document.querySelectorAll("[data-output-tab]")) button.setAttribute("aria-pressed", String(button.dataset.outputTab === tab));
   el("output-dock").classList.remove("collapsed");
   el("toggle-output").textContent = "Collapse";
   el("toggle-output").setAttribute("aria-expanded", "true");
+  updateOutputContext();
 }
 function showRawTool(mode) {
   el("raw-tool").value = mode;
   for (const node of document.querySelectorAll("[data-raw-tool]")) node.hidden = node.dataset.rawTool !== mode;
   for (const node of document.querySelectorAll("[data-raw-result]")) node.hidden = node.dataset.rawResult !== mode;
+  updateOutputContext();
 }
 function resetOutputSession() {
   state.outputGeneration = (state.outputGeneration || 0) + 1;
   fldigiOffset = null;
+  state.textOutputContext = "Shared Fldigi output · audio route external";
   el("decoded-text").textContent = "Decoded text will appear here.";
   for (const id of ["demod-output", "mfsk-output", "ook-output", "bpsk-output", "qpsk-output"]) {
     el(id).textContent = "Select a saved capture or region to analyze.";
@@ -1185,6 +1238,12 @@ function resetOutputSession() {
   watchedTrialTrack = null;
   state.selectedTrack = null;
   state.frozen = false;
+  state.decoderTrial = null;
+  el("signal-region-shortcuts").replaceChildren();
+  beginNewRegion();
+  el("inspector-context").textContent = "Select a signal on the waterfall to inspect it.";
+  el("manifest-download").classList.add("hidden");
+  el("audio-player").hidden = state.liveView;
   el("freeze-view").textContent = "Freeze view";
   el("freeze-view").disabled = !state.liveView;
   for (const dialog of document.querySelectorAll("dialog[open]")) dialog.close();
@@ -1211,8 +1270,10 @@ function renderSignalLabels() {
     const start = sampleToRow(track.sample_start) - bounds.rowStart;
     const end = sampleToRow(track.sample_start + track.sample_count) - bounds.rowStart;
     if (end < 0 || start >= overlayCanvas.height || track.frequency_high_hz < low || track.frequency_low_hz > high) continue;
+    const trial = state.decoderTrial?.track_id === track.track_id ? state.decoderTrial : null;
+    const activity = trial?.status === "running" ? ` · trying ${trial.mode}` : trial?.status === "tentative_output" ? ` · tentative ${trial.mode} output` : "";
     items.push({
-      track, text: signalCaption(track, index),
+      track, text: signalCaption(track, index) + activity,
       selected: state.selectedTrack === track || Boolean(track.track_id && state.selectedTrack?.track_id === track.track_id),
       x: (track.frequency_low_hz - low) / Math.max(1, high - low) * width,
       y: Math.max(0, start / overlayCanvas.height * height),
@@ -1230,7 +1291,20 @@ function renderSignalLabels() {
   // Preserve focused controls when possible during live refresh.
   const focused = document.activeElement?.dataset.signalKey;
   container.replaceChildren();
+  const leaders = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  leaders.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  leaders.setAttribute("class", "signal-leaders");
+  leaders.setAttribute("aria-hidden", "true");
+  container.append(leaders);
   for (const item of layout.placed) {
+    if (item.y !== item.anchorY || item.x !== item.anchorX) {
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("x1", String(Math.max(0, Math.min(width,item.anchorX))));
+      line.setAttribute("y1", String(item.anchorY));
+      line.setAttribute("x2", String(item.x+6));
+      line.setAttribute("y2", String(item.y+12));
+      leaders.append(line);
+    }
     const button = document.createElement("button");
     button.type = "button";
     button.className = `signal-tag ${item.region ? "saved" : "candidate"}${item.selected ? " selected" : ""}`;
@@ -1240,8 +1314,23 @@ function renderSignalLabels() {
     button.style.width = `${item.width}px`;
     button.dataset.signalKey = item.track?.track_id || item.region?.id || item.text;
     button.title = item.track
-      ? `${item.text}\n${item.track.frequency_low_hz.toFixed(0)}–${item.track.frequency_high_hz.toFixed(0)} Hz · peak SNR estimate ${item.track.peak_snr_db?.toFixed(1) ?? "unknown"} dB\nClick to inspect; identification remains provisional.`
+      ? `${item.text}\n${item.track.frequency_low_hz.toFixed(0)}–${item.track.frequency_high_hz.toFixed(0)} Hz · peak SNR estimate ${item.track.peak_snr_db?.toFixed(1) ?? "unknown"} dB\n${item.track.tone_count_candidate ?? "Unknown"} tone centers${Number.isFinite(item.track.tone_spacing_hz_candidate) ? ` · spacing ${item.track.tone_spacing_hz_candidate.toFixed(1)} Hz` : ""}${Number.isFinite(item.track.drift_hz_per_second) ? `\nDrift ${item.track.drift_hz_per_second.toFixed(1)} Hz/s` : ""}\nClick to inspect; identification remains provisional.`
       : `${item.text} · ${item.region.source} / ${item.region.review_state}`;
+    const showDetail = () => {
+      el("signal-hover-detail")?.remove();
+      const detail = document.createElement("div");
+      detail.id = "signal-hover-detail";
+      detail.className = "signal-tooltip";
+      detail.setAttribute("role", "tooltip");
+      detail.textContent = button.title;
+      container.append(detail);
+      detail.style.left = `${Math.max(0,Math.min(item.x,width-detail.offsetWidth))}px`;
+      detail.style.top = `${Math.max(0,Math.min(item.y+28,height-detail.offsetHeight))}px`;
+      button.setAttribute("aria-describedby", detail.id);
+    };
+    button.addEventListener("mouseenter", showDetail);
+    button.addEventListener("focus", showDetail);
+    for (const event of ["mouseleave", "blur"]) button.addEventListener(event, () => el("signal-hover-detail")?.remove());
     button.addEventListener("click", () => item.track ? selectTrack(item.track) : selectSavedRegion(item.region));
     container.append(button);
     if (button.dataset.signalKey === focused) button.focus({preventScroll:true});
@@ -1258,14 +1347,19 @@ function renderSignalLabels() {
 function selectSavedRegion(region) {
   const data = state.waterfall;
   if (!data) return;
+  clearError();
   state.selection = {sample_start:region.sample_start, sample_count:region.sample_count,
     frequency_low_hz:region.frequency_low_hz ?? 0, frequency_high_hz:region.frequency_high_hz ?? Math.min(3000,data.sample_rate/2)};
   state.selectedTrack = null;
+  state.editRegion = {id:region.id, revision:region.revision};
   reprojectSelection();
   for (const field of ["family","method","protocol","variant","notes"]) el(field).value = region[field] || "";
   el("selection-summary").textContent = region.variant || region.protocol || region.method || region.family || "Saved unknown region";
   el("selection-details").textContent = `${region.source} · ${region.review_state} · ${(region.sample_start/data.sample_rate).toFixed(2)}–${((region.sample_start+region.sample_count)/data.sample_rate).toFixed(2)} s`;
-  el("label-state").textContent = "Review this saved annotation. Save creates another region.";
+  el("label-state").textContent = `Editing label revision ${region.revision} · original history retained`;
+  el("save-region").textContent = "Save revision";
+  el("inspector-context").textContent = `Saved annotation · ${state.selection.frequency_low_hz.toFixed(0)}–${state.selection.frequency_high_hz.toFixed(0)} Hz · revision ${region.revision}`;
+  loadLabelHistory(region, state.capture.id);
   el("save-region").disabled = state.liveView;
   updateModelButton();
   for (const dialog of document.querySelectorAll("dialog[open]")) dialog.close();
@@ -1376,4 +1470,51 @@ function startSpectrumStream(generation,sessionId) {
     }
   };
   update();
+}
+
+function beginNewRegion() {
+  state.editRegion = null;
+  el("save-region").textContent = "Save region label";
+  el("label-history").hidden = true;
+  el("label-history-list").replaceChildren();
+  el("label-state").textContent = "Partial labels are welcome.";
+  for(const id of ["family","method","protocol","variant","notes"]) el(id).value = "";
+}
+async function loadLabelHistory(region,captureId) {
+  el("label-history").hidden = false;
+  el("label-history-list").textContent = "Loading revisions…";
+  try {
+    const history = await request(`/api/captures/${captureId}/regions/${region.id}/history`);
+    if(state.capture?.id!==captureId || state.editRegion?.id!==region.id) return;
+    const list=el("label-history-list");list.replaceChildren();
+    for(const revision of history) {
+      const item=document.createElement("p");
+      item.textContent=`Revision ${revision.revision} · ${revision.source} / ${revision.review_state} · ${[revision.family,revision.method,revision.protocol,revision.variant].filter(Boolean).join(" / ") || "Unknown"}${revision.notes ? ` · ${revision.notes}` : ""}`;
+      list.append(item);
+    }
+  } catch(error) {
+    if(state.editRegion?.id===region.id) el("label-history-list").textContent=`History unavailable · ${error.message}`;
+  }
+}
+
+function updateOutputContext() {
+  let text = state.textOutputContext || "Shared Fldigi output · audio route external";
+  if (state.outputTab === "images") text = "Received image library · signal association unavailable";
+  if (state.outputTab === "raw") {
+    const mode = el("raw-tool").value;
+    const artifact = state.demodExports[mode];
+    text = artifact ? `${mode.toUpperCase()} · capture ${artifact.source_capture.capture_id.slice(0,8)} · ${(artifact.settings.sample_start/artifact.source_capture.sample_rate).toFixed(2)}–${((artifact.settings.sample_start+artifact.settings.sample_count)/artifact.source_capture.sample_rate).toFixed(2)} s · protocol unknown` : "Raw analysis · no result for this tool";
+  }
+  el("output-context").textContent = text;
+}
+
+function renderRegionShortcuts() {
+  const list=el("signal-region-shortcuts");list.replaceChildren();
+  for(const region of state.regions) {
+    const button=document.createElement("button");button.type="button";
+    button.className="region-shortcut";
+    button.textContent=`${region.variant || region.protocol || region.method || region.family || "Unknown"} · ${(region.sample_start/state.capture.sample_rate).toFixed(2)} s`;
+    button.addEventListener("click",()=>selectSavedRegion(region));list.append(button);
+  }
+  if(!state.regions.length) list.textContent="No saved annotations in this recording.";
 }

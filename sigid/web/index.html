@@ -49,7 +49,7 @@
                   >Download source manifest</a
                 >
                 <div class="spectrum-legend">
-                  <span>−100 dB</span><i></i><span>0 dB</span>
+                  <span>−95 dB</span><i></i><span>−20 dB</span>
                 </div>
               </div>
               <div class="waterfall-layout">
@@ -102,6 +102,9 @@
             ><button data-inspector-tab="raw" type="button">Raw symbols</button
             ><button data-inspector-tab="signals" type="button">Signals</button>
           </nav>
+          <p id="inspector-context" class="inspector-context">
+            Select a signal on the waterfall to inspect it.
+          </p>
           <div class="inspector-content">
             <div data-inspector-view="label">
               <section class="panel selection-panel">
@@ -137,6 +140,10 @@
                     placeholder="What supports this label? What remains uncertain?"
                   ></textarea>
                 </label>
+                <details id="label-history" class="label-history" hidden>
+                  <summary>Label history</summary>
+                  <div id="label-history-list"></div>
+                </details>
                 <div class="save-row">
                   <button id="model-propose" type="button" disabled>
                     Suggest method</button
@@ -536,6 +543,8 @@ Select a saved capture or region to analyze.</pre>
                 <div id="track-list" class="track-list">
                   <p class="subhead">No candidates analyzed yet.</p>
                 </div>
+                <h3 class="region-switch-title">Saved annotations</h3>
+                <div id="signal-region-shortcuts"></div>
               </section>
             </div>
           </div>

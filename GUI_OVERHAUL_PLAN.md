@@ -1,7 +1,10 @@
 # Waterfall-centered GUI overhaul
 
-Status: layout, interactive overlays, incremental binary live display, fixed history
-and freeze controls are implemented. Further output/review integration is in progress.
+Status: core overhaul implemented and verified in Chromium at desktop/mobile sizes.
+This includes layout, interactive overlays, binary live display, fixed history,
+freeze controls, raw-result provenance and saved-label revision/history review.
+Fldigi output remains shared or tentative until its audio route provides defensible
+per-track attribution; independent decoder workers remain a 1.0 backend task.
 
 ## Product goal
 

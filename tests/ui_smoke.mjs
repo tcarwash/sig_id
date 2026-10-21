@@ -29,6 +29,7 @@ const errors = [];
 page.on("pageerror", (error) => errors.push(error.message));
 let modeChanges = 0;
 let cleanupLive = false;
+let lastCaptureId = null;
 // Exercise controls without changing the operator's Fldigi instance.
 await page.route("**/api/fldigi/**", async (route) => {
   const path = new URL(route.request().url()).pathname;
@@ -82,6 +83,7 @@ try {
     const result = JSON.parse(await readFile(destination, "utf8"));
     assert.equal(result.protocol, null);
     assert.equal(result.modulation_hypothesis, mode);
+    lastCaptureId = result.source_capture.capture_id;
     assert.ok(result.result.symbol_count > 0);
     assert.equal(await page.locator(".raw-tool:visible").count(), 1);
     assert.equal(await page.locator("[data-raw-result]:visible").count(), 1);
@@ -101,6 +103,31 @@ try {
   await page.locator(".signal-tag.saved").first().click();
   assert.equal(await page.locator("#family").inputValue(), "PSK");
   assert.equal(
+    await page.locator("#save-region").textContent(),
+    "Save revision",
+  );
+  await page.locator("#method").fill("quadrature phase-shift keying");
+  await page.locator("#save-region").click();
+  await page.waitForFunction(
+    () =>
+      document.getElementById("save-region").textContent ===
+      "Save region label",
+  );
+  const labels = await (
+    await page.request.get(
+      new URL(`/api/captures/${lastCaptureId}/regions`, page.url()).href,
+    )
+  ).json();
+  assert.equal(labels.length, 1);
+  assert.equal(labels[0].revision, 2);
+  await page.locator(".signal-tag.saved").first().click();
+  await page.locator("#label-history summary").click();
+  await page.waitForFunction(
+    () =>
+      document.getElementById("label-history-list").querySelectorAll("p")
+        .length === 2,
+  );
+  assert.equal(
     modeChanges,
     0,
     "signal selection must not switch decoder modes",
@@ -115,6 +142,19 @@ try {
       .textContent.includes("Selected RTTY"),
   );
   assert.equal(modeChanges, 1);
+  // A result returning after a source change must not be exported as the new source.
+  await page.locator('[data-inspector-tab="raw"]').click();
+  await page.locator("#raw-tool").selectOption("qpsk");
+  await page.route("**/demod/qpsk", async (route) => {
+    const response = await route.fetch();
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await route.fulfill({ response });
+  });
+  const pendingAnalysis = page.waitForRequest((request) =>
+    request.url().endsWith("/demod/qpsk"),
+  );
+  await page.locator("#qpsk-run").click();
+  await pendingAnalysis;
   await page.locator("#show-library").click();
   await page.locator("#synthetic-wav").setInputFiles(join(root, "2fsk.wav"));
   await page
@@ -124,11 +164,16 @@ try {
   await page.locator("#library-dialog").waitFor({ state: "hidden" });
   await page.locator(".signal-tag.saved").first().waitFor();
   assert.ok(await page.locator("#error").isHidden());
+  await page.waitForTimeout(1700);
+  assert.ok(await page.locator("#demod-export-qpsk").isDisabled());
   assert.equal(
     await page.locator("#decoded-text").textContent(),
     "Decoded text will appear here.",
   );
-  assert.equal(await page.locator("#qpsk-output").textContent(), "Select a saved capture or region to analyze.");
+  assert.equal(
+    await page.locator("#qpsk-output").textContent(),
+    "Select a saved capture or region to analyze.",
+  );
   if (process.env.SIGID_UI_LIVE === "1") {
     const devices = await (
       await page.request.get(
@@ -181,7 +226,10 @@ try {
         (old) => document.getElementById("waterfall").toDataURL() !== old,
         frozen,
       );
-      if (rate === 48000) await page.screenshot({path:join(root,"live-30-second-history.png")});
+      if (rate === 48000)
+        await page.screenshot({
+          path: join(root, "live-30-second-history.png"),
+        });
       await page.locator("#live-stop").click();
       await page.waitForFunction(() =>
         document

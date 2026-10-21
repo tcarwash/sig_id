@@ -29,6 +29,13 @@ validation remain open.
   fixed thirty-second time scale and a bounded sixty-second row cache. Startup history
   and missing update ranges remain blank; Freeze view retains an immutable image while
   recording continues. Browser checks pass at 48/96/192 kHz with paced synthetic audio.
+- Saved annotation markers now open an editable label with its complete revision history.
+  Saving appends a revision on the same region, preserving original bounds and evidence;
+  concurrent stale reviews receive a conflict instead of overwriting newer labels.
+  Output context distinguishes shared Fldigi text, tentative track trials, raw-analysis
+  capture/sample ranges and received-image library products. Delayed raw results are
+  discarded after source changes. Hover/focus details and collision leader lines keep
+  measurements available on the waterfall without permanently expanding every signal.
 
 - WAV upload/playback, sample-indexed audio replay, bounded spectrogram, drag-selected
   time/frequency regions, manual hierarchical labels, saved-region list and JSONL
@@ -227,7 +234,7 @@ Verified: Fldigi 4.2.13 and its XML-RPC method catalog are installed; unit tests
 cover receive-only client semantics, PCM WAV block indexing/normalization and
 synthetic 2-FSK/MFSK metadata, exact symbols/bits and tone frequencies, SQLite
 capture hashes/regions/label history, JSONL export, spectrogram peak detection, upload/region APIs, and Fldigi
-status/catalog/mode/output APIs, WEFAX product import and image delivery. Current full suite: 172 passed, 7 skipped;
+status/catalog/mode/output APIs, WEFAX product import and image delivery. Current full suite: 174 passed, 7 skipped;
 the opt-in isolated selection audit checks all 169 entries (165 selectable, four unresolved),
 and `node --test tests/test_waterfall_window.mjs`, module syntax validation, headless
 Chromium loading, and `git diff --check` pass. The generic text-backend

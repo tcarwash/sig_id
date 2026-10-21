@@ -23,7 +23,15 @@ export function layoutSignalLabels(items, width, height) {
       overflow.push(item);
       continue;
     }
-    placed.push({ ...item, x, y, width: w, height: h });
+    placed.push({
+      ...item,
+      anchorX: item.x,
+      anchorY: item.y,
+      x,
+      y,
+      width: w,
+      height: h,
+    });
   }
   return { placed, overflow };
 }

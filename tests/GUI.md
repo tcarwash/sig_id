@@ -26,6 +26,8 @@ annotation selection, synthetic import, explicit mode activation and responsive 
 The optional live checks use the paced synthetic audio device in `ui_server.py` to
 verify 48/96/192 kHz capture, fixed startup history, freeze/resume and stopping/reopening.
 The test verifies the synthetic device identity before starting capture.
+It also verifies editing a saved annotation creates a second revision on the same
+region, and an intentionally delayed raw result cannot be exported as a new source.
 Decoder requests are intercepted so the test does not change a running Fldigi instance.
 It prints a temporary artifact directory containing desktop/mobile screenshots and
 exported results. This is browser and synthetic validation; it does not test hardware

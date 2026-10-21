@@ -19,6 +19,10 @@ LABEL_SOURCES = {"unknown", "prediction", "rsid", "decoder", "human", "synthetic
 REVIEW_STATES = {"pending", "accepted", "rejected"}
 
 
+class LabelRevisionConflict(ValueError):
+    """The operator reviewed an older revision than the current saved label."""
+
+
 @dataclass(frozen=True, slots=True)
 class SignalLabel:
     family: str | None = None
@@ -211,15 +215,18 @@ class CaptureStore:
             ),
         )
 
-    def revise_label(self, region_id: str, label: SignalLabel) -> int:
+    def revise_label(self, region_id: str, label: SignalLabel, *, expected_revision: int | None = None) -> int:
         self._validate_label(label)
         with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
             latest = db.execute(
                 "SELECT MAX(revision) AS revision FROM label_revisions WHERE region_id = ?",
                 (region_id,),
             ).fetchone()["revision"]
             if latest is None:
                 raise KeyError(f"unknown region: {region_id}")
+            if expected_revision is not None and latest != expected_revision:
+                raise LabelRevisionConflict("label changed since it was opened; reopen the region before saving")
             revision = latest + 1
             self._insert_label(db, region_id, revision, label)
             return revision

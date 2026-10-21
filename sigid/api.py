@@ -13,7 +13,7 @@ from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
-from .dataset import CaptureStore, SignalLabel
+from .dataset import CaptureStore, SignalLabel, LabelRevisionConflict
 from .classifier import extract_features, load_model, propose
 from .demod import demodulate_2fsk, demodulate_bpsk, demodulate_mfsk, demodulate_ook, demodulate_qpsk
 from .detection import detect_tracks
@@ -49,6 +49,15 @@ class RegionCreate(BaseModel):
     protocol: str | None = None
     variant: str | None = None
     notes: str = ""
+
+
+class LabelRevisionCreate(BaseModel):
+    expected_revision: int = Field(ge=1)
+    family: str | None = Field(default=None, max_length=200)
+    method: str | None = Field(default=None, max_length=200)
+    protocol: str | None = Field(default=None, max_length=200)
+    variant: str | None = Field(default=None, max_length=200)
+    notes: str = Field(default="", max_length=20000)
 
 
 class LiveCaptureStart(BaseModel):
@@ -925,6 +934,33 @@ def create_app(
             return store.regions(capture_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="capture not found") from exc
+
+    @app.get("/api/captures/{capture_id}/regions/{region_id}/history")
+    def region_history(capture_id: str, region_id: str) -> list[dict[str, Any]]:
+        try:
+            if not any(region["id"] == region_id for region in store.regions(capture_id)):
+                raise KeyError("region not in this capture")
+            return store.label_history(region_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="capture or region not found") from exc
+
+    @app.post("/api/captures/{capture_id}/regions/{region_id}/labels", status_code=201)
+    def revise_region_label(capture_id: str, region_id: str, data: LabelRevisionCreate) -> dict[str, Any]:
+        try:
+            if not any(region["id"] == region_id for region in store.regions(capture_id)):
+                raise KeyError("region not in this capture")
+            has_label = any((data.family, data.method, data.protocol, data.variant))
+            store.revise_label(region_id, SignalLabel(
+                family=data.family, method=data.method, protocol=data.protocol, variant=data.variant,
+                notes=data.notes, source="human" if has_label else "unknown",
+                review_state="accepted" if has_label else "pending",
+                evidence={"reviewed_from_revision": data.expected_revision},
+            ), expected_revision=data.expected_revision)
+            return next(region for region in store.regions(capture_id) if region["id"] == region_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="capture or region not found") from exc
+        except LabelRevisionConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.post("/api/captures/{capture_id}/regions", status_code=201)
     def create_region(capture_id: str, data: RegionCreate) -> dict[str, Any]:
