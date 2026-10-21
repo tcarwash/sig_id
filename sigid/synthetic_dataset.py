@@ -208,6 +208,105 @@ def _validate_manifest(manifest: dict[str, Any], wav_path: Path) -> None:
         raise ValueError(f"invalid synthetic generator parameters: {exc}") from exc
 
 
+def _validate_awgn_augmentation(
+    manifest: dict[str, Any], wav_path: Path, *, store: CaptureStore
+) -> dict[str, Any]:
+    if manifest.get("schema_version") != 1 or manifest.get("source_kind") != "synthetic":
+        raise ValueError("unsupported augmentation manifest")
+    if manifest.get("generator") != "sig-id-awgn-augmentation" or manifest.get("generator_version") != "0.1.0":
+        raise ValueError("unsupported synthetic augmentation generator")
+    if manifest.get("deterministic") is not True:
+        raise ValueError("only deterministic augmentations can be imported as generated ground truth")
+    parent = manifest.get("parent")
+    parameters = manifest.get("parameters")
+    labels = manifest.get("labels")
+    if not isinstance(parent, dict) or not isinstance(parameters, dict) or not isinstance(labels, dict):
+        raise ValueError("augmentation manifest must include parent, parameters and labels")
+    waveform_digest = parent.get("waveform_sha256")
+    manifest_digest = parent.get("manifest_sha256")
+    if not isinstance(waveform_digest, str) or len(waveform_digest) != 64:
+        raise ValueError("augmentation parent waveform SHA-256 is missing")
+    if not isinstance(manifest_digest, str) or len(manifest_digest) != 64:
+        raise ValueError("augmentation parent manifest SHA-256 is missing")
+    parent_capture = store.capture_by_sha256(waveform_digest)
+    if parent_capture is None or parent_capture["source_kind"] != "synthetic":
+        raise ValueError("augmentation parent waveform must already be imported as synthetic data")
+    source_metadata = parent_capture["source_metadata"]
+    parent_manifest_name = source_metadata.get("manifest_file")
+    if not parent_manifest_name or source_metadata.get("manifest_sha256") != manifest_digest:
+        raise ValueError("augmentation parent manifest does not match the imported source")
+    parent_audio = Path(parent_capture["audio_path"]).resolve(strict=True)
+    parent_manifest_path = (Path(parent_capture["audio_path"]).parent / parent_manifest_name).resolve(strict=True)
+    if not parent_manifest_path.is_relative_to(Path(parent_capture["audio_path"]).parent.resolve()):
+        raise ValueError("imported parent manifest path is invalid")
+    actual_parent_digest = hashlib.sha256(parent_audio.read_bytes()).hexdigest()
+    actual_manifest_digest = hashlib.sha256(parent_manifest_path.read_bytes()).hexdigest()
+    if actual_parent_digest != waveform_digest or actual_manifest_digest != manifest_digest:
+        raise ValueError("augmentation parent hashes do not match the imported source files")
+    try:
+        parent_manifest = json.loads(parent_manifest_path.read_text(encoding="utf-8"))
+        _validate_manifest(parent_manifest, parent_audio)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, KeyError, OverflowError) as exc:
+        raise ValueError(f"invalid imported augmentation parent: {exc}") from exc
+    if labels != parent_manifest.get("labels") or parent.get("generator") != parent_manifest.get("generator"):
+        raise ValueError("augmentation labels and parent generator must match the clean source")
+    if (
+        manifest.get("reference_bits") != parent_manifest.get("reference_bits")
+        or manifest.get("reference_symbols") != parent_manifest.get("reference_symbols")
+        or parameters.get("noise_model") != "additive white Gaussian noise"
+        or parameters.get("snr_convention")
+        != "whole-waveform mean-square signal power divided by generated noise power"
+        or parameters.get("transform_order")
+        != ["linear gain", "AWGN", "PCM16 clipping and quantization"]
+        or manifest.get("impairments")
+        != [{"kind": "awgn", "snr_db": parameters.get("requested_snr_db"), "seed": parameters.get("seed")}]
+    ):
+        raise ValueError("augmentation references or transform description do not match the parent recipe")
+    parent_regions = store.regions(parent_capture["id"])
+    if len(parent_regions) != 1:
+        raise ValueError("augmentation parent must have one full-capture synthetic label")
+    parent_region = parent_regions[0]
+    if (
+        parent_region["sample_start"] != 0
+        or parent_region["sample_count"] != parent_capture["sample_count"]
+        or parent_region["source"] != "synthetic"
+        or parent_region["review_state"] != "accepted"
+        or parent_region["family"] != labels.get("modulation_family")
+        or parent_region["method"] != labels.get("modulation_method")
+        or parent_region["protocol"] is not None
+        or parent_region["variant"] is not None
+    ):
+        raise ValueError("augmentation parent label is not an accepted matching synthetic label")
+
+    try:
+        sample_rate = int(parent_manifest["sample_rate"])
+        snr_db = float(parameters["requested_snr_db"])
+        gain = float(parameters["gain"])
+        seed = parameters["seed"]
+        if manifest.get("sample_rate") != sample_rate:
+            raise ValueError("augmentation sample rate must match its parent")
+        from .augmentation import apply_awgn_augmentation
+
+        with tempfile.TemporaryDirectory(prefix="sig-id-awgn-validate-") as temporary:
+            regenerated = Path(temporary) / "check.wav"
+            stats = apply_awgn_augmentation(parent_audio, regenerated, snr_db=snr_db, gain=gain, seed=seed)
+            if regenerated.read_bytes() != wav_path.read_bytes():
+                raise ValueError("WAV samples do not match the AWGN recipe and parent lineage")
+            for key, value in stats.items():
+                if parameters.get(key) != value:
+                    raise ValueError(f"augmentation statistic {key!r} does not match the regenerated waveform")
+    except (KeyError, TypeError, OverflowError) as exc:
+        raise ValueError(f"invalid AWGN augmentation parameters: {exc}") from exc
+    audio = WavSource(wav_path).metadata()
+    if (
+        manifest.get("sample_count") != audio["sample_count"]
+        or manifest.get("channels") != audio["channels"]
+        or manifest.get("sample_width_bytes") != audio["sample_width_bytes"]
+    ):
+        raise ValueError("augmentation manifest audio dimensions do not match the WAV")
+    return parent_capture
+
+
 def import_synthetic_wav(
     wav_path: str | Path,
     manifest_path: str | Path,
@@ -224,8 +323,12 @@ def import_synthetic_wav(
     source_audio = Path(wav_path).resolve(strict=True)
     source_manifest = Path(manifest_path).resolve(strict=True)
     manifest, manifest_digest = _read_manifest(source_manifest)
+    parent_capture = None
     try:
-        _validate_manifest(manifest, source_audio)
+        if manifest.get("generator") == "sig-id-awgn-augmentation":
+            parent_capture = _validate_awgn_augmentation(manifest, source_audio, store=store)
+        else:
+            _validate_manifest(manifest, source_audio)
     except ValueError:
         raise
     except (TypeError, KeyError, OverflowError, ZeroDivisionError) as exc:
@@ -247,10 +350,12 @@ def import_synthetic_wav(
             "manifest_sha256": manifest_digest,
             "modulation_labels": manifest["labels"],
             "parameters": manifest["parameters"],
+            "augmentation_parent_capture_id": parent_capture["id"] if parent_capture else None,
         }
         capture_id = store.add_wav_capture(
             destination_audio,
             source_kind="synthetic",
+            parent_capture_id=parent_capture["id"] if parent_capture else None,
             source_metadata=metadata,
         )
         region_id = store.add_region(
@@ -268,8 +373,13 @@ def import_synthetic_wav(
                     "generator": manifest["generator"],
                     "manifest_file": destination_manifest.name,
                     "manifest_sha256": manifest_digest,
+                    "parent_capture_id": parent_capture["id"] if parent_capture else None,
                 },
-                notes="Controlled synthetic modulation source; protocol is intentionally unknown.",
+                notes=(
+                    "Deterministic augmentation of an accepted synthetic parent; protocol is intentionally unknown."
+                    if parent_capture
+                    else "Controlled synthetic modulation source; protocol is intentionally unknown."
+                ),
             ),
         )
     except Exception:

@@ -110,6 +110,15 @@ The importer verifies that the WAV exactly matches a deterministic 2-FSK, M-FSK,
 BPSK or QPSK generator manifest, then stores a full-capture modulation label and the source
 manifest. It does not invent a named protocol.
 
+Create a deterministic noisy child from an imported clean source. Import the clean
+source first; the child manifest records its hashes and recipe, and the importer checks
+the parent lineage and regenerates the samples before accepting inherited labels:
+
+```sh
+sig-id-augment-awgn data/fixtures/bpsk.wav data/fixtures/bpsk-10db.wav --snr-db 10 --seed 42
+sig-id-import-synthetic data/fixtures/bpsk-10db.wav
+```
+
 Replay it blockwise from Python with `sigid.wav.WavSource`; blocks carry exact sample
 offsets and normalized mono samples. This is a modulation fixture, not a named
 protocol waveform.

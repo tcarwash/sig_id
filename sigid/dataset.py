@@ -77,6 +77,7 @@ class CaptureStore:
                            frequency_low_hz < frequency_high_hz))
                 );
                 CREATE INDEX IF NOT EXISTS regions_by_capture ON regions(capture_id, sample_start);
+                CREATE INDEX IF NOT EXISTS captures_by_sha256 ON captures(sha256);
                 CREATE TABLE IF NOT EXISTS label_revisions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     region_id TEXT NOT NULL REFERENCES regions(id) ON DELETE CASCADE,
@@ -228,6 +229,19 @@ class CaptureStore:
             row = db.execute("SELECT * FROM captures WHERE id = ?", (capture_id,)).fetchone()
         if row is None:
             raise KeyError(f"unknown capture: {capture_id}")
+        result = dict(row)
+        result["source_metadata"] = json.loads(result.pop("source_metadata_json"))
+        return result
+
+    def capture_by_sha256(self, digest: str) -> dict[str, Any] | None:
+        """Find an exact previously imported waveform for derived-data lineage."""
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM captures WHERE sha256 = ? ORDER BY created_utc LIMIT 1",
+                (digest,),
+            ).fetchone()
+        if row is None:
+            return None
         result = dict(row)
         result["source_metadata"] = json.loads(result.pop("source_metadata_json"))
         return result

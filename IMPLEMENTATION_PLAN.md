@@ -174,6 +174,10 @@ Synthetic track:
   sources from actual protocol-compliant waveforms.
 - Add offset, gain, AWGN, filtering, drift, clock error and scene mixing first;
   add HF fading/multipath and impulsive interference after basic validation.
+- A deterministic AWGN child generator now records the SNR convention, transform
+  order, seed, gain, clipping and measured SNR. Import requires an exact imported
+  clean parent, regenerates the child for verification, and keeps parent lineage;
+  frequency offsets, filtering, clock error and mixtures remain open.
 - Store SNR convention/bandwidth and transform order. Choose parameter ranges
   against actual passband observations. Track desired versus measured placement.
 - Add payload-only/partial crops, negative examples and mixtures. Preserve RSID
