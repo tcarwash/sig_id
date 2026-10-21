@@ -203,7 +203,8 @@ el("live-start").addEventListener("click", async () => {
     el("workspace").classList.remove("hidden");
     el("capture-title").textContent = "Live passband";
     el("capture-meta").textContent = `${started.sample_rate.toLocaleString()} samples/s · ${started.device_name} · rolling analysis`;
-    el("duration").textContent = "Last 10 s";
+    el("time-start").textContent = "−10 s";
+    el("time-end").textContent = "Now";
     el("audio-player").removeAttribute("src");
     el("waterfall-state").textContent = "Waiting for audio frames…";
     el("track-status").textContent = "Waiting for enough samples to analyze…";
@@ -338,7 +339,8 @@ async function loadCapture() {
   }
   const duration = c.sample_count / c.sample_rate;
   el("capture-meta").textContent = `${c.sample_rate.toLocaleString()} samples/s · ${c.channels} channel${c.channels === 1 ? "" : "s"} · ${duration.toFixed(2)} seconds · ${c.source_kind}`;
-  el("duration").textContent = `${duration.toFixed(2)} s`;
+  el("time-start").textContent = "0 s";
+  el("time-end").textContent = `${duration.toFixed(2)} s`;
   el("audio-player").src = `/api/captures/${c.id}/audio`;
   el("waterfall-state").textContent = "Calculating spectrum…";
   state.waterfall = await request(`/api/captures/${c.id}/waterfall?fft_size=1024&hop_size=256&max_rows=640`);
@@ -391,9 +393,10 @@ function drawWaterfall() {
     }
   }
   context.putImageData(image, 0, 0);
-  const nyquist = data.sample_rate / 2;
-  el("freq-high").textContent = `${Math.round(nyquist).toLocaleString()} Hz`;
-  el("freq-low").textContent = "0 Hz";
+  const firstFrequency = data.frequency_hz[0];
+  const lastFrequency = data.frequency_hz[bins - 1];
+  el("freq-low").textContent = `${Math.round(firstFrequency).toLocaleString()} Hz`;
+  el("freq-high").textContent = `${Math.round(lastFrequency).toLocaleString()} Hz`;
   drawOverlays();
 }
 

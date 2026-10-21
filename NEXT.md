@@ -20,6 +20,8 @@ the workbench API; radio-input routing and independent-signal validation remain 
 - WAV upload/playback, sample-indexed audio replay, bounded spectrogram, drag-selected
   time/frequency regions, manual hierarchical labels, saved-region list and JSONL
   annotation download.
+- Waterfall axes now match the rendered matrix: audio frequency runs left-to-right and
+  time runs top-to-bottom, with frequency ticks below and time ticks alongside the plot.
 - SQLite capture metadata, source SHA-256, overlapping regions and append-only label
   revisions.
 - Clean deterministic 2-FSK, M-FSK, BPSK and QPSK WAVs with manifests and exact
@@ -53,6 +55,10 @@ the workbench API; radio-input routing and independent-signal validation remain 
   negatives, reports held-out method/family confusion and noise false positives, and
   exports hashed weights plus versioned metadata. The API can load
   that artifact and propose labels for a saved region; proposals require explicit review.
+- Bounded Signal Identification Wiki metadata importer covers identified and
+  unidentified page categories. It stores revision, source-reported fields, media links
+  and retrieval time, while leaving source labels unreviewed and media link-only pending
+  per-asset rights review. It does not add Wiki entries to model training.
 - Local input-device discovery and bounded mono/stereo PCM recording through a
   background writer; live audio is saved as a normal capture with device provenance.
 - Browser controls to start/stop live recording and immediately review its waterfall.

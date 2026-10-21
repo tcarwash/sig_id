@@ -29,7 +29,13 @@ def test_upload_waterfall_manual_label_audio_and_jsonl_export(tmp_path):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
             assert (await client.get("/api/health")).json()["status"] == "ok"
-            assert "Signal ID Workbench" in (await client.get("/")).text
+            page = (await client.get("/")).text
+            assert "Signal ID Workbench" in page
+            assert 'class="axis-y"><span id="time-start"' in page
+            assert '<span>Time</span><span id="time-end"' in page
+            assert 'class="axis-x"><span id="freq-low"' in page
+            assert '<span>Audio frequency →</span><span id="freq-high"' in page
+            assert "time on the vertical axis and audio frequency on the horizontal axis" in page
             assert "drawWaterfall" in (await client.get("/app.js")).text
             assert "Provisional signal candidates" in (await client.get("/")).text
             assert "waterfall-layout" in (await client.get("/style.css")).text

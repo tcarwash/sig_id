@@ -65,14 +65,14 @@
             <div class="spectrum-legend"><span>−100 dB</span><i></i><span>0 dB</span></div>
           </div>
           <div class="waterfall-layout">
-            <div class="axis-y"><span id="freq-high">0 Hz</span><span>Audio frequency</span><span id="freq-low">0 Hz</span></div>
+            <div class="axis-y"><span id="time-start">0 s</span><span>Time</span><span id="time-end">0 s</span></div>
             <div class="waterfall-column">
               <div class="waterfall-wrap">
-                <canvas id="waterfall" aria-label="Audio frequency waterfall. Drag to mark a signal region."></canvas>
+                <canvas id="waterfall" aria-label="Waterfall with time on the vertical axis and audio frequency on the horizontal axis. Drag to mark a signal region."></canvas>
                 <canvas id="overlay" aria-hidden="true"></canvas>
                 <div id="hint" class="canvas-hint">Drag across a signal to mark its time and frequency bounds</div>
               </div>
-              <div class="axis-x"><span>Start</span><span>Time →</span><span id="duration">0 s</span></div>
+              <div class="axis-x"><span id="freq-low">0 Hz</span><span>Audio frequency →</span><span id="freq-high">0 Hz</span></div>
             </div>
           </div>
           <div class="capture-controls">
