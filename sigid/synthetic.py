@@ -7,7 +7,56 @@ import math
 from pathlib import Path
 import argparse
 import wave
+import random
 from collections.abc import Sequence
+
+
+def generate_noise_wav(
+    output: str | Path,
+    *,
+    seed: int,
+    sample_rate: int = 12_000,
+    sample_count: int = 24_000,
+    amplitude: float = 0.25,
+) -> dict[str, object]:
+    """Write deterministic uniform noise as an explicitly unlabeled negative."""
+    if not isinstance(seed, int) or isinstance(seed, bool) or not 0 <= seed <= 2**32 - 1:
+        raise ValueError("seed must be an unsigned 32-bit integer")
+    if not isinstance(sample_rate, int) or isinstance(sample_rate, bool) or sample_rate < 8000:
+        raise ValueError("sample_rate must be an integer of at least 8000 Hz")
+    if not isinstance(sample_count, int) or isinstance(sample_count, bool) or sample_count < 1024:
+        raise ValueError("sample_count must be an integer of at least 1024")
+    if not 0 < amplitude <= 1:
+        raise ValueError("amplitude must be in (0, 1]")
+    output = Path(output)
+    pcm = bytearray()
+    rng = random.Random(seed)
+    for _ in range(sample_count):
+        value = round(rng.uniform(-amplitude, amplitude) * 32767)
+        pcm.extend(int(value).to_bytes(2, "little", signed=True))
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(output), "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(sample_rate)
+        wav.writeframes(pcm)
+    manifest: dict[str, object] = {
+        "schema_version": 1,
+        "source_kind": "synthetic",
+        "generator": "sig-id-noise",
+        "generator_version": "0.1.0",
+        "deterministic": True,
+        "waveform": output.name,
+        "sample_rate": sample_rate,
+        "sample_count": sample_count,
+        "sample_width_bytes": 2,
+        "channels": 1,
+        "labels": {"modulation_family": None, "modulation_method": None, "protocol": None, "variant": None},
+        "parameters": {"seed": seed, "amplitude": amplitude, "distribution": "uniform", "negative_kind": "noise_only"},
+        "impairments": [],
+    }
+    output.with_suffix(output.suffix + ".json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    return manifest
 
 
 def generate_2fsk_wav(

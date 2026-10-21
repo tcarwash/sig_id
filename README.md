@@ -129,21 +129,27 @@ sig-id-split-corpus --corpus data/corpus/corpus.json --output data/corpus/splits
 sig-id-train-method-model --split data/corpus/splits.json --output-model data/models/method.npz
 ```
 
-This creates 96 labeled captures (six methods × four source examples × one clean plus
-three SNR variants). The index and generated audio stay in `data/corpus`; imported
+This creates 96 labeled modulation captures (six methods × four source examples ×
+one clean plus three SNR variants) and four independent noise-only negative captures.
+The negatives retain null modulation/protocol labels and are used for rejection
+calibration/evaluation, not as a seventh modulation class. The index and generated
+audio stay in `data/corpus`; imported
 captures and labels are stored under `SIG_ID_DATA_DIR` or the normal application data
 directory. Re-running the same command resumes without duplicating captures; changing
 the recipe requires a new output directory.
 The split command validates each dataset capture and label, requires at least three
-independent source groups per method, and assigns every clean waveform and all of its
-derived impairments to the same train, validation or test split.
+independent source groups per method and for noise negatives, and assigns every clean
+waveform and all derived impairments to one train, validation or test split.
 The training command fits a small NumPy logistic-regression baseline, calibrates
 separate method and family rejection thresholds on validation groups, evaluates once
 on the held-out test groups, and writes weight, metadata and evaluation files. To load
 the exported proposal model in the workbench, set `SIG_ID_MODEL_PATH` to the `.npz`
 file before starting `sig-id-serve`. Proposals never save labels automatically.
-This initial model is trained only on synthetic examples; its unknown-signal rejection
-and performance on real radio captures are unvalidated.
+The model uses a zero-noise-false-positive validation constraint and reports held-out
+noise false positives. If that constraint and the known-mode precision target cannot
+both be met, it abstains on every example; small corpora can therefore yield zero useful
+coverage. This does not validate rejection of unseen modulated families, and real-radio
+performance remains unvalidated.
 
 Replay it blockwise from Python with `sigid.wav.WavSource`; blocks carry exact sample
 offsets and normalized mono samples. This is a modulation fixture, not a named

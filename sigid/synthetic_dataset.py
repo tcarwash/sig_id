@@ -44,7 +44,28 @@ def _validate_manifest(manifest: dict[str, Any], wav_path: Path) -> None:
     if labels.get("protocol") is not None or labels.get("variant") is not None:
         raise ValueError("current generic modulation generators cannot claim a protocol or variant")
 
-    if generator == "sig-id-2fsk":
+    if generator == "sig-id-noise":
+        if manifest.get("generator_version") != "0.1.0":
+            raise ValueError("unsupported noise generator version")
+        if labels != {"modulation_family": None, "modulation_method": None, "protocol": None, "variant": None}:
+            raise ValueError("noise-only examples must not claim modulation or protocol labels")
+        seed = parameters.get("seed")
+        if not isinstance(seed, int) or isinstance(seed, bool) or not 0 <= seed <= 2**32 - 1:
+            raise ValueError("noise manifest has an invalid seed")
+        if parameters.get("negative_kind") != "noise_only" or parameters.get("distribution") != "uniform":
+            raise ValueError("unsupported noise negative recipe")
+        amplitude = parameters.get("amplitude")
+        if not isinstance(amplitude, (int, float)) or isinstance(amplitude, bool) or not 0 < amplitude <= 1:
+            raise ValueError("noise manifest has an invalid amplitude")
+        sample_rate = manifest.get("sample_rate")
+        sample_count = manifest.get("sample_count")
+        if (
+            not isinstance(sample_rate, int) or isinstance(sample_rate, bool) or sample_rate < 8000
+            or not isinstance(sample_count, int) or isinstance(sample_count, bool) or sample_count < 1024
+        ):
+            raise ValueError("noise manifest has invalid audio dimensions")
+        expected_family = expected_method = None
+    elif generator == "sig-id-2fsk":
         if manifest.get("generator_version") != "0.1.0":
             raise ValueError("unsupported 2-FSK generator version")
         expected_family = "FSK"
@@ -156,12 +177,20 @@ def _validate_manifest(manifest: dict[str, Any], wav_path: Path) -> None:
     # Recreate from the reference symbols with the shipped deterministic
     # generator. This prevents a hand-edited sidecar from turning arbitrary
     # audio into accepted synthetic ground truth.
-    from .synthetic import generate_2fsk_wav, generate_bpsk_wav, generate_mfsk_wav, generate_qpsk_wav
+    from .synthetic import generate_2fsk_wav, generate_bpsk_wav, generate_mfsk_wav, generate_qpsk_wav, generate_noise_wav
 
     try:
         with tempfile.TemporaryDirectory(prefix="sig-id-validate-") as temporary:
             regenerated = Path(temporary) / "check.wav"
-            if generator == "sig-id-2fsk":
+            if generator == "sig-id-noise":
+                generate_noise_wav(
+                    regenerated,
+                    seed=parameters["seed"],
+                    sample_rate=manifest["sample_rate"],
+                    sample_count=manifest["sample_count"],
+                    amplitude=parameters["amplitude"],
+                )
+            elif generator == "sig-id-2fsk":
                 generate_2fsk_wav(
                     regenerated,
                     manifest["reference_bits"],
@@ -376,6 +405,9 @@ def import_synthetic_wav(
                     "parent_capture_id": parent_capture["id"] if parent_capture else None,
                 },
                 notes=(
+                    "Controlled noise-only negative; no modulation or protocol label is asserted."
+                    if manifest["generator"] == "sig-id-noise"
+                    else
                     "Deterministic augmentation of an accepted synthetic parent; protocol is intentionally unknown."
                     if parent_capture
                     else "Controlled synthetic modulation source; protocol is intentionally unknown."

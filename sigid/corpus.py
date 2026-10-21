@@ -14,7 +14,7 @@ import numpy as np
 
 from .augmentation import generate_awgn_augmentation
 from .dataset import CaptureStore
-from .synthetic import generate_2fsk_wav, generate_bpsk_wav, generate_mfsk_wav, generate_qpsk_wav
+from .synthetic import generate_2fsk_wav, generate_bpsk_wav, generate_mfsk_wav, generate_qpsk_wav, generate_noise_wav
 from .synthetic_dataset import import_synthetic_wav
 
 
@@ -119,7 +119,7 @@ def build_corpus(
         raise ValueError(f"provide at most {MAX_SNR_LEVELS} distinct SNR levels")
     if any(not np.isfinite(value) or not -10 <= value <= 80 for value in snr_values):
         raise ValueError("all SNR levels must be between -10 and 80 dB")
-    record_limit = len(MODES) * examples_per_mode * (1 + len(snr_values))
+    record_limit = (len(MODES) * (1 + len(snr_values)) + 1) * examples_per_mode
     if record_limit > MAX_CORPUS_RECORDS:
         raise ValueError("requested corpus exceeds the configured record limit")
 
@@ -132,9 +132,10 @@ def build_corpus(
     config = {
         "schema_version": 1,
         "generator": "sig-id-build-corpus",
-        "generator_version": "0.1.0",
+        "generator_version": "0.2.0",
         "seed": seed,
         "examples_per_mode": examples_per_mode,
+        "noise_examples": examples_per_mode,
         "modes": list(MODES),
         "snr_levels_db": snr_values,
         "max_records": record_limit,
@@ -237,6 +238,34 @@ def build_corpus(
                 records_by_key[child_key] = child_record
                 index["records"] = list(records_by_key.values())
                 _atomic_json(index_path, index)
+
+    # Independent noise-only roots are negative examples, not a modulation
+    # taxonomy class. They have no inherited AWGN children or signal labels.
+    for example_index in range(examples_per_mode):
+        noise_key = f"noise/{example_index:04d}/noise-only"
+        if noise_key in records_by_key:
+            continue
+        noise_path = output_dir / "noise" / f"{example_index:04d}.wav"
+        manifest_path = noise_path.with_suffix(noise_path.suffix + ".json")
+        if not noise_path.exists() or not manifest_path.exists():
+            generate_noise_wav(
+                noise_path,
+                seed=_source_seed(seed, "noise", example_index),
+                sample_count=12_000 * 4,
+            )
+        existing = _existing_record(store, noise_path, "noise")
+        if existing is None:
+            imported = import_synthetic_wav(noise_path, manifest_path, store=store, capture_dir=capture_dir)
+            existing = {
+                "capture_id": imported["capture"]["id"],
+                "sha256": imported["capture"]["sha256"],
+                "parent_capture_id": None,
+                "kind": "noise",
+            }
+        record = {"key": noise_key, "mode": "noise", "lineage_group": existing["capture_id"], **existing}
+        records_by_key[noise_key] = record
+        index["records"] = list(records_by_key.values())
+        _atomic_json(index_path, index)
 
     index["records"] = list(records_by_key.values())
     index["record_count"] = len(index["records"])

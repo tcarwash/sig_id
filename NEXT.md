@@ -38,12 +38,20 @@ the workbench API; radio-input routing and independent-signal validation remain 
 - Resumable synthetic corpus command for 2-FSK, 4/8/16-FSK, BPSK and QPSK across
   configurable source counts and AWGN levels. Atomic `corpus.json` indexing groups
   each clean source with all derived SNR variants and avoids duplicate capture imports.
+- Corpus builder also creates deterministic independent noise-only captures with no
+  modulation/protocol labels. Split-safe validation noise constrains abstention
+  calibration to zero observed noise false positives; test output reports noise false-
+  positive rate. When noise and known-mode precision constraints cannot both be met,
+  the model abstains on every example. This only evaluates synthetic noise rejection,
+  not unseen modulated families.
 - Lineage-safe split manifest generation validates capture hashes, parent links and
   accepted method labels, stratifies source groups by modulation method, requires at
-  least three independent groups per method, and proves each method appears in all splits.
-- A NumPy softmax baseline trains method proposals from training groups only, calibrates
-  method/family rejection thresholds on validation groups, reports held-out method and
-  family confusion, and exports hashed weights plus versioned metadata. The API can load
+  least three independent groups per method and for noise, stratifies on stable source
+  waveform hashes rather than database UUIDs, and proves each method appears in all splits.
+- A NumPy softmax baseline trains method proposals from known training groups only,
+  calibrates method/family rejection thresholds on validation groups including noise
+  negatives, reports held-out method/family confusion and noise false positives, and
+  exports hashed weights plus versioned metadata. The API can load
   that artifact and propose labels for a saved region; proposals require explicit review.
 - Local input-device discovery and bounded mono/stereo PCM recording through a
   background writer; live audio is saved as a normal capture with device provenance.
@@ -96,7 +104,7 @@ Verified: Fldigi 4.2.13 and its XML-RPC method catalog are installed; unit tests
 cover receive-only client semantics, PCM WAV block indexing/normalization and
 synthetic 2-FSK/MFSK metadata, exact symbols/bits and tone frequencies, SQLite
 capture hashes/regions/label history, JSONL export, spectrogram peak detection, upload/region APIs, and Fldigi
-status/catalog/mode/output APIs. Current full suite: 84 passed, 4 skipped;
+status/catalog/mode/output APIs. Current full suite: 102 passed, 4 skipped;
 `node --check sigid/web/app.js` and `git diff --check` pass. The generic text-backend
 contract is exercised by the Fldigi adapter and trial-runner tests. Deterministic fake-device tests
 exercise WAV writing, capture indexing, API start/status/stop and rolling live
@@ -121,5 +129,11 @@ The tested Fldigi modes are a three-family sample, not full-catalog validation.
 automatic rate/tone/carrier acquisition remain unverified.
 The baseline trainer and inference path are tested end to end. An exploratory split
 with 10 independent synthetic sources per method and one 10 dB variant achieved 10/12
-raw method decisions on its held-out groups; a four-source run achieved 11/24. These
-small synthetic-only runs are evidence for the pipeline, not a field-performance claim.
+raw method decisions on its held-out groups; a four-source run achieved 11/24. A newer
+12-source-per-method run with one 10 dB variant calibrated to zero observed validation
+noise false positives; its held-out noise false-positive rate was 0/2, overall coverage
+was 46.2%, and accuracy among accepted test examples was 66.7%. A three-source training
+corpus cannot meet both validation constraints and abstains on every example. These
+small synthetic-only runs show the rejection pipeline and its current poor utility;
+they are not field-performance claims. Unknown modulated-family rejection remains
+unvalidated.

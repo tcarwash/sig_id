@@ -44,7 +44,7 @@ def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
 
 def _split_counts(group_count: int, fractions: tuple[float, float, float]) -> tuple[int, int, int]:
     if group_count < 3:
-        raise ValueError("each modulation method needs at least three independent source groups")
+        raise ValueError("each split stratum needs at least three independent source groups")
     train_fraction, validation_fraction, _ = fractions
     train = max(1, round(group_count * train_fraction))
     validation = max(1, round(group_count * validation_fraction))
@@ -81,6 +81,7 @@ def create_split_manifest(
 
     unique_captures: set[str] = set()
     group_modes: dict[str, str] = {}
+    group_hashes: dict[str, str] = {}
     validated_records: list[dict[str, Any]] = []
     for record in records:
         if not isinstance(record, dict):
@@ -88,7 +89,7 @@ def create_split_manifest(
         capture_id = record.get("capture_id")
         mode = record.get("mode")
         group = record.get("lineage_group")
-        if not isinstance(capture_id, str) or not isinstance(group, str) or mode not in MODES:
+        if not isinstance(capture_id, str) or not isinstance(group, str) or mode not in (*MODES, "noise"):
             raise ValueError("corpus record is missing capture, mode or lineage group")
         if capture_id in unique_captures:
             raise ValueError(f"capture {capture_id} appears more than once in the corpus")
@@ -106,6 +107,7 @@ def create_split_manifest(
         if capture["id"] == group:
             if capture["parent_capture_id"] is not None:
                 raise ValueError("lineage group root must be a parentless capture")
+            group_hashes[group] = capture["sha256"]
         elif capture["parent_capture_id"] != group:
             raise ValueError(f"capture {capture_id} is not a direct child of its declared lineage group")
         if capture["parent_capture_id"] != record.get("parent_capture_id"):
@@ -115,16 +117,29 @@ def create_split_manifest(
         if len(regions) != 1:
             raise ValueError(f"capture {capture_id} must have one accepted full-capture label")
         label = regions[0]
-        if (
-            label["sample_start"] != 0
-            or label["sample_count"] != capture["sample_count"]
-            or label["source"] != "synthetic"
-            or label["review_state"] != "accepted"
-            or label["family"] != FAMILY_BY_MODE[mode]
-            or label["protocol"] is not None
-            or label["variant"] is not None
-            or label["method"] != METHOD_BY_MODE[mode]
-        ):
+        if mode == "noise":
+            valid_label = (
+                label["sample_start"] == 0
+                and label["sample_count"] == capture["sample_count"]
+                and label["source"] == "synthetic"
+                and label["review_state"] == "accepted"
+                and label["family"] is None
+                and label["method"] is None
+                and label["protocol"] is None
+                and label["variant"] is None
+                and record.get("kind") == "noise"
+            )
+        else:
+            valid_label = label["sample_start"] == 0 and (
+                label["sample_count"] == capture["sample_count"]
+                and label["source"] == "synthetic"
+                and label["review_state"] == "accepted"
+                and label["family"] == FAMILY_BY_MODE[mode]
+                and label["protocol"] is None
+                and label["variant"] is None
+                and label["method"] == METHOD_BY_MODE[mode]
+            )
+        if not valid_label:
             raise ValueError(f"capture {capture_id} has a missing or contradictory synthetic method label")
         validated_records.append({
             "key": record.get("key"),
@@ -141,24 +156,24 @@ def create_split_manifest(
     root_records = {
         record["lineage_group"]
         for record in validated_records
-        if record["capture_id"] == record["lineage_group"] and record["kind"] == "clean"
+        if record["capture_id"] == record["lineage_group"] and record["kind"] in {"clean", "noise"}
     }
     if root_records != set(group_modes):
         raise ValueError("every lineage group must include its indexed clean root capture")
-    if any(record["kind"] not in {"clean", "awgn"} for record in validated_records):
+    if any(record["kind"] not in {"clean", "awgn", "noise"} for record in validated_records):
         raise ValueError("corpus contains an unsupported generated record kind")
 
-    grouped: dict[str, list[str]] = {mode: [] for mode in MODES}
+    grouped: dict[str, list[str]] = {mode: [] for mode in (*MODES, "noise")}
     for group, mode in group_modes.items():
         grouped[mode].append(group)
-    for mode in MODES:
+    for mode in (*MODES, "noise"):
         if len(grouped[mode]) < 3:
             raise ValueError(f"mode {mode} needs at least three independent source groups for three-way evaluation")
 
     split_for_group: dict[str, str] = {}
     split_names = ("train", "validation", "test")
-    for mode_index, mode in enumerate(MODES):
-        groups = sorted(grouped[mode])
+    for mode_index, mode in enumerate((*MODES, "noise")):
+        groups = sorted(grouped[mode], key=lambda group: group_hashes[group])
         rng = random.Random(seed + mode_index * 1009)
         rng.shuffle(groups)
         n_train, n_validation, _ = _split_counts(len(groups), fractions)
@@ -187,7 +202,7 @@ def create_split_manifest(
             "source_groups": len(group_sets[split]),
             "by_mode": {
                 mode: len({record["lineage_group"] for record in validated_records if record["split"] == split and record["mode"] == mode})
-                for mode in MODES
+                for mode in (*MODES, "noise")
             },
         }
         for split in split_names

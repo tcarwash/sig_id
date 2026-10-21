@@ -202,9 +202,12 @@ Learning track:
   must not require an unjustified family/method label.
 - Implemented first: deterministic NumPy spectral-occupancy features and a softmax
   modulation-method baseline with separately validation-calibrated family/method
-  thresholds, held-out confusion metrics and hashed model export. App inference is
-  opt-in through `SIG_ID_MODEL_PATH`; unknown examples and real-radio evaluation are
-  still required before trusting its rejection or field performance.
+  thresholds, held-out confusion metrics and hashed model export. Independent,
+  deterministically generated noise-only negatives now remain unlabeled, are lineage-
+  split, constrain validation abstention calibration to zero observed false positives,
+  and receive a separate held-out false-positive report. No-threshold cases abstain on
+  every example. App inference is opt-in through `SIG_ID_MODEL_PATH`; unseen
+  modulated-family rejection and real-radio evaluation remain open.
 - Keep protocol heads limited to supported classes; calibrate candidate/rejection
   thresholds on held-out validation data, then freeze before test evaluation.
 - Hold entire protocols out and test whether their families are still recognized.
