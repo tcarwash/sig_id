@@ -1,6 +1,7 @@
 # Next checkpoint
 
-Status: milestone 0 adapter foundation in progress; audio routing is not yet proven.
+Status: WAV replay and first synthetic modulation fixture implemented; Fldigi audio
+integration and UI remain open.
 
 ## Agreed scope
 
@@ -13,15 +14,18 @@ Status: milestone 0 adapter foundation in progress; audio routing is not yet pro
 
 ## Next action
 
-Continue milestone 0 in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md): resolve
-why an isolated Fldigi process does not open its XML-RPC listener, then prove audio
-input, offline waveform generation, decoded output, reset and replay. The Python
-client, catalog capability record and unit tests are in place.
+Continue the receive foundation in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md):
+add persistent capture/region metadata and a waterfall preview, and resolve why a
+fresh isolated Fldigi profile does not open its XML-RPC listener. The WAV source and
+clean 2-FSK generator provide deterministic fixtures while that integration is
+being investigated.
 
 ## Evidence boundary
 
-Verified: Fldigi 4.2.13 and its XML-RPC method catalog are installed; receive-only
-client unit tests pass. An isolated process stayed alive but did not open the
-configured XML-RPC port, so no live catalog or audio integration is claimed yet.
-No application UI, audio loopback proof, generated waveform fixture, model, or
-hardware/RF validation exists. See commit log for the staged changes.
+Verified: Fldigi 4.2.13 and its XML-RPC method catalog are installed; unit tests
+cover receive-only client semantics, PCM WAV block indexing/normalization and
+synthetic 2-FSK metadata and symbol tones. `pytest`: 15 passed, 1 skipped. WAV replay
+is sample-indexed and synthetic files carry protocol-unknown FSK labels. Fresh
+isolated profiles show a configuration wizard; after closing it, the configured
+XML-RPC port still did not listen. No Fldigi audio decode, live audio capture,
+waterfall UI, model, or hardware/RF validation is claimed.

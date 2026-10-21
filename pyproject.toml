@@ -16,6 +16,7 @@ dev = ["pytest>=8"]
 
 [project.scripts]
 sig-id-probe-fldigi = "sigid.fldigi_probe:main"
+sig-id-generate-2fsk = "sigid.synthetic:main"
 
 [tool.setuptools.packages.find]
 include = ["sigid*"]

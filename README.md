@@ -6,10 +6,11 @@ the current engineering checkpoint is [NEXT.md](NEXT.md).
 
 ## Current state
 
-The first code slice contains a receive-only Fldigi XML-RPC client, a catalog
-capability probe, and unit tests. It does not yet provide an audio stream, waterfall,
-decoder UI, or audio-to-decoded-text proof. Catalog presence is reported as pending
-validation and must not be treated as supported decoding.
+Current code includes a receive-only Fldigi XML-RPC client, a catalog capability
+probe, blockwise PCM WAV replay, a clean labeled 2-FSK fixture generator, and unit
+tests. It does not yet provide live audio capture, a waterfall, decoder UI, or
+audio-to-decoded-text proof. Catalog presence is reported as pending validation and
+must not be treated as supported decoding.
 
 ## Development
 
@@ -30,6 +31,17 @@ sig-id-probe-fldigi --url http://127.0.0.1:7362/RPC2
 
 Restrict its XML-RPC method allow-list to the receive and inspection methods needed
 by the application. Do not expose Fldigi's control endpoint outside loopback.
+
+Create a clean binary-FSK fixture with a sidecar manifest containing the exact
+reference bits and modulation parameters:
+
+```sh
+sig-id-generate-2fsk data/fixtures/fsk.wav 001101101001
+```
+
+Replay it blockwise from Python with `sigid.wav.WavSource`; blocks carry exact sample
+offsets and normalized mono samples. This is a modulation fixture, not a named
+protocol waveform.
 
 ## Data sources
 
