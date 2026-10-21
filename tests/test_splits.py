@@ -117,6 +117,7 @@ def test_mixed_scene_unifies_all_component_lineages_in_one_split(tmp_path):
     linked_splits = {assignments[group] for group in dependency["lineage_groups"]}
     assert len(linked_splits) == 1
     assert dependency["split"] == next(iter(linked_splits))
+    assert dependency["split"] == "test"
     assert len(dependency["lineage_groups"]) == 2
     exclusion = next(item for item in split["excluded_mixed_scenes"] if item["capture_id"] == imported_external_scene["capture"]["id"])
     assert exclusion["missing_component_capture_ids"] == [external["capture"]["id"]]

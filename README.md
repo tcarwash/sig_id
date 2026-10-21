@@ -153,7 +153,9 @@ Scene imports re-render against the original accepted synthetic captures before
 storing, so edited samples or recipe fields cannot pass as synthetic ground truth.
 The split command keeps every component lineage used by an indexed scene in one
 partition and reports scenes whose sources are absent from the corpus. Scene regions
-are not yet included as classifier training examples.
+are not classifier training examples. The model evaluation report separately scores
+scene constituent regions whose source lineages were assigned to the held-out test
+partition, with overlapping signals present in the audio crop.
 
 Create a deterministic noisy child from an imported clean source. Import the clean
 source first; the child manifest records its hashes and recipe, and the importer checks

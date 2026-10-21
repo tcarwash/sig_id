@@ -192,7 +192,10 @@ Synthetic track:
   rendering on import. The split manifest keeps connected component lineages in one
   partition and reports scenes whose sources are absent from the corpus. Frequency
   offsets, filtering, clock error, adding scene regions as training examples, and
-  held-out mixed-scene evaluation remain open.
+  detector-level mixed-scene recall/false-alarm evaluation remain open. The baseline
+  separately evaluates accepted mixed-scene constituent regions only when their
+  source lineages are all held out in test; scene samples are excluded from training
+  and threshold calibration.
 - A resumable command now creates and imports six modulation methods across clean
   and configurable AWGN variants, atomically indexing capture IDs and a shared
   lineage group for future split-safe evaluation. Cancellation UI, quotas and richer

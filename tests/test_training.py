@@ -8,6 +8,7 @@ import pytest
 from sigid.classifier import extract_features, load_model, propose
 from sigid.corpus import MODES, build_corpus
 from sigid.dataset import CaptureStore
+from sigid.scenes import create_mixed_scene, import_mixed_scene
 from sigid.splits import create_split_manifest
 from sigid.training import _calibrate_threshold, train_and_evaluate
 from sigid.wav import WavSource
@@ -87,3 +88,44 @@ def test_training_uses_split_groups_calibrates_abstention_and_exports_loadable_m
         artifact.write(b"tamper")
     with pytest.raises(ValueError, match="metadata hash"):
         load_model(model_path)
+
+
+def test_training_reports_only_held_out_mixed_scene_regions(tmp_path):
+    output = tmp_path / "corpus"
+    data = tmp_path / "data"
+    build_corpus(output, data, examples_per_mode=4, snr_levels_db=[], seed=912)
+    store = CaptureStore(data / "dataset.sqlite3")
+    corpus = json.loads((output / "corpus.json").read_text())
+    fsk = next(record for record in corpus["records"] if record["mode"] == "2fsk" and record["kind"] == "clean")
+    bpsk = next(record for record in corpus["records"] if record["mode"] == "bpsk" and record["kind"] == "clean")
+    scene_path = tmp_path / "scenes" / "test-scene.wav"
+    create_mixed_scene(
+        scene_path,
+        [
+            {"capture_id": fsk["capture_id"]},
+            {"capture_id": bpsk["capture_id"], "scene_start_sample": 1000, "gain": 0.5},
+        ],
+        store=store,
+    )
+    scene = import_mixed_scene(
+        scene_path,
+        scene_path.with_suffix(".wav.json"),
+        store=store,
+        capture_dir=data / "captures",
+    )
+
+    split = create_split_manifest(output / "corpus.json", store, seed=19)
+    dependency = next(item for item in split["mixed_scene_dependencies"] if item["capture_id"] == scene["capture"]["id"])
+    assert dependency["split"] == "test"
+    split_path = output / "scene-splits.json"
+    split_path.write_text(json.dumps(split))
+
+    result = train_and_evaluate(split_path, data, tmp_path / "model" / "method.npz", epochs=300)
+    scene_test = result["evaluation"]["mixed_scene_test"]
+    assert scene_test["scenes"] == 1
+    assert scene_test["examples"] == 2
+    assert scene_test["metrics"]["examples"] == 2
+    assert set(scene_test["source_lineage_groups"]) == set(dependency["lineage_groups"])
+    assert scene_test["scene_capture_ids"] == [scene["capture"]["id"]]
+    assert set(scene_test["source_lineage_groups"]).isdisjoint(result["evaluation"]["train_group_ids"])
+    assert set(scene_test["source_lineage_groups"]).isdisjoint(result["evaluation"]["validation_group_ids"])

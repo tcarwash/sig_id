@@ -66,7 +66,7 @@ def _scene_aware_assignments(
     *,
     seed: int,
     fractions: tuple[float, float, float],
-) -> tuple[dict[str, str], list[dict[str, Any]], list[dict[str, Any]]]:
+) -> tuple[dict[str, str], list[dict[str, Any]], list[dict[str, Any]], dict[str, int]]:
     """Keep every set of source lineages used by a scene in one split."""
     parent = {group: group for group in group_modes}
 
@@ -118,8 +118,11 @@ def _scene_aware_assignments(
         root: {group_modes[group] for group in groups}
         for root, groups in clusters.items()
     }
-    for mode in (*MODES, "noise"):
-        independent_clusters = sum(mode in modes for modes in cluster_modes.values())
+    independent_cluster_counts = {
+        mode: sum(mode in modes for modes in cluster_modes.values())
+        for mode in (*MODES, "noise")
+    }
+    for mode, independent_clusters in independent_cluster_counts.items():
         if independent_clusters < 3:
             raise ValueError(
                 f"mode {mode} needs at least three independent source groups after mixed-scene lineage joins"
@@ -139,8 +142,14 @@ def _scene_aware_assignments(
         for root in ordered
     }
     ordered.sort(key=lambda root: (-len(cluster_modes[root]), -rarity[root], group_hashes[min(clusters[root], key=lambda g: group_hashes[g])]))
+    scene_cluster_roots = {
+        find(group)
+        for dependency in dependencies
+        for group in dependency["lineage_groups"]
+    }
     assigned_counts = {split: {mode: 0 for mode in (*MODES, "noise")} for split in split_names}
     assignment: dict[str, str] = {}
+    held_out_scene_assigned = False
     for root in ordered:
         modes = cluster_modes[root]
         scores = []
@@ -152,13 +161,17 @@ def _scene_aware_assignments(
                 weight = 1 / max(1, target)
                 score += (((current + 1 - target) ** 2) - ((current - target) ** 2)) * weight
             score += assigned_counts[split]["noise"] * 0.001
-            scores.append((score, split_index))
+            if root in scene_cluster_roots and not held_out_scene_assigned and split != "test":
+                score += 1_000_000
+            scores.append((score + rng.random() * 1e-6, split_index))
         _, chosen_index = min(scores)
         chosen = split_names[chosen_index]
         for group in clusters[root]:
             assignment[group] = chosen
         for mode in modes:
             assigned_counts[chosen][mode] += 1
+        if root in scene_cluster_roots and chosen == "test":
+            held_out_scene_assigned = True
 
     for split in split_names:
         present = {mode for mode, count in assigned_counts[split].items() if count}
@@ -169,7 +182,7 @@ def _scene_aware_assignments(
         if len(component_splits) != 1:
             raise AssertionError("mixed-scene source lineages crossed split boundaries")
         scene["split"] = next(iter(component_splits))
-    return assignment, dependencies, exclusions
+    return assignment, dependencies, exclusions, independent_cluster_counts
 
 
 def create_split_manifest(
@@ -290,7 +303,7 @@ def create_split_manifest(
         if capture["source_kind"] == "synthetic"
         and capture["source_metadata"].get("generator") == "sig-id-mixed-scene"
     ]
-    split_for_group, scene_dependencies, scene_exclusions = _scene_aware_assignments(
+    split_for_group, scene_dependencies, scene_exclusions, independent_cluster_counts = _scene_aware_assignments(
         group_modes,
         group_hashes,
         mixed_scenes,
@@ -333,6 +346,7 @@ def create_split_manifest(
         "group_rule": "source lineages connected by mixed-scene constituents share one split",
         "mixed_scene_dependencies": scene_dependencies,
         "excluded_mixed_scenes": scene_exclusions,
+        "independent_source_clusters_by_mode": independent_cluster_counts,
         "counts": counts,
         "records": validated_records,
     }

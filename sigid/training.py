@@ -124,6 +124,104 @@ def _features_for(rows: list[dict[str, Any]]) -> tuple[np.ndarray, np.ndarray, l
     return np.asarray(feature_rows, dtype=np.float32), np.asarray(labels, dtype=object), [row["lineage_group"] for row in rows]
 
 
+def _mixed_scene_test_features(
+    split_manifest: dict[str, Any], store: CaptureStore
+) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
+    """Extract held-out scene constituent regions without adding them to training."""
+    dependencies = split_manifest.get("mixed_scene_dependencies", [])
+    records = split_manifest.get("records", [])
+    source_groups = {record["capture_id"]: record["lineage_group"] for record in records}
+    group_splits = {record["lineage_group"]: record["split"] for record in records}
+    mode_by_method = {method: mode for mode, method in METHOD_BY_MODE.items()}
+    features: list[np.ndarray] = []
+    labels: list[str] = []
+    scene_ids: set[str] = set()
+    test_groups: set[str] = set()
+    skipped_components = 0
+
+    for dependency in dependencies:
+        if dependency.get("split") != "test":
+            continue
+        scene_id = dependency.get("capture_id")
+        scene = store.capture(scene_id)
+        if scene["source_kind"] != "synthetic" or scene["sha256"] != dependency.get("sha256"):
+            raise ValueError(f"mixed-scene test capture {scene_id} does not match its split manifest")
+        metadata = scene["source_metadata"]
+        component_ids = dependency.get("component_capture_ids")
+        if (
+            metadata.get("generator") != "sig-id-mixed-scene"
+            or not isinstance(component_ids, list)
+            or metadata.get("component_capture_ids") != component_ids
+            or any(component_id not in source_groups for component_id in component_ids)
+        ):
+            raise ValueError(f"mixed-scene test capture {scene_id} has invalid source dependencies")
+        scene_lineages = {source_groups[component_id] for component_id in component_ids}
+        if (
+            set(dependency.get("lineage_groups", [])) != scene_lineages
+            or any(group_splits.get(group) != "test" for group in scene_lineages)
+        ):
+            raise ValueError(f"mixed-scene test capture {scene_id} shares a source lineage outside test")
+
+        regions = store.regions(scene_id)
+        if len(regions) != len(component_ids):
+            raise ValueError(f"mixed-scene test capture {scene_id} has inconsistent constituent regions")
+        waveform = Path(scene["audio_path"])
+        digest = hashlib.sha256(waveform.read_bytes()).hexdigest()
+        if digest != scene["sha256"]:
+            raise ValueError(f"mixed-scene test waveform {scene_id} changed after import")
+        audio = np.asarray(
+            [sample for block in WavSource(waveform).blocks() for sample in block.samples],
+            dtype=np.float64,
+        )
+        for region in regions:
+            evidence = region["evidence"]
+            component_id = evidence.get("component_capture_id")
+            if component_id not in component_ids:
+                raise ValueError(f"mixed-scene test region {region['id']} has no source capture evidence")
+            source_capture = store.capture(component_id)
+            if source_capture["sha256"] != evidence.get("component_sha256"):
+                raise ValueError(f"mixed-scene test source {component_id} changed after scene import")
+            source_regions = store.regions(component_id)
+            source_region = next(
+                (item for item in source_regions if item["id"] == evidence.get("source_region_id")),
+                None,
+            )
+            if source_region is None or any(
+                region[field] != source_region[field]
+                for field in ("family", "method", "protocol", "variant")
+            ):
+                raise ValueError(f"mixed-scene test region {region['id']} label disagrees with its source")
+            start = int(region["sample_start"])
+            end = start + int(region["sample_count"])
+            if start < 0 or end > len(audio):
+                raise ValueError(f"mixed-scene test region {region['id']} exceeds its waveform")
+            mode = mode_by_method.get(region["method"])
+            if region["review_state"] != "accepted" or region["source"] != "synthetic":
+                raise ValueError(f"mixed-scene test region {region['id']} is not accepted synthetic truth")
+            if mode is None:
+                skipped_components += 1
+                continue
+            segment = audio[start:end]
+            if segment.size < 1024:
+                skipped_components += 1
+                continue
+            features.append(extract_features(segment, int(scene["sample_rate"])))
+            labels.append(mode)
+            scene_ids.add(scene_id)
+        test_groups.update(scene_lineages)
+
+    feature_array = np.asarray(features, dtype=np.float32)
+    label_array = np.asarray(labels, dtype=object)
+    details = {
+        "scenes": len(scene_ids),
+        "examples": len(labels),
+        "skipped_components": skipped_components,
+        "scene_capture_ids": sorted(scene_ids),
+        "source_lineage_groups": sorted(test_groups),
+    }
+    return feature_array, label_array, details
+
+
 def _calibrate_threshold(probabilities: np.ndarray, labels: np.ndarray) -> dict[str, Any]:
     top = np.argmax(probabilities, axis=1)
     confidence = probabilities[np.arange(len(top)), top]
@@ -237,7 +335,10 @@ def train_and_evaluate(
     if epochs < 1 or epochs > 20_000:
         raise ValueError("epochs must be between 1 and 20000")
     split_digest = hashlib.sha256(split_path.read_bytes()).hexdigest()
-    rows = _validated_rows(split_path, CaptureStore(data_dir / "dataset.sqlite3"))
+    store = CaptureStore(data_dir / "dataset.sqlite3")
+    split_manifest = json.loads(split_path.read_text(encoding="utf-8"))
+    rows = _validated_rows(split_path, store)
+    mixed_scene_x, mixed_scene_names, mixed_scene_details = _mixed_scene_test_features(split_manifest, store)
     train_rows = [row for row in rows if row["split"] == "train"]
     validation_rows = [row for row in rows if row["split"] == "validation"]
     test_rows = [row for row in rows if row["split"] == "test"]
@@ -267,6 +368,13 @@ def train_and_evaluate(
     family_calibration = _calibrate_threshold(family_probabilities, validation_family_indices)
     family_threshold = float(family_calibration["threshold"])
     test_probabilities = predict_probabilities(x_test, parameters)
+    mixed_scene_evaluation = None
+    if mixed_scene_names.size:
+        mixed_scene_indices = np.asarray([class_indices.get(name, -1) for name in mixed_scene_names], dtype=np.int64)
+        mixed_scene_probabilities = predict_probabilities(mixed_scene_x, parameters)
+        mixed_scene_evaluation = _evaluate(
+            mixed_scene_probabilities, mixed_scene_indices, classes, threshold, family_threshold
+        )
     evaluation = {
         "schema_version": 1,
         "model_type": "multinomial logistic regression",
@@ -276,7 +384,12 @@ def train_and_evaluate(
         "family_calibration": family_calibration,
         "validation": _evaluate(validation_probabilities, validation_indices, classes, threshold, family_threshold),
         "test": _evaluate(test_probabilities, test_indices, classes, threshold, family_threshold),
-        "evaluation_scope": "synthetic generated modulation sources plus noise-only negatives; unseen modulated families and independent radio captures are not validated",
+        "mixed_scene_test": {
+            **mixed_scene_details,
+            "metrics": mixed_scene_evaluation,
+            "scope": "held-out component regions scored in their overlapping scene context; not used for training or calibration",
+        },
+        "evaluation_scope": "synthetic generated modulation sources plus noise-only negatives, with a separate held-out mixed-scene constituent evaluation; unseen modulated families and independent radio captures are not validated",
         "split_group_counts": {
             split: len({row["lineage_group"] for row in rows if row["split"] == split})
             for split in ("train", "validation", "test")

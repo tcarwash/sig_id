@@ -80,10 +80,13 @@ validation remain open.
   remains outside the validated decode list.
 - `sig-id-mix-scene` now combines 2–8 accepted synthetic captures with exact sample
   offsets and gains; `sig-id-import-scene` verifies the rendered samples and stores
-  overlapping constituent regions with their source method labels. Mixed-scene model
-  evaluation and including scene regions as model training examples remain open. The
-  split manifest now joins source lineages connected by a scene and reports scenes
-  whose components are not all in the source corpus.
+  overlapping constituent regions with their source method labels. The split manifest
+  joins source lineages connected by a scene, places a scene-linked cluster in the test
+  partition, and reports scenes whose components are not all in the source corpus.
+  Baseline evaluation scores held-out scene constituent crops separately, including
+  the other overlapping signal as context; scene regions are not used for training or
+  threshold calibration. Detector candidate recall/false-alarm evaluation and adding
+  scene regions as training examples remain open.
 - A mode-by-mode isolated Fldigi 4.2.13 selection audit records all 169 catalog
   entries: 165 of 168 actual modem modes select by name. OFDM500F, OFDM750F and
   OFDM3500 remain listed in Fldigi but selecting them through XML-RPC leaves the
