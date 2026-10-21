@@ -10,11 +10,11 @@ Current code includes WAV upload/playback with a browser waterfall, manual
 time/frequency selection and label export; blockwise PCM replay; a deterministic
 2-FSK fixture generator; SQLite capture, region and label history; and a
 receive-only Fldigi XML-RPC probe. Local device capture and the Fldigi path from
-audio input to recovered text are now represented in the workbench: when a running
+audio input to recovered text are represented in the workbench: when a running
 Fldigi XML-RPC service is available, users can select a catalog mode and view its
-receive-text output. Audio routing remains an external setup and has not yet been
-validated end to end, so the UI reports it as unverified rather than claiming a
-successful decode.
+receive-text output. A synthetic BPSK31 loopback has decoded end to end through a
+temporary virtual audio sink. Routing actual radio input to Fldigi remains an
+external setup and is not yet validated.
 
 ## Development
 
@@ -26,6 +26,14 @@ python3 -m venv .venv
 python -m pip install -e '.[dev]'
 pytest
 sig-id-serve
+```
+
+The opt-in, RF-free Fldigi audio loopback test uses isolated profiles and a temporary
+PulseAudio/PipeWire null sink. It requires a configured `~/.fldigi`, `xvfb-run`, and
+`pactl`:
+
+```sh
+SIGID_TEST_FLDIGI_AUDIO=1 pytest tests/test_fldigi_audio_integration.py
 ```
 
 Then open <http://127.0.0.1:8010>, choose a PCM WAV, and mark a signal region on

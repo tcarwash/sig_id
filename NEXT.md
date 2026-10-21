@@ -3,7 +3,8 @@
 Status: local WAV upload/replay workbench, spectrogram, manual region labels,
 sample-indexed replay, live audio capture, 2-FSK fixtures and SQLite dataset index
 are implemented. Receive-only Fldigi catalog selection and decoded-text display are
-implemented; audio routing and end-to-end decode remain open.
+implemented. A synthetic BPSK31 audio loopback has passed through Fldigi into the
+workbench API; radio-input routing and independent-signal validation remain open.
 
 ## Agreed scope
 
@@ -30,11 +31,11 @@ implemented; audio routing and end-to-end decode remain open.
 
 ## Next action
 
-Continue release 0.1 in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md): validate
-live capture on an actual input device and connect passband audio to Fldigi for a
-known-payload decode. The current UI can choose a decoder from a connected Fldigi
-catalog and show its receive buffer, but does not yet deliver or replay audio into
-Fldigi.
+Continue release 0.1 in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md): connect a
+live radio audio input to the configured Fldigi source and verify a known over-the-air
+or independent audio fixture. The decoder panel can select from the connected Fldigi
+catalog and display the receive text; input-device routing remains an explicit OS or
+Fldigi configuration step.
 
 ## Evidence boundary
 
@@ -42,13 +43,16 @@ Verified: Fldigi 4.2.13 and its XML-RPC method catalog are installed; unit tests
 cover receive-only client semantics, PCM WAV block indexing/normalization and
 synthetic 2-FSK metadata and symbol tones, SQLite capture hashes/regions/label
 history, JSONL export, spectrogram peak detection, upload/region APIs, and Fldigi
-status/catalog/mode/output APIs. `pytest`: 34 passed, 1 skipped;
+status/catalog/mode/output APIs. `pytest`: 34 passed, 2 skipped;
 `node --check sigid/web/app.js` and wheel build pass. Deterministic fake-device tests
 exercise WAV writing, capture indexing, API start/status/stop and waterfall access.
 An isolated live Fldigi 4.2.13 process served the API with the documented receive-only
-allow-list: 169 modes, THOR16 selection, and receive-buffer queries all worked. Its
-copied profile already contained old RX text, so this does not prove new audio
-decoded. A fresh blank profile did not expose XML-RPC until initialized. WAV replay
-is sample-indexed and synthetic files carry protocol-unknown FSK labels. Live
-hardware capture, Fldigi audio routing/decode, automatic identification, trained
-model, and hardware/RF validation remain unverified.
+allow-list: 169 modes, THOR16 selection, and receive-buffer queries all worked. A
+separate, opt-in integration test passes: it creates two copied profiles with all
+rig/PTT paths disabled, routes BPSK31 transmit audio through a temporary PulseAudio
+null sink, and verifies the complete payload arrives through the workbench API. Run it with
+`SIGID_TEST_FLDIGI_AUDIO=1 pytest tests/test_fldigi_audio_integration.py`. This is a
+software loopback, not an independent modem or RF test. A fresh blank profile did
+not expose XML-RPC until initialized. WAV replay is sample-indexed and synthetic
+2-FSK files carry protocol-unknown labels. Live hardware capture, radio audio routing,
+automatic identification, trained model, and RF validation remain unverified.
