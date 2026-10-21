@@ -23,6 +23,9 @@ workbench API; radio-input routing and independent-signal validation remain open
 - SQLite capture metadata, source SHA-256, overlapping regions and append-only label
   revisions.
 - Clean deterministic 2-FSK WAV and sidecar manifest with exact reference bits.
+- Generic 2–64-tone FSK fixture generation with exact tone symbols and, for
+  power-of-two tone counts, exact natural-binary reference bits. MFSK fixtures
+  carry family and method labels while protocol and variant remain null.
 - Local input-device discovery and bounded mono/stereo PCM recording through a
   background writer; live audio is saved as a normal capture with device provenance.
 - Browser controls to start/stop live recording and immediately review its waterfall.
@@ -41,9 +44,9 @@ Fldigi configuration step.
 
 Verified: Fldigi 4.2.13 and its XML-RPC method catalog are installed; unit tests
 cover receive-only client semantics, PCM WAV block indexing/normalization and
-synthetic 2-FSK metadata and symbol tones, SQLite capture hashes/regions/label
-history, JSONL export, spectrogram peak detection, upload/region APIs, and Fldigi
-status/catalog/mode/output APIs. `pytest`: 34 passed, 2 skipped;
+synthetic 2-FSK/MFSK metadata, exact symbols/bits and tone frequencies, SQLite
+capture hashes/regions/label history, JSONL export, spectrogram peak detection, upload/region APIs, and Fldigi
+status/catalog/mode/output APIs. `pytest`: 44 passed, 2 skipped;
 `node --check sigid/web/app.js` and wheel build pass. Deterministic fake-device tests
 exercise WAV writing, capture indexing, API start/status/stop and waterfall access.
 An isolated live Fldigi 4.2.13 process served the API with the documented receive-only
@@ -54,5 +57,6 @@ null sink, and verifies the complete payload arrives through the workbench API. 
 `SIGID_TEST_FLDIGI_AUDIO=1 pytest tests/test_fldigi_audio_integration.py`. This is a
 software loopback, not an independent modem or RF test. A fresh blank profile did
 not expose XML-RPC until initialized. WAV replay is sample-indexed and synthetic
-2-FSK files carry protocol-unknown labels. Live hardware capture, radio audio routing,
+FSK/MFSK files carry modulation labels while leaving protocol unknown. Live hardware
+capture, radio audio routing,
 automatic identification, trained model, and RF validation remain unverified.

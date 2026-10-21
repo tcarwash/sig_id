@@ -7,8 +7,8 @@ the current engineering checkpoint is [NEXT.md](NEXT.md).
 ## Current state
 
 Current code includes WAV upload/playback with a browser waterfall, manual
-time/frequency selection and label export; blockwise PCM replay; a deterministic
-2-FSK fixture generator; SQLite capture, region and label history; and a
+time/frequency selection and label export; blockwise PCM replay; deterministic
+2-FSK and generic MFSK fixture generators; SQLite capture, region and label history; and a
 receive-only Fldigi XML-RPC probe. Local device capture and the Fldigi path from
 audio input to recovered text are represented in the workbench: when a running
 Fldigi XML-RPC service is available, users can select a catalog mode and view its
@@ -67,6 +67,13 @@ reference bits and modulation parameters:
 
 ```sh
 sig-id-generate-2fsk data/fixtures/fsk.wav 001101101001
+```
+
+Generate a protocol-independent 4-FSK/MFSK fixture with exact source symbols,
+binary tone mapping, modulation-method labels, and no invented protocol label:
+
+```sh
+sig-id-generate-mfsk data/fixtures/mfsk4.wav 0,1,3,2 --symbol-rate 100
 ```
 
 Replay it blockwise from Python with `sigid.wav.WavSource`; blocks carry exact sample

@@ -5,7 +5,7 @@ import wave
 
 import pytest
 
-from sigid.synthetic import generate_2fsk_wav
+from sigid.synthetic import generate_2fsk_wav, generate_mfsk_wav, mfsk_main
 from sigid.wav import WavSource
 
 
@@ -66,3 +66,79 @@ def test_generator_emits_the_requested_tone_for_each_symbol(tmp_path):
 
     assert crossings(samples[:symbol]) == 19
     assert crossings(samples[symbol:]) in (29, 30)
+
+
+def test_mfsk_generator_saves_exact_symbols_bits_mapping_and_method_label(tmp_path):
+    import numpy as np
+
+    path = tmp_path / "mfsk4.wav"
+    manifest = generate_mfsk_wav(
+        path,
+        [0, 1, 2, 3],
+        tone_count=4,
+        sample_rate=12000,
+        symbol_rate=100,
+        base_tone_hz=1000,
+        tone_spacing_hz=200,
+    )
+    saved = json.loads(path.with_suffix(".wav.json").read_text())
+    assert saved == manifest
+    assert manifest["labels"] == {
+        "modulation_family": "MFSK",
+        "modulation_method": "4-ary frequency shift keying",
+        "protocol": None,
+        "variant": None,
+    }
+    assert manifest["reference_symbols"] == [0, 1, 2, 3]
+    assert manifest["reference_bits"] == "00011011"
+    assert manifest["parameters"]["tone_frequencies_hz"] == [1000, 1200, 1400, 1600]
+    assert manifest["parameters"]["protocol_framing"] is None
+
+    with wave.open(str(path), "rb") as wav:
+        samples = np.frombuffer(wav.readframes(wav.getnframes()), dtype="<i2").astype(float)
+    samples_per_symbol = 120
+    measured = []
+    for index in range(4):
+        block = samples[index * samples_per_symbol : (index + 1) * samples_per_symbol]
+        spectrum = np.abs(np.fft.rfft(block))
+        measured.append(int(np.argmax(spectrum)) * 100)
+    assert measured == [1000, 1200, 1400, 1600]
+
+    second = tmp_path / "same.wav"
+    generate_mfsk_wav(second, [0, 1, 2, 3], sample_rate=12000, symbol_rate=100)
+    assert path.read_bytes() == second.read_bytes()
+
+
+def test_mfsk_non_power_of_two_uses_symbols_without_fabricating_bits(tmp_path):
+    manifest = generate_mfsk_wav(tmp_path / "mfsk5.wav", [0, 4, 1], tone_count=5)
+    assert manifest["labels"]["modulation_family"] == "MFSK"
+    assert manifest["reference_symbols"] == [0, 4, 1]
+    assert manifest["reference_bits"] is None
+    assert manifest["parameters"]["bits_per_symbol"] is None
+
+
+def test_mfsk_cli_generates_a_labeled_fixture(tmp_path, monkeypatch, capsys):
+    path = tmp_path / "cli-mfsk.wav"
+    monkeypatch.setattr("sys.argv", ["sig-id-generate-mfsk", str(path), "0,3,1"])
+    mfsk_main()
+    output = json.loads(capsys.readouterr().out)
+    assert path.exists()
+    assert output["reference_symbols"] == [0, 3, 1]
+    assert output["labels"]["modulation_family"] == "MFSK"
+
+
+@pytest.mark.parametrize(
+    ("symbols", "kwargs", "message"),
+    [
+        ([], {}, "non-empty"),
+        ([0, 4], {"tone_count": 4}, "tone index"),
+        ([0, 1.5], {}, "tone index"),
+        ([0, 1], {"tone_count": 1}, "tone_count"),
+        ([0, 1], {"sample_rate": 8000, "symbol_rate": 300}, "multiple"),
+        ([0, 1], {"base_tone_hz": 3000, "tone_spacing_hz": 1000}, "Nyquist"),
+        ([0, 1], {"amplitude": 0}, "amplitude"),
+    ],
+)
+def test_mfsk_generator_rejects_invalid_inputs(tmp_path, symbols, kwargs, message):
+    with pytest.raises(ValueError, match=message):
+        generate_mfsk_wav(tmp_path / "invalid.wav", symbols, **kwargs)

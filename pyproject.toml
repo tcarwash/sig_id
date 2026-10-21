@@ -17,6 +17,7 @@ dev = ["pytest>=8", "fastapi>=0.111", "httpx>=0.27", "numpy>=2.0", "python-multi
 [project.scripts]
 sig-id-probe-fldigi = "sigid.fldigi_probe:main"
 sig-id-generate-2fsk = "sigid.synthetic:main"
+sig-id-generate-mfsk = "sigid.synthetic:mfsk_main"
 sig-id-serve = "sigid.server:main"
 
 [tool.setuptools.package-data]
