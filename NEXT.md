@@ -85,12 +85,11 @@ validation remain open.
   overlapping constituent regions with their source method labels. The split manifest
   joins source lineages connected by a scene, places a scene-linked cluster in the test
   partition, and reports scenes whose components are not all in the source corpus.
-  Baseline evaluation scores held-out scene constituent crops separately, including
-  the other overlapping signal as context; scene regions are not used for training or
-  threshold calibration. `sig-id-evaluate-detector` reports temporal component recall,
+  The method model now trains and calibrates on constituent crops in the train and
+  validation splits, with the other overlapping signal as context; test-scene crops
+  remain held out and score separately. `sig-id-evaluate-detector` reports temporal component recall,
   candidate precision, and false candidates/hour over mixed scenes and noise-only
-  captures. Broader drift/weak-signal/speech-interference evaluation and adding scene
-  regions as training examples remain open.
+  captures. Broader weak-signal and speech-interference evaluation remains open.
 - A mode-by-mode isolated Fldigi 4.2.13 selection audit records all 169 catalog
   entries: 165 of 168 actual modem modes select by name. OFDM500F, OFDM750F and
   OFDM3500 remain listed in Fldigi but selecting them through XML-RPC leaves the

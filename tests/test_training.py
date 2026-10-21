@@ -56,7 +56,7 @@ def test_training_uses_split_groups_calibrates_abstention_and_exports_loadable_m
     assert metadata["noise_class_validated"] is True
     assert metadata["noise_rejection_scope"] == "synthetic_noise_only"
     assert metadata["noise_rejection_validated"] is False
-    assert evaluation["evaluation_scope"].startswith("synthetic generated modulation sources plus noise-only negatives")
+    assert evaluation["evaluation_scope"].startswith("synthetic generated modulation sources and lineage-safe mixed-scene constituent crops")
     assert metadata["split_manifest_sha256"] == trained["evaluation"]["split_manifest_sha256"]
     assert set(evaluation["train_group_ids"]).isdisjoint(evaluation["validation_group_ids"])
     assert set(evaluation["train_group_ids"]).isdisjoint(evaluation["test_group_ids"])
@@ -133,6 +133,32 @@ def test_training_reports_only_held_out_mixed_scene_regions(tmp_path):
     split = create_split_manifest(output / "corpus.json", store, seed=19)
     dependency = next(item for item in split["mixed_scene_dependencies"] if item["capture_id"] == scene["capture"]["id"])
     assert dependency["split"] == "test"
+
+    train_sources = []
+    for mode in ("2fsk", "bpsk"):
+        train_sources.append(next(
+            record for record in split["records"]
+            if record["mode"] == mode and record["kind"] == "clean" and record["split"] == "train"
+        ))
+    train_scene_path = tmp_path / "scenes" / "train-scene.wav"
+    train_scene_manifest = create_mixed_scene(
+        train_scene_path,
+        [{"capture_id": record["capture_id"]} for record in train_sources],
+        store=store,
+    )
+    train_scene = import_mixed_scene(
+        train_scene_path,
+        train_scene_path.with_suffix(".wav.json"),
+        store=store,
+        capture_dir=data / "captures",
+    )
+    split["mixed_scene_dependencies"].append({
+        "capture_id": train_scene["capture"]["id"],
+        "sha256": train_scene["capture"]["sha256"],
+        "component_capture_ids": [record["capture_id"] for record in train_sources],
+        "lineage_groups": sorted({record["lineage_group"] for record in train_sources}),
+        "split": "train",
+    })
     split_path = output / "scene-splits.json"
     split_path.write_text(json.dumps(split))
 
@@ -145,3 +171,7 @@ def test_training_reports_only_held_out_mixed_scene_regions(tmp_path):
     assert scene_test["scene_capture_ids"] == [scene["capture"]["id"]]
     assert set(scene_test["source_lineage_groups"]).isdisjoint(result["evaluation"]["train_group_ids"])
     assert set(scene_test["source_lineage_groups"]).isdisjoint(result["evaluation"]["validation_group_ids"])
+    scene_train = result["evaluation"]["mixed_scene_training"]
+    assert scene_train["scenes"] == 1
+    assert scene_train["examples"] == 2
+    assert set(scene_train["source_lineage_groups"]).issubset(result["evaluation"]["train_group_ids"])

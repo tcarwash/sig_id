@@ -124,10 +124,19 @@ def _features_for(rows: list[dict[str, Any]]) -> tuple[np.ndarray, np.ndarray, l
     return np.asarray(feature_rows, dtype=np.float32), np.asarray(labels, dtype=object), [row["lineage_group"] for row in rows]
 
 
-def _mixed_scene_test_features(
-    split_manifest: dict[str, Any], store: CaptureStore
+def _include_scene_features(
+    features: np.ndarray, labels: np.ndarray, scene_data: tuple[np.ndarray, np.ndarray, dict[str, Any]]
+) -> tuple[np.ndarray, np.ndarray]:
+    scene_features, scene_labels, _ = scene_data
+    if not scene_features.size:
+        return features, labels
+    return np.concatenate((features, scene_features), axis=0), np.concatenate((labels, scene_labels), axis=0)
+
+
+def _mixed_scene_features(
+    split_manifest: dict[str, Any], store: CaptureStore, split_name: str
 ) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
-    """Extract held-out scene constituent regions without adding them to training."""
+    """Extract labeled scene crops only when every source lineage shares this split."""
     dependencies = split_manifest.get("mixed_scene_dependencies", [])
     records = split_manifest.get("records", [])
     source_groups = {record["capture_id"]: record["lineage_group"] for record in records}
@@ -136,16 +145,16 @@ def _mixed_scene_test_features(
     features: list[np.ndarray] = []
     labels: list[str] = []
     scene_ids: set[str] = set()
-    test_groups: set[str] = set()
+    scene_groups: set[str] = set()
     skipped_components = 0
 
     for dependency in dependencies:
-        if dependency.get("split") != "test":
+        if dependency.get("split") != split_name:
             continue
         scene_id = dependency.get("capture_id")
         scene = store.capture(scene_id)
         if scene["source_kind"] != "synthetic" or scene["sha256"] != dependency.get("sha256"):
-            raise ValueError(f"mixed-scene test capture {scene_id} does not match its split manifest")
+            raise ValueError(f"mixed-scene {split_name} capture {scene_id} does not match its split manifest")
         metadata = scene["source_metadata"]
         component_ids = dependency.get("component_capture_ids")
         if (
@@ -154,21 +163,21 @@ def _mixed_scene_test_features(
             or metadata.get("component_capture_ids") != component_ids
             or any(component_id not in source_groups for component_id in component_ids)
         ):
-            raise ValueError(f"mixed-scene test capture {scene_id} has invalid source dependencies")
+            raise ValueError(f"mixed-scene {split_name} capture {scene_id} has invalid source dependencies")
         scene_lineages = {source_groups[component_id] for component_id in component_ids}
         if (
             set(dependency.get("lineage_groups", [])) != scene_lineages
-            or any(group_splits.get(group) != "test" for group in scene_lineages)
+            or any(group_splits.get(group) != split_name for group in scene_lineages)
         ):
-            raise ValueError(f"mixed-scene test capture {scene_id} shares a source lineage outside test")
+            raise ValueError(f"mixed-scene {split_name} capture {scene_id} shares a source lineage outside {split_name}")
 
         regions = store.regions(scene_id)
         if len(regions) != len(component_ids):
-            raise ValueError(f"mixed-scene test capture {scene_id} has inconsistent constituent regions")
+            raise ValueError(f"mixed-scene {split_name} capture {scene_id} has inconsistent constituent regions")
         waveform = Path(scene["audio_path"])
         digest = hashlib.sha256(waveform.read_bytes()).hexdigest()
         if digest != scene["sha256"]:
-            raise ValueError(f"mixed-scene test waveform {scene_id} changed after import")
+            raise ValueError(f"mixed-scene {split_name} waveform {scene_id} changed after import")
         audio = np.asarray(
             [sample for block in WavSource(waveform).blocks() for sample in block.samples],
             dtype=np.float64,
@@ -177,10 +186,10 @@ def _mixed_scene_test_features(
             evidence = region["evidence"]
             component_id = evidence.get("component_capture_id")
             if component_id not in component_ids:
-                raise ValueError(f"mixed-scene test region {region['id']} has no source capture evidence")
+                raise ValueError(f"mixed-scene {split_name} region {region['id']} has no source capture evidence")
             source_capture = store.capture(component_id)
             if source_capture["sha256"] != evidence.get("component_sha256"):
-                raise ValueError(f"mixed-scene test source {component_id} changed after scene import")
+                raise ValueError(f"mixed-scene {split_name} source {component_id} changed after scene import")
             source_regions = store.regions(component_id)
             source_region = next(
                 (item for item in source_regions if item["id"] == evidence.get("source_region_id")),
@@ -190,14 +199,14 @@ def _mixed_scene_test_features(
                 region[field] != source_region[field]
                 for field in ("family", "method", "protocol", "variant")
             ):
-                raise ValueError(f"mixed-scene test region {region['id']} label disagrees with its source")
+                raise ValueError(f"mixed-scene {split_name} region {region['id']} label disagrees with its source")
             start = int(region["sample_start"])
             end = start + int(region["sample_count"])
             if start < 0 or end > len(audio):
-                raise ValueError(f"mixed-scene test region {region['id']} exceeds its waveform")
+                raise ValueError(f"mixed-scene {split_name} region {region['id']} exceeds its waveform")
             mode = mode_by_method.get(region["method"])
             if region["review_state"] != "accepted" or region["source"] != "synthetic":
-                raise ValueError(f"mixed-scene test region {region['id']} is not accepted synthetic truth")
+                raise ValueError(f"mixed-scene {split_name} region {region['id']} is not accepted synthetic truth")
             if mode is None:
                 skipped_components += 1
                 continue
@@ -208,7 +217,7 @@ def _mixed_scene_test_features(
             features.append(extract_features(segment, int(scene["sample_rate"])))
             labels.append(mode)
             scene_ids.add(scene_id)
-        test_groups.update(scene_lineages)
+        scene_groups.update(scene_lineages)
 
     feature_array = np.asarray(features, dtype=np.float32)
     label_array = np.asarray(labels, dtype=object)
@@ -217,7 +226,8 @@ def _mixed_scene_test_features(
         "examples": len(labels),
         "skipped_components": skipped_components,
         "scene_capture_ids": sorted(scene_ids),
-        "source_lineage_groups": sorted(test_groups),
+        "source_lineage_groups": sorted(scene_groups),
+        "split": split_name,
     }
     return feature_array, label_array, details
 
@@ -352,14 +362,22 @@ def train_and_evaluate(
     store = CaptureStore(data_dir / "dataset.sqlite3")
     split_manifest = json.loads(split_path.read_text(encoding="utf-8"))
     rows = _validated_rows(split_path, store)
-    mixed_scene_x, mixed_scene_names, mixed_scene_details = _mixed_scene_test_features(split_manifest, store)
+    scene_features = {
+        split: _mixed_scene_features(split_manifest, store, split)
+        for split in ("train", "validation", "test")
+    }
     train_rows = [row for row in rows if row["split"] == "train"]
     validation_rows = [row for row in rows if row["split"] == "validation"]
     test_rows = [row for row in rows if row["split"] == "test"]
-    x_train, y_train_names, _ = _features_for(train_rows)
-    x_validation, y_validation_names, validation_groups = _features_for(validation_rows)
-    x_test, y_test_names, test_groups = _features_for(test_rows)
-    train_groups = [row["lineage_group"] for row in train_rows]
+    x_train, y_train_names, train_row_groups = _features_for(train_rows)
+    x_validation, y_validation_names, validation_row_groups = _features_for(validation_rows)
+    x_test, y_test_names, test_row_groups = _features_for(test_rows)
+    x_train, y_train_names = _include_scene_features(x_train, y_train_names, scene_features["train"])
+    x_validation, y_validation_names = _include_scene_features(x_validation, y_validation_names, scene_features["validation"])
+    x_test, y_test_names = _include_scene_features(x_test, y_test_names, scene_features["test"])
+    train_groups = set(train_row_groups) | set(scene_features["train"][2]["source_lineage_groups"])
+    validation_groups = set(validation_row_groups) | set(scene_features["validation"][2]["source_lineage_groups"])
+    test_groups = set(test_row_groups) | set(scene_features["test"][2]["source_lineage_groups"])
     if set(train_groups) & set(validation_groups) or set(train_groups) & set(test_groups) or set(validation_groups) & set(test_groups):
         raise ValueError("lineage leakage detected before training")
     classes = [*MODES, NOISE_CLASS]
@@ -384,6 +402,7 @@ def train_and_evaluate(
     family_threshold = float(family_calibration["threshold"])
     test_probabilities = predict_probabilities(x_test, parameters)
     mixed_scene_evaluation = None
+    mixed_scene_x, mixed_scene_names, mixed_scene_details = scene_features["test"]
     if mixed_scene_names.size:
         mixed_scene_indices = np.asarray([class_indices.get(name, -1) for name in mixed_scene_names], dtype=np.int64)
         mixed_scene_probabilities = predict_probabilities(mixed_scene_x, parameters)
@@ -402,16 +421,18 @@ def train_and_evaluate(
         "mixed_scene_test": {
             **mixed_scene_details,
             "metrics": mixed_scene_evaluation,
-            "scope": "held-out component regions scored in their overlapping scene context; not used for training or calibration",
+            "scope": "held-out component regions scored in their overlapping scene context",
         },
-        "evaluation_scope": "synthetic generated modulation sources plus noise-only negatives, with a separate held-out mixed-scene constituent evaluation; unseen modulated families and independent radio captures are not validated",
+        "mixed_scene_training": scene_features["train"][2],
+        "mixed_scene_validation": scene_features["validation"][2],
+        "evaluation_scope": "synthetic generated modulation sources and lineage-safe mixed-scene constituent crops plus noise-only negatives; unseen modulated families and independent radio captures are not validated",
         "split_group_counts": {
             split: len({row["lineage_group"] for row in rows if row["split"] == split})
             for split in ("train", "validation", "test")
         },
-        "test_group_ids": sorted(set(test_groups)),
-        "validation_group_ids": sorted(set(validation_groups)),
-        "train_group_ids": sorted(set(train_groups)),
+        "test_group_ids": sorted(test_groups),
+        "validation_group_ids": sorted(validation_groups),
+        "train_group_ids": sorted(train_groups),
     }
     output_model_path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile("wb", dir=output_model_path.parent, delete=False) as file:
