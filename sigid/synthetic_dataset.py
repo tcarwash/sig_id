@@ -160,6 +160,26 @@ def _validate_manifest(manifest: dict[str, Any], wav_path: Path) -> None:
             raise ValueError("QPSK reference bits do not match the waveform dimensions")
         if manifest.get("reference_symbols") != [bits[index : index + 2] for index in range(0, len(bits), 2)]:
             raise ValueError("QPSK symbols do not match the reference bit mapping")
+    elif generator == "sig-id-ook":
+        if manifest.get("generator_version") != "0.1.0":
+            raise ValueError("unsupported OOK generator version")
+        expected_family = "ASK"
+        expected_method = "on-off keying (OOK)"
+        bits = manifest.get("reference_bits")
+        if not isinstance(bits, str) or not bits or any(bit not in "01" for bit in bits):
+            raise ValueError("OOK manifest must contain exact reference bits")
+        sample_rate = manifest.get("sample_rate")
+        symbol_rate = parameters.get("symbol_rate")
+        if (
+            not isinstance(sample_rate, int)
+            or isinstance(sample_rate, bool)
+            or not isinstance(symbol_rate, int)
+            or isinstance(symbol_rate, bool)
+            or symbol_rate <= 0
+            or sample_rate % symbol_rate
+            or len(bits) * (sample_rate // symbol_rate) != manifest.get("sample_count")
+        ):
+            raise ValueError("OOK reference bits do not match the waveform dimensions")
     else:
         raise ValueError(f"unsupported synthetic generator: {generator!r}")
 
@@ -177,7 +197,7 @@ def _validate_manifest(manifest: dict[str, Any], wav_path: Path) -> None:
     # Recreate from the reference symbols with the shipped deterministic
     # generator. This prevents a hand-edited sidecar from turning arbitrary
     # audio into accepted synthetic ground truth.
-    from .synthetic import generate_2fsk_wav, generate_bpsk_wav, generate_mfsk_wav, generate_qpsk_wav, generate_noise_wav
+    from .synthetic import generate_2fsk_wav, generate_bpsk_wav, generate_mfsk_wav, generate_qpsk_wav, generate_noise_wav, generate_ook_wav
 
     try:
         with tempfile.TemporaryDirectory(prefix="sig-id-validate-") as temporary:
@@ -221,8 +241,18 @@ def _validate_manifest(manifest: dict[str, Any], wav_path: Path) -> None:
                     amplitude=parameters["amplitude"],
                     initial_phase_radians=parameters["initial_phase_radians"],
                 )
-            else:
+            elif generator == "sig-id-qpsk":
                 generate_qpsk_wav(
+                    regenerated,
+                    manifest["reference_bits"],
+                    sample_rate=manifest["sample_rate"],
+                    symbol_rate=parameters["symbol_rate"],
+                    carrier_hz=parameters["carrier_hz"],
+                    amplitude=parameters["amplitude"],
+                    initial_phase_radians=parameters["initial_phase_radians"],
+                )
+            else:
+                generate_ook_wav(
                     regenerated,
                     manifest["reference_bits"],
                     sample_rate=manifest["sample_rate"],

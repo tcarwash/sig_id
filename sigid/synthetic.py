@@ -312,6 +312,88 @@ def generate_qpsk_wav(
     return manifest
 
 
+def generate_ook_wav(
+    output: str | Path,
+    bits: str,
+    *,
+    sample_rate: int = 12_000,
+    symbol_rate: int = 100,
+    carrier_hz: float = 1_500.0,
+    amplitude: float = 0.6,
+    initial_phase_radians: float = 0.0,
+) -> dict[str, object]:
+    """Generate uncoded on-off-keyed passband audio with exact source bits."""
+    output = Path(output)
+    if not bits or any(bit not in "01" for bit in bits):
+        raise ValueError("bits must be a non-empty string containing only 0 and 1")
+    if (
+        not isinstance(sample_rate, int)
+        or isinstance(sample_rate, bool)
+        or not isinstance(symbol_rate, int)
+        or isinstance(symbol_rate, bool)
+        or sample_rate <= 0
+        or symbol_rate <= 0
+        or sample_rate % symbol_rate
+    ):
+        raise ValueError("sample_rate must be a positive integer multiple of symbol_rate")
+    if not math.isfinite(carrier_hz) or not (0 < carrier_hz < sample_rate / 2):
+        raise ValueError("carrier_hz must be finite and between 0 and Nyquist")
+    if not (0.0 < amplitude <= 1.0) or not math.isfinite(initial_phase_radians):
+        raise ValueError("amplitude must be in (0, 1] and phase must be finite")
+
+    samples_per_symbol = sample_rate // symbol_rate
+    phase = initial_phase_radians
+    phase_step = 2.0 * math.pi * carrier_hz / sample_rate
+    pcm = bytearray()
+    for bit in bits:
+        level = amplitude if bit == "1" else 0.0
+        for _ in range(samples_per_symbol):
+            value = round(math.sin(phase) * level * 32767)
+            pcm.extend(int(value).to_bytes(2, "little", signed=True))
+            phase = (phase + phase_step) % (2.0 * math.pi)
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(output), "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(sample_rate)
+        wav.writeframes(pcm)
+
+    manifest: dict[str, object] = {
+        "schema_version": 1,
+        "source_kind": "synthetic",
+        "generator": "sig-id-ook",
+        "generator_version": "0.1.0",
+        "deterministic": True,
+        "waveform": output.name,
+        "sample_rate": sample_rate,
+        "sample_count": len(bits) * samples_per_symbol,
+        "sample_width_bytes": 2,
+        "channels": 1,
+        "labels": {
+            "modulation_family": "ASK",
+            "modulation_method": "on-off keying (OOK)",
+            "protocol": None,
+            "variant": None,
+        },
+        "parameters": {
+            "symbol_rate": symbol_rate,
+            "carrier_hz": carrier_hz,
+            "amplitude": amplitude,
+            "bit_mapping": {"0": 0.0, "1": amplitude},
+            "initial_phase_radians": initial_phase_radians,
+            "phase_continuous_carrier": True,
+            "protocol_framing": None,
+        },
+        "reference_bits": bits,
+        "impairments": [],
+    }
+    output.with_suffix(output.suffix + ".json").write_text(
+        json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+    )
+    return manifest
+
+
 def generate_mfsk_wav(
     output: str | Path,
     symbols: Sequence[int],
@@ -506,6 +588,28 @@ def qpsk_main() -> None:
     parser.add_argument("--initial-phase-radians", type=float, default=0.0)
     args = parser.parse_args()
     manifest = generate_qpsk_wav(
+        args.output,
+        args.bits,
+        sample_rate=args.sample_rate,
+        symbol_rate=args.symbol_rate,
+        carrier_hz=args.carrier_hz,
+        amplitude=args.amplitude,
+        initial_phase_radians=args.initial_phase_radians,
+    )
+    print(json.dumps(manifest, indent=2))
+
+
+def ook_main() -> None:
+    parser = argparse.ArgumentParser(description="Generate a clean labeled on-off-keying WAV fixture")
+    parser.add_argument("output", type=Path)
+    parser.add_argument("bits", help="reference bit sequence, for example 00110110")
+    parser.add_argument("--sample-rate", type=int, default=12_000)
+    parser.add_argument("--symbol-rate", type=int, default=100)
+    parser.add_argument("--carrier-hz", type=float, default=1_500.0)
+    parser.add_argument("--amplitude", type=float, default=0.6)
+    parser.add_argument("--initial-phase-radians", type=float, default=0.0)
+    args = parser.parse_args()
+    manifest = generate_ook_wav(
         args.output,
         args.bits,
         sample_rate=args.sample_rate,

@@ -5,7 +5,7 @@ import wave
 
 import pytest
 
-from sigid.synthetic import bpsk_main, generate_2fsk_wav, generate_bpsk_wav, generate_mfsk_wav, generate_qpsk_wav, mfsk_main, qpsk_main
+from sigid.synthetic import bpsk_main, generate_2fsk_wav, generate_bpsk_wav, generate_mfsk_wav, generate_ook_wav, generate_qpsk_wav, mfsk_main, ook_main, qpsk_main
 from sigid.wav import WavSource
 
 
@@ -186,6 +186,62 @@ def test_qpsk_generator_and_cli_preserve_gray_mapped_bits(tmp_path, monkeypatch,
 def test_qpsk_generator_rejects_empty_or_odd_bit_sequences(tmp_path, bits):
     with pytest.raises(ValueError, match="even-length"):
         generate_qpsk_wav(tmp_path / "bad-qpsk.wav", bits)
+
+
+def test_ook_generator_and_cli_preserve_exact_bits_and_ask_label(tmp_path, monkeypatch, capsys):
+    path = tmp_path / "ook.wav"
+    manifest = generate_ook_wav(
+        path,
+        "010101",
+        sample_rate=8000,
+        symbol_rate=100,
+        carrier_hz=1200,
+        initial_phase_radians=0.5,
+    )
+    assert json.loads(path.with_suffix(".wav.json").read_text()) == manifest
+    assert manifest["labels"] == {
+        "modulation_family": "ASK",
+        "modulation_method": "on-off keying (OOK)",
+        "protocol": None,
+        "variant": None,
+    }
+    assert manifest["reference_bits"] == "010101"
+    samples = [sample for block in WavSource(path).blocks() for sample in block.samples]
+    assert not any(samples[:80])
+    assert any(samples[80:160])
+    second = tmp_path / "same.wav"
+    generate_ook_wav(
+        second,
+        "010101",
+        sample_rate=8000,
+        symbol_rate=100,
+        carrier_hz=1200,
+        initial_phase_radians=0.5,
+    )
+    assert path.read_bytes() == second.read_bytes()
+
+    cli_path = tmp_path / "cli-ook.wav"
+    monkeypatch.setattr("sys.argv", ["sig-id-generate-ook", str(cli_path), "1010"])
+    ook_main()
+    cli_manifest = json.loads(capsys.readouterr().out)
+    assert cli_manifest["reference_bits"] == "1010"
+    assert cli_manifest["labels"]["modulation_family"] == "ASK"
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"sample_rate": 8000, "symbol_rate": 300},
+        {"sample_rate": True},
+        {"symbol_rate": 0},
+        {"carrier_hz": 6000},
+        {"initial_phase_radians": float("nan")},
+        {"amplitude": 0},
+    ],
+)
+def test_ook_generator_rejects_invalid_parameters(tmp_path, kwargs):
+    with pytest.raises(ValueError):
+        generate_ook_wav(tmp_path / "invalid-ook.wav", "101", **kwargs)
 
 
 @pytest.mark.parametrize(
