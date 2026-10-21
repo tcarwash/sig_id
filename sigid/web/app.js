@@ -2,6 +2,58 @@ const el = (id) => document.getElementById(id);
 const state = { capture: null, waterfall: null, drag: null, selection: null, regions: [] };
 const baseCanvas = el("waterfall");
 const overlayCanvas = el("overlay");
+let livePoll = null;
+
+async function refreshAudioDevices() {
+  try {
+    const devices = await request("/api/audio/devices");
+    const select = el("audio-device");
+    select.replaceChildren(new Option("Default input", ""));
+    for (const device of devices) select.add(new Option(`${device.name} · ${device.max_input_channels} ch`, String(device.id)));
+    el("live-status").textContent = devices.length ? `${devices.length} input device${devices.length === 1 ? "" : "s"} available` : "No audio inputs found";
+  } catch (error) {
+    el("live-status").textContent = error.message;
+  }
+}
+
+el("live-start").addEventListener("click", async () => {
+  clearError();
+  try {
+    const device = el("audio-device").value;
+    const started = await request("/api/live/start", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ device_id: device === "" ? null : Number(device), sample_rate: Number(el("audio-rate").value), channels: 1, max_duration_seconds: 600 }),
+    });
+    el("live-start").disabled = true;
+    el("live-stop").disabled = false;
+    el("live-status").textContent = `Recording · ${started.device_name} · ${started.sample_rate.toLocaleString()} Hz`;
+    livePoll = setInterval(async () => {
+      try {
+        const status = await request("/api/live");
+        if (status.active) el("live-status").textContent = `${status.state} · ${status.frames_written.toLocaleString()} samples`;
+      } catch (error) { showError(error.message); }
+    }, 1000);
+  } catch (error) { showError(error.message); }
+});
+
+el("live-stop").addEventListener("click", async () => {
+  clearError();
+  el("live-stop").disabled = true;
+  try {
+    const result = await request("/api/live/stop", { method: "POST" });
+    state.capture = result.capture;
+    await loadCapture();
+    el("live-status").textContent = `Saved live capture · ${result.frames_written.toLocaleString()} samples`;
+  } catch (error) { showError(error.message); }
+  finally {
+    if (livePoll) clearInterval(livePoll);
+    livePoll = null;
+    el("live-start").disabled = false;
+    el("live-stop").disabled = true;
+  }
+});
+
+refreshAudioDevices();
 
 function showError(message) {
   const target = el("error");
@@ -47,7 +99,7 @@ async function loadCapture() {
   el("empty-state").classList.add("hidden");
   el("workspace").classList.remove("hidden");
   const c = state.capture;
-  el("capture-title").textContent = c.source_metadata.uploaded_filename || "Audio recording";
+  el("capture-title").textContent = c.source_metadata.uploaded_filename || c.source_metadata.device_name || "Audio recording";
   const duration = c.sample_count / c.sample_rate;
   el("capture-meta").textContent = `${c.sample_rate.toLocaleString()} samples/s · ${c.channels} channel${c.channels === 1 ? "" : "s"} · ${duration.toFixed(2)} seconds · ${c.source_kind}`;
   el("duration").textContent = `${duration.toFixed(2)} s`;

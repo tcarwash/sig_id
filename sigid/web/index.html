@@ -25,6 +25,13 @@
           <input id="wav-file" type="file" accept="audio/wav,.wav" required />
           <button type="submit" class="primary">Load recording</button>
         </form>
+        <div class="live-controls">
+          <label>Audio input<select id="audio-device"><option value="">Default input</option></select></label>
+          <label>Rate<select id="audio-rate"><option value="48000">48 kHz</option><option value="96000">96 kHz</option><option value="192000">192 kHz</option></select></label>
+          <button id="live-start" type="button">Start live capture</button>
+          <button id="live-stop" type="button" disabled>Stop and review</button>
+          <span id="live-status" class="muted">Audio input idle</span>
+        </div>
       </section>
 
       <section id="empty-state" class="empty-state">

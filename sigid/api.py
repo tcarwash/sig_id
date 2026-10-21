@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from .dataset import CaptureStore, SignalLabel
+from .live_audio import LiveCaptureManager
 from .spectrum import waterfall
 
 
@@ -32,16 +33,25 @@ class RegionCreate(BaseModel):
     notes: str = ""
 
 
-def create_app(data_dir: str | Path | None = None) -> FastAPI:
+class LiveCaptureStart(BaseModel):
+    device_id: int | None = None
+    sample_rate: int = Field(default=48_000, ge=4000, le=192000)
+    channels: int = Field(default=1, ge=1, le=2)
+    max_duration_seconds: int = Field(default=600, ge=1, le=1800)
+
+
+def create_app(data_dir: str | Path | None = None, audio_backend: Any | None = None) -> FastAPI:
     root = Path(data_dir or os.environ.get("SIG_ID_DATA_DIR", "~/.local/share/sig-id")).expanduser()
     capture_dir = root / "captures"
     capture_dir.mkdir(parents=True, exist_ok=True)
     store = CaptureStore(root / "dataset.sqlite3")
+    live_capture = LiveCaptureManager(store, capture_dir, audio_backend=audio_backend)
 
     app = FastAPI(title="Signal ID Workbench", version="0.1.0")
     app.state.data_dir = root
     app.state.capture_dir = capture_dir
     app.state.capture_store = store
+    app.state.live_capture = live_capture
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
@@ -50,6 +60,40 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     @app.get("/api/captures")
     def list_captures() -> list[dict[str, Any]]:
         return store.list_captures()
+
+    @app.get("/api/audio/devices")
+    def input_devices() -> list[dict[str, Any]]:
+        try:
+            return live_capture.devices()
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    @app.get("/api/live")
+    def live_status() -> dict[str, Any]:
+        return live_capture.status()
+
+    @app.post("/api/live/start")
+    def start_live_capture(data: LiveCaptureStart) -> dict[str, Any]:
+        try:
+            return live_capture.start(
+                device_id=data.device_id,
+                sample_rate=data.sample_rate,
+                channels=data.channels,
+                max_duration_seconds=data.max_duration_seconds,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"could not start audio input: {exc}") from exc
+
+    @app.post("/api/live/stop")
+    def stop_live_capture() -> dict[str, Any]:
+        try:
+            return live_capture.stop()
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.post("/api/captures")
     def upload_capture(file: UploadFile = File(...)) -> dict[str, Any]:
