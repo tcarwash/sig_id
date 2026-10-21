@@ -39,7 +39,9 @@ validation remain open.
   training on those inputs.
 - `sig-id-build-ood-corpus` creates resumable, hash-indexed independent OOK sources
   with varied payloads, symbol rates, carrier frequencies, amplitudes and phase. Its
-  separate index is not accepted by the known-mode trainer.
+  separate index is not accepted as training data. The trainer can use the corpus's
+  disjoint 3:2 validation/test source split to calibrate method/family abstention on
+  OOK negatives without fitting on them.
 - Generic 2–64-tone FSK fixture generation with exact tone symbols and, for
   power-of-two tone counts, exact natural-binary reference bits. MFSK fixtures
   carry family and method labels while protocol and variant remain null.
@@ -150,11 +152,12 @@ validation remain open.
 
 ## Next action
 
-Next, run and retain an independent OOK corpus evaluation report, add a second unknown
+Next, retain a reproducible OOK calibration/evaluation report, add a second unknown
 modulation family, and calibrate live model proposals on held-out mixed scenes.
-The method model now trains a separate noise-only class; the OOK evaluator measures
-only the exact supplied synthetic files and does not establish general rejection of
-unseen modulation families. An opt-in
+An end-to-end experiment with 12 known source groups per mode and 30 separate OOK sources
+showed method/family false acceptance fall from 30/30 to 0/12 on OOK test, while known
+test coverage fell from 92.3% to 42.3% and accepted accuracy rose from 79.2% to 100%.
+These are one synthetic split only, not general unknown-mode or RF performance. An opt-in
 automatic trial now requires a persistent track and an accepted
 method proposal, while abstentions never trigger mode changes. Keep it opt-in until
 unseen-family and real-capture validation establish useful operating limits. The

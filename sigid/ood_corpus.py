@@ -60,6 +60,7 @@ def build_ood_corpus(
         "seed": seed,
         "sample_rate": 12_000,
         "symbols_per_source": 256,
+        "split_strategy": "3-of-5-validation-2-of-5-test-by-independent-source-index",
     }
     if index_path.exists():
         existing = json.loads(index_path.read_text(encoding="utf-8"))
@@ -98,6 +99,7 @@ def build_ood_corpus(
             "manifest_sha256": hashlib.sha256(sidecar.read_bytes()).hexdigest(),
             "parent_index": None,
             "independent_source": True,
+            "split": "validation" if index % 5 in {0, 1, 2} else "test",
             "symbol_rate": symbol_rate,
             "carrier_hz": carrier_hz,
         }
@@ -119,6 +121,80 @@ def main() -> None:
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         parser.error(str(exc))
     print(json.dumps({"index": str(args.output_dir / "ood-corpus.json"), "record_count": result["record_count"]}, indent=2))
+
+
+def load_ood_corpus(index_path: str | Path) -> list[dict[str, Any]]:
+    """Verify the OOD corpus index, independent sources, hashes and exact WAV recipes."""
+    index_path = Path(index_path).expanduser().resolve(strict=True)
+    try:
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"invalid OOD corpus index: {exc}") from exc
+    config = index.get("config") if isinstance(index, dict) else None
+    indexed_records = index.get("records") if isinstance(index, dict) else None
+    if (
+        not isinstance(config, dict)
+        or config.get("generator") != "sig-id-build-ook-ood-corpus"
+        or config.get("generator_version") != "0.1.0"
+        or not isinstance(config.get("examples"), int)
+        or isinstance(config.get("examples"), bool)
+        or config.get("examples", 0) < 1
+        or not isinstance(indexed_records, list)
+        or index.get("record_count") != len(indexed_records)
+        or config.get("examples") != len(indexed_records)
+    ):
+        raise ValueError("unsupported or inconsistent OOD corpus index")
+    root = index_path.parent.resolve()
+    records = indexed_records
+    seen_indices: set[int] = set()
+    seen_hashes: set[str] = set()
+    verified = []
+    for record in records:
+        if not isinstance(record, dict):
+            raise ValueError("OOD corpus records must be objects")
+        source_index = record.get("index")
+        if (
+            not isinstance(source_index, int)
+            or isinstance(source_index, bool)
+            or source_index in seen_indices
+            or record.get("independent_source") is not True
+            or record.get("parent_index") is not None
+            or record.get("split") not in {"validation", "test"}
+            or record.get("split") != ("validation" if source_index % 5 in {0, 1, 2} else "test")
+            or source_index >= config["examples"]
+        ):
+            raise ValueError("OOD corpus must contain uniquely indexed independent validation/test sources")
+        seen_indices.add(source_index)
+        waveform_name = record.get("waveform")
+        manifest_name = record.get("manifest")
+        if not isinstance(waveform_name, str) or not isinstance(manifest_name, str):
+            raise ValueError("OOD corpus waveform and manifest paths must be strings")
+        waveform = (root / waveform_name).resolve(strict=True)
+        sidecar = (root / manifest_name).resolve(strict=True)
+        if not waveform.is_relative_to(root) or not sidecar.is_relative_to(root):
+            raise ValueError("OOD corpus paths must remain inside the indexed directory")
+        waveform_digest = hashlib.sha256(waveform.read_bytes()).hexdigest()
+        sidecar_digest = hashlib.sha256(sidecar.read_bytes()).hexdigest()
+        if (
+            waveform_digest != record.get("waveform_sha256")
+            or sidecar_digest != record.get("manifest_sha256")
+            or waveform_digest in seen_hashes
+        ):
+            raise ValueError("OOD corpus hashes are missing, duplicated or inconsistent")
+        seen_hashes.add(waveform_digest)
+        manifest = json.loads(sidecar.read_text(encoding="utf-8"))
+        _validate_manifest(manifest, waveform)
+        if manifest.get("generator") != "sig-id-ook" or manifest.get("labels", {}).get("modulation_family") != "ASK":
+            raise ValueError("OOD corpus contains a signal outside the declared synthetic OOK family")
+        verified.append({
+            **record,
+            "waveform_path": str(waveform),
+            "manifest_path": str(sidecar),
+            "sample_rate": manifest["sample_rate"],
+        })
+    if seen_indices != set(range(config["examples"])):
+        raise ValueError("OOD corpus indices must cover the configured independent sources exactly once")
+    return verified
 
 
 if __name__ == "__main__":

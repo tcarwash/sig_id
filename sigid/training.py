@@ -15,6 +15,7 @@ import numpy as np
 from .classifier import FEATURE_VERSION, NOISE_CLASS, extract_features, fit_softmax, predict_probabilities
 from .corpus import MODES
 from .dataset import CaptureStore
+from .ood_corpus import load_ood_corpus
 from .splits import FAMILY_BY_MODE, METHOD_BY_MODE
 from .wav import WavSource
 
@@ -22,6 +23,7 @@ from .wav import WavSource
 TARGET_VALIDATION_PRECISION = 0.80
 MIN_CALIBRATION_EXAMPLES = 6
 MAX_VALIDATION_NOISE_FALSE_POSITIVE_RATE = 0.0
+MAX_VALIDATION_UNKNOWN_FALSE_POSITIVE_RATE = 0.0
 
 
 def _atomic_json(path: Path, data: dict[str, Any]) -> None:
@@ -122,6 +124,51 @@ def _features_for(rows: list[dict[str, Any]]) -> tuple[np.ndarray, np.ndarray, l
         feature_rows.append(extract_features(values, int(row["sample_rate"])))
         labels.append(NOISE_CLASS if row["mode"] == "noise" else row["mode"])
     return np.asarray(feature_rows, dtype=np.float32), np.asarray(labels, dtype=object), [row["lineage_group"] for row in rows]
+
+
+def _ood_features_for(rows: list[dict[str, Any]]) -> np.ndarray:
+    features = []
+    for row in rows:
+        values = np.asarray(
+            [sample for block in WavSource(row["waveform_path"]).blocks() for sample in block.samples],
+            dtype=np.float64,
+        )
+        features.append(extract_features(values, int(row["sample_rate"])))
+    return np.asarray(features, dtype=np.float32)
+
+
+def _evaluate_unmodeled(
+    probabilities: np.ndarray,
+    classes: list[str],
+    threshold: float,
+    family_threshold: float,
+) -> dict[str, Any]:
+    if probabilities.ndim != 2 or not probabilities.shape[0]:
+        raise ValueError("OOD evaluation requires at least one probability row")
+    noise_index = classes.index(NOISE_CLASS)
+    top = np.argmax(probabilities, axis=1)
+    confidence = probabilities[np.arange(len(top)), top]
+    accepted = (confidence >= threshold) & (top != noise_index)
+    family_names = ("FSK", "MFSK", "PSK")
+    family_probabilities = np.asarray([
+        probabilities[:, [i for i, name in enumerate(classes) if name in FAMILY_BY_MODE and FAMILY_BY_MODE[name] == family]].sum(axis=1)
+        for family in family_names
+    ]).T
+    family_confidence = np.max(family_probabilities, axis=1)
+    family_accepted = (family_confidence >= family_threshold) & (top != noise_index)
+    count = len(top)
+    return {
+        "examples": count,
+        "method_false_accepts": int(accepted.sum()),
+        "method_false_accept_rate": float(np.mean(accepted)),
+        "family_false_accepts": int(family_accepted.sum()),
+        "family_false_accept_rate": float(np.mean(family_accepted)),
+        "top_candidate_counts": {
+            name: int(np.sum(top == index)) for index, name in enumerate(classes)
+        },
+        "method_confidence_mean": float(np.mean(confidence)),
+        "family_confidence_mean": float(np.mean(family_confidence)),
+    }
 
 
 def _include_scene_features(
@@ -243,33 +290,42 @@ def _calibrate_threshold(
     correct = top == labels
     if noise_class_index is None:
         known = labels >= 0
-        negatives = labels < 0
+        negative_mask = labels < 0
+        noise_mask = negative_mask
+        unknown_mask = negative_mask
         positive_predictions = np.ones(len(top), dtype=bool)
     else:
-        known = labels != noise_class_index
-        negatives = labels == noise_class_index
+        known = (labels != noise_class_index) & (labels >= 0)
+        noise_mask = labels == noise_class_index
+        unknown_mask = labels < 0
+        negative_mask = noise_mask | unknown_mask
         positive_predictions = top != noise_class_index
     candidates = sorted(set(float(value) for value in confidence))
     valid = []
     for threshold in candidates:
         selected_known = (confidence >= threshold) & known & positive_predictions
-        selected_negative = (confidence >= threshold) & negatives & positive_predictions
+        selected_negative = (confidence >= threshold) & negative_mask & positive_predictions
         count = int(selected_known.sum())
         precision = float(np.mean(correct[selected_known])) if count else 0.0
-        noise_fpr = float(np.mean(selected_negative[negatives])) if np.any(negatives) else None
+        negative_fpr = float(np.mean(selected_negative[negative_mask])) if np.any(negative_mask) else None
+        noise_fpr = float(np.mean(selected_negative[noise_mask])) if np.any(noise_mask) else None
+        unknown_fpr = float(np.mean(selected_negative[unknown_mask])) if np.any(unknown_mask) else None
         if (
             count >= MIN_CALIBRATION_EXAMPLES
             and precision >= TARGET_VALIDATION_PRECISION
-            and noise_fpr is not None
-            and noise_fpr <= MAX_VALIDATION_NOISE_FALSE_POSITIVE_RATE
+            and negative_fpr is not None
+            and (noise_fpr is None or noise_fpr <= MAX_VALIDATION_NOISE_FALSE_POSITIVE_RATE)
+            and (unknown_fpr is None or unknown_fpr <= MAX_VALIDATION_UNKNOWN_FALSE_POSITIVE_RATE)
         ):
-            valid.append((threshold, count, precision, noise_fpr))
+            valid.append((threshold, count, precision, negative_fpr, noise_fpr, unknown_fpr))
     if valid:
-        threshold, count, precision, noise_fpr = min(valid, key=lambda value: value[0])
+        threshold, count, precision, negative_fpr, noise_fpr, unknown_fpr = min(valid, key=lambda value: value[0])
         status = "calibrated"
     else:
         threshold, count, precision = 1.000001, 0, 0.0
-        noise_fpr = 0.0
+        negative_fpr = 0.0
+        noise_fpr = 0.0 if np.any(noise_mask) else None
+        unknown_fpr = 0.0 if np.any(unknown_mask) else None
         status = "reject_all_no_threshold_meets_validation_constraints"
     return {
         "status": status,
@@ -278,9 +334,13 @@ def _calibrate_threshold(
         "validation_accepted": count,
         "validation_precision": precision,
         "validation_count": int(len(labels)),
-        "validation_noise_count": int(negatives.sum()),
+        "validation_noise_count": int(noise_mask.sum()),
         "validation_noise_false_positive_rate": noise_fpr,
         "maximum_validation_noise_false_positive_rate": MAX_VALIDATION_NOISE_FALSE_POSITIVE_RATE,
+        "validation_unknown_count": int(unknown_mask.sum()),
+        "validation_unknown_false_positive_rate": unknown_fpr,
+        "maximum_validation_unknown_false_positive_rate": MAX_VALIDATION_UNKNOWN_FALSE_POSITIVE_RATE,
+        "validation_negative_false_positive_rate": negative_fpr,
     }
 
 
@@ -350,6 +410,7 @@ def train_and_evaluate(
     output_model_path: str | Path,
     *,
     epochs: int = 1200,
+    ood_corpus_index: str | Path | None = None,
 ) -> dict[str, Any]:
     split_path = Path(split_manifest_path).expanduser().resolve(strict=True)
     data_dir = Path(data_dir).expanduser().resolve()
@@ -359,9 +420,26 @@ def train_and_evaluate(
     if epochs < 1 or epochs > 20_000:
         raise ValueError("epochs must be between 1 and 20000")
     split_digest = hashlib.sha256(split_path.read_bytes()).hexdigest()
+    ood_index_digest = (
+        hashlib.sha256(Path(ood_corpus_index).expanduser().resolve(strict=True).read_bytes()).hexdigest()
+        if ood_corpus_index is not None else None
+    )
     store = CaptureStore(data_dir / "dataset.sqlite3")
     split_manifest = json.loads(split_path.read_text(encoding="utf-8"))
     rows = _validated_rows(split_path, store)
+    ood_rows = load_ood_corpus(ood_corpus_index) if ood_corpus_index is not None else []
+    ood_validation_rows = [row for row in ood_rows if row["split"] == "validation"]
+    ood_test_rows = [row for row in ood_rows if row["split"] == "test"]
+    if ood_corpus_index is not None and (
+        len(ood_validation_rows) < MIN_CALIBRATION_EXAMPLES or not ood_test_rows
+    ):
+        raise ValueError(
+            f"OOD corpus needs at least {MIN_CALIBRATION_EXAMPLES} validation sources and one test source"
+        )
+    known_hashes = {row["sha256"] for row in rows}
+    ood_hashes = {row["waveform_sha256"] for row in ood_rows}
+    if known_hashes & ood_hashes:
+        raise ValueError("OOD waveform hashes overlap the known-mode train/validation/test corpus")
     scene_features = {
         split: _mixed_scene_features(split_manifest, store, split)
         for split in ("train", "validation", "test")
@@ -372,6 +450,8 @@ def train_and_evaluate(
     x_train, y_train_names, train_row_groups = _features_for(train_rows)
     x_validation, y_validation_names, validation_row_groups = _features_for(validation_rows)
     x_test, y_test_names, test_row_groups = _features_for(test_rows)
+    x_ood_validation = _ood_features_for(ood_validation_rows) if ood_validation_rows else np.empty((0, 260), dtype=np.float32)
+    x_ood_test = _ood_features_for(ood_test_rows) if ood_test_rows else np.empty((0, 260), dtype=np.float32)
     x_train, y_train_names = _include_scene_features(x_train, y_train_names, scene_features["train"])
     x_validation, y_validation_names = _include_scene_features(x_validation, y_validation_names, scene_features["validation"])
     x_test, y_test_names = _include_scene_features(x_test, y_test_names, scene_features["test"])
@@ -386,8 +466,15 @@ def train_and_evaluate(
     validation_indices = np.asarray([class_indices.get(name, -1) for name in y_validation_names], dtype=np.int64)
     test_indices = np.asarray([class_indices.get(name, -1) for name in y_test_names], dtype=np.int64)
     validation_probabilities = predict_probabilities(x_validation, parameters)
+    calibration_probabilities = validation_probabilities
+    calibration_labels = validation_indices
+    ood_validation_probabilities = np.empty((0, len(classes)), dtype=np.float64)
+    if len(x_ood_validation):
+        ood_validation_probabilities = predict_probabilities(x_ood_validation, parameters)
+        calibration_probabilities = np.concatenate((validation_probabilities, ood_validation_probabilities), axis=0)
+        calibration_labels = np.concatenate((validation_indices, np.full(len(x_ood_validation), -1, dtype=np.int64)))
     calibration = _calibrate_threshold(
-        validation_probabilities, validation_indices, noise_class_index=class_indices[NOISE_CLASS]
+        calibration_probabilities, calibration_labels, noise_class_index=class_indices[NOISE_CLASS]
     )
     threshold = float(calibration["threshold"])
     family_names = ("FSK", "MFSK", "PSK")
@@ -398,9 +485,22 @@ def train_and_evaluate(
     validation_family_indices = np.asarray(
         [family_names.index(FAMILY_BY_MODE[name]) if name in FAMILY_BY_MODE else -1 for name in y_validation_names], dtype=np.int64
     )
-    family_calibration = _calibrate_threshold(family_probabilities, validation_family_indices)
+    calibration_family_probabilities = family_probabilities
+    calibration_family_indices = validation_family_indices
+    if len(ood_validation_probabilities):
+        ood_validation_family_probabilities = np.asarray([
+            ood_validation_probabilities[:, [i for i, name in enumerate(classes) if name in FAMILY_BY_MODE and FAMILY_BY_MODE[name] == family]].sum(axis=1)
+            for family in family_names
+        ]).T
+        calibration_family_probabilities = np.concatenate((family_probabilities, ood_validation_family_probabilities), axis=0)
+        calibration_family_indices = np.concatenate((validation_family_indices, np.full(len(x_ood_validation), -1, dtype=np.int64)))
+    family_calibration = _calibrate_threshold(calibration_family_probabilities, calibration_family_indices)
     family_threshold = float(family_calibration["threshold"])
     test_probabilities = predict_probabilities(x_test, parameters)
+    ood_test_metrics = None
+    if len(x_ood_test):
+        ood_test_probabilities = predict_probabilities(x_ood_test, parameters)
+        ood_test_metrics = _evaluate_unmodeled(ood_test_probabilities, classes, threshold, family_threshold)
     mixed_scene_evaluation = None
     mixed_scene_x, mixed_scene_names, mixed_scene_details = scene_features["test"]
     if mixed_scene_names.size:
@@ -418,6 +518,19 @@ def train_and_evaluate(
         "family_calibration": family_calibration,
         "validation": _evaluate(validation_probabilities, validation_indices, classes, threshold, family_threshold),
         "test": _evaluate(test_probabilities, test_indices, classes, threshold, family_threshold),
+        "ood_validation": {
+            "examples": len(ood_validation_rows),
+            "source_indices": [row["index"] for row in ood_validation_rows],
+            "waveform_sha256": [row["waveform_sha256"] for row in ood_validation_rows],
+            "scope": "threshold calibration only; excluded from classifier fitting",
+        },
+        "ood_test": {
+            "metrics": ood_test_metrics,
+            "source_indices": [row["index"] for row in ood_test_rows],
+            "waveform_sha256": [row["waveform_sha256"] for row in ood_test_rows],
+            "scope": "independent synthetic ASK/OOK lineages excluded from model fitting and threshold calibration",
+        },
+        "ood_corpus_index_sha256": ood_index_digest,
         "mixed_scene_test": {
             **mixed_scene_details,
             "metrics": mixed_scene_evaluation,
@@ -425,7 +538,7 @@ def train_and_evaluate(
         },
         "mixed_scene_training": scene_features["train"][2],
         "mixed_scene_validation": scene_features["validation"][2],
-        "evaluation_scope": "synthetic generated modulation sources and lineage-safe mixed-scene constituent crops plus noise-only negatives; unseen modulated families and independent radio captures are not validated",
+        "evaluation_scope": "synthetic generated modulation sources and lineage-safe mixed-scene constituent crops plus noise-only negatives; held-out ASK/OOK rejection is validated only when a separate OOD corpus is supplied; independent radio captures remain unvalidated",
         "split_group_counts": {
             split: len({row["lineage_group"] for row in rows if row["split"] == split})
             for split in ("train", "validation", "test")
@@ -452,7 +565,15 @@ def train_and_evaluate(
         "noise_class_trained": any(row["mode"] == "noise" for row in train_rows),
         "method_names": METHOD_BY_MODE,
         "protocol_prediction_enabled": False,
-        "unknown_rejection_validated": False,
+        "unknown_rejection_validated": bool(
+            calibration["status"] == "calibrated"
+            and ood_test_metrics is not None
+            and ood_test_metrics["method_false_accept_rate"] == 0.0
+            and ood_test_metrics["family_false_accept_rate"] == 0.0
+        ),
+        "unknown_rejection_scope": "synthetic ASK/OOK held-out" if ood_test_metrics is not None else "unvalidated",
+        "ood_corpus_index_sha256": ood_index_digest,
+        "ood_sources_fit_on": 0,
         "noise_class_validated": bool(
             evaluation["test"]["noise_examples"]
             and evaluation["test"]["noise_class_correct"]
@@ -487,6 +608,7 @@ def main() -> None:
     parser.add_argument("--data-dir", type=Path, default=Path(os.environ.get("SIG_ID_DATA_DIR", "~/.local/share/sig-id")).expanduser())
     parser.add_argument("--output-model", type=Path, required=True, help="output .npz model path")
     parser.add_argument("--epochs", type=int, default=1200)
+    parser.add_argument("--ood-corpus", type=Path, help="separate synthetic OOK corpus index for threshold calibration and held-out evaluation")
     args = parser.parse_args()
     try:
         result = train_and_evaluate(
@@ -494,6 +616,7 @@ def main() -> None:
             args.data_dir,
             args.output_model,
             epochs=args.epochs,
+            ood_corpus_index=args.ood_corpus,
         )
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         parser.error(str(exc))

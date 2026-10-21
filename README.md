@@ -200,13 +200,15 @@ its AWGN descendants share a `lineage_group` in the index so they can be kept in
 train/validation/test split:
 
 ```sh
-sig-id-build-corpus --output-dir data/corpus --examples-per-mode 4 --snr-db 0 10 20 --seed 42
+sig-id-build-corpus --output-dir data/corpus --examples-per-mode 12 --snr-db 0 10 20 --seed 42
 sig-id-split-corpus --corpus data/corpus/corpus.json --output data/corpus/splits.json --seed 42
-sig-id-train-method-model --split data/corpus/splits.json --output-model data/models/method.npz
+sig-id-build-ood-corpus --output-dir data/ood/ook --examples 30 --seed 42
+sig-id-train-method-model --split data/corpus/splits.json --ood-corpus data/ood/ook/ood-corpus.json \
+  --output-model data/models/method.npz
 ```
 
-This creates 96 labeled modulation captures (six methods × four source examples ×
-one clean plus three SNR variants) and four independent noise-only negative captures.
+This creates 288 labeled modulation captures (six methods × twelve source examples ×
+one clean plus three SNR variants) and twelve independent noise-only negative captures.
 The negatives retain null modulation/protocol labels and are used for rejection
 calibration/evaluation, not as a seventh modulation class. The index and generated
 audio stay in `data/corpus`; imported
@@ -217,18 +219,25 @@ The split command validates each dataset capture and label, requires at least th
 independent source groups per method and for noise negatives, and assigns every clean
 waveform and all derived impairments to one train, validation or test split.
 The training command fits a small NumPy logistic-regression baseline, calibrates
-separate method and family rejection thresholds on validation groups, evaluates once
-on the held-out test groups, and writes weight, metadata and evaluation files. To load
+separate method and family rejection thresholds on known validation groups and, when
+`--ood-corpus` is supplied, includes its OOK validation sources as negatives only for
+threshold calibration. It evaluates once on the held-out known-mode groups and separate
+OOK test sources, then writes weight, metadata and evaluation files. The OOK corpus
+assigns independent source indices 3:2 to threshold-validation:test; none enters model
+fitting. To load
 the exported proposal model in the workbench, set `SIG_ID_MODEL_PATH` to the `.npz`
 file before starting `sig-id-serve`. Proposals never save labels automatically.
-The model uses a zero-noise-false-positive validation constraint and reports held-out
-noise false positives. If that constraint and the known-mode precision target cannot
-both be met, it abstains on every example; small corpora can therefore yield zero useful
-coverage. This does not validate rejection of unseen modulated families, and real-radio
-performance remains unvalidated.
+The model uses zero-false-accept validation constraints for noise and supplied OOK
+negatives, and reports held-out rates separately. If the constraints and known-mode
+precision target cannot both be met, it abstains on every example; small corpora can
+therefore yield zero useful coverage. OOK calibration and testing validate only this
+synthetic family/recipe range; real-radio performance and other unknown modes remain
+unvalidated.
 
 Build independent synthetic OOK sources with varied payload, baud rate, carrier,
-amplitude and phase. This corpus is separate from the six-class training index:
+amplitude and phase. This corpus is separate from the six-class training index and is
+passed separately to the trainer above. To re-run post-hoc OOK scoring on an already
+trained model:
 
 ```sh
 sig-id-build-ood-corpus --output-dir data/ood/ook --examples 30 --seed 42
@@ -236,10 +245,11 @@ sig-id-evaluate-ood --model data/models/method.npz data/ood/ook/waveforms/ook-*.
   --output data/ood/ook/evaluation.json
 ```
 
-The JSON report records per-waveform hashes and method/family false-accept rates. Keep
-the OOD corpus out of model fitting and threshold calibration. This measures only the
-supplied synthetic ASK/OOK conditions; it does not establish general unknown-mode or
-field performance.
+The JSON report records per-waveform hashes and method/family false-accept rates. The
+standalone evaluator does not alter a model threshold; use `--ood-corpus` during
+training when OOK rejection should affect calibration. This measures only the supplied
+synthetic ASK/OOK conditions; it does not establish general unknown-mode or field
+performance.
 
 Replay it blockwise from Python with `sigid.wav.WavSource`; blocks carry exact sample
 offsets and normalized mono samples. This is a modulation fixture, not a named

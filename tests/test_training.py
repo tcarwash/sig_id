@@ -11,6 +11,7 @@ from sigid.dataset import CaptureStore
 from sigid.scenes import create_mixed_scene, import_mixed_scene
 from sigid.splits import create_split_manifest
 from sigid.training import _calibrate_threshold, train_and_evaluate
+from sigid.ood_corpus import build_ood_corpus
 from sigid.wav import WavSource
 
 
@@ -33,6 +34,17 @@ def test_calibration_enforces_zero_noise_false_positive_target():
     assert result["validation_precision"] == 1.0
     assert result["validation_noise_false_positive_rate"] == 0.0
     assert result["threshold"] > 0.6
+
+
+def test_calibration_rejects_unknown_modulation_without_fitting_it_as_a_class():
+    probabilities = np.asarray([[0.9, 0.1]] * 6 + [[0.8, 0.2]])
+    labels = np.asarray([0] * 6 + [-1])
+    result = _calibrate_threshold(probabilities, labels, noise_class_index=1)
+    assert result["status"] == "calibrated"
+    assert result["validation_accepted"] == 6
+    assert result["validation_unknown_count"] == 1
+    assert result["validation_unknown_false_positive_rate"] == 0.0
+    assert result["threshold"] > 0.8
 
 
 def test_training_uses_split_groups_calibrates_abstention_and_exports_loadable_model(tmp_path):
@@ -175,3 +187,46 @@ def test_training_reports_only_held_out_mixed_scene_regions(tmp_path):
     assert scene_train["scenes"] == 1
     assert scene_train["examples"] == 2
     assert set(scene_train["source_lineage_groups"]).issubset(result["evaluation"]["train_group_ids"])
+
+
+def test_training_calibrates_unknown_rejection_without_fitting_ood_sources(tmp_path):
+    output = tmp_path / "known-corpus"
+    data = tmp_path / "data"
+    build_corpus(output, data, examples_per_mode=10, snr_levels_db=[], seed=812)
+    store = CaptureStore(data / "dataset.sqlite3")
+    split = create_split_manifest(output / "corpus.json", store, seed=38)
+    split_path = output / "splits.json"
+    split_path.write_text(json.dumps(split))
+    ood = build_ood_corpus(tmp_path / "held-out-ook", examples=10, seed=901)
+    ood_index = tmp_path / "held-out-ook" / "ood-corpus.json"
+
+    trained = train_and_evaluate(
+        split_path,
+        data,
+        tmp_path / "model" / "method.npz",
+        epochs=300,
+        ood_corpus_index=ood_index,
+    )
+
+    calibration = trained["evaluation"]["calibration"]
+    ood_test = trained["evaluation"]["ood_test"]
+    assert calibration["validation_unknown_count"] == 6
+    assert calibration["validation_unknown_false_positive_rate"] == 0.0
+    assert len(trained["evaluation"]["ood_validation"]["source_indices"]) == 6
+    assert len(trained["evaluation"]["ood_validation"]["waveform_sha256"]) == 6
+    assert len(ood_test["source_indices"]) == 4
+    assert len(ood_test["waveform_sha256"]) == 4
+    assert set(trained["evaluation"]["ood_validation"]["source_indices"]).isdisjoint(ood_test["source_indices"])
+    assert trained["evaluation"]["ood_validation"]["scope"].startswith("threshold calibration only")
+    assert ood_test["scope"].startswith("independent synthetic ASK/OOK")
+    assert 0 <= ood_test["metrics"]["method_false_accept_rate"] <= 1
+    assert 0 <= ood_test["metrics"]["family_false_accept_rate"] <= 1
+    assert trained["model"]["unknown_rejection_scope"] == "synthetic ASK/OOK held-out"
+    assert trained["model"]["ood_sources_fit_on"] == 0
+    assert trained["model"]["ood_corpus_index_sha256"] == trained["evaluation"]["ood_corpus_index_sha256"]
+    assert trained["model"]["unknown_rejection_validated"] is (
+        calibration["status"] == "calibrated"
+        and ood_test["metrics"]["method_false_accept_rate"] == 0.0
+        and ood_test["metrics"]["family_false_accept_rate"] == 0.0
+    )
+    assert ood["record_count"] == 10

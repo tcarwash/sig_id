@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from sigid.ood_corpus import build_ood_corpus
+from sigid.ood_corpus import build_ood_corpus, load_ood_corpus
 from sigid.synthetic_dataset import _validate_manifest
 
 
@@ -26,6 +26,11 @@ def test_ood_corpus_is_deterministic_resumable_and_varies_signal_parameters(tmp_
         _validate_manifest(manifest, wav_path)
         assert manifest["labels"]["modulation_family"] == "ASK"
         assert manifest["labels"]["protocol"] is None
+    verified = load_ood_corpus(corpus_dir / "ood-corpus.json")
+    validation = {record["index"] for record in verified if record["split"] == "validation"}
+    test = {record["index"] for record in verified if record["split"] == "test"}
+    assert validation.isdisjoint(test)
+    assert validation | test == set(range(5))
 
 
 def test_ood_corpus_rejects_recipe_changes_and_invalid_counts(tmp_path):
@@ -35,3 +40,14 @@ def test_ood_corpus_rejects_recipe_changes_and_invalid_counts(tmp_path):
         build_ood_corpus(corpus_dir, examples=4, seed=11)
     with pytest.raises(ValueError, match="examples"):
         build_ood_corpus(tmp_path / "bad", examples=0)
+
+
+def test_ood_corpus_loader_rejects_changed_waveform_hash(tmp_path):
+    corpus_dir = tmp_path / "ood"
+    corpus = build_ood_corpus(corpus_dir, examples=5, seed=11)
+    waveform = corpus_dir / corpus["records"][0]["waveform"]
+    data = bytearray(waveform.read_bytes())
+    data[-2] ^= 1
+    waveform.write_bytes(data)
+    with pytest.raises(ValueError, match="hashes"):
+        load_ood_corpus(corpus_dir / "ood-corpus.json")
