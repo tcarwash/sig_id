@@ -136,12 +136,14 @@ Put their capture IDs in a JSON recipe; offsets and lengths are in samples at th
 source sample rate, and overlapping components retain separate labels on import.
 Optional `frequency_offset_hz` and `drift_hz_per_second` values shift each signal
 before mixing, with drift measured across that component's duration. `lowpass_hz`
-adds a deterministic smooth low-pass rolloff to model receiver/audio bandwidth:
+adds a deterministic smooth low-pass rolloff to model receiver/audio bandwidth, and
+`clock_error_ppm` changes the rendered symbol/audio clock by resampling the component.
+The manifest records the original source length and the rendered region length:
 
 ```json
 {
   "components": [
-    {"capture_id": "CAPTURE_ID_A", "sample_count": 48000, "scene_start_sample": 0, "gain": 0.7, "frequency_offset_hz": 125, "drift_hz_per_second": 2},
+    {"capture_id": "CAPTURE_ID_A", "sample_count": 48000, "scene_start_sample": 0, "gain": 0.7, "frequency_offset_hz": 125, "drift_hz_per_second": 2, "clock_error_ppm": 2500},
     {"capture_id": "CAPTURE_ID_B", "sample_count": 48000, "scene_start_sample": 24000, "gain": 0.4, "lowpass_hz": 2700}
   ]
 }

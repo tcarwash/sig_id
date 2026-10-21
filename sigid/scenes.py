@@ -46,7 +46,7 @@ def _read_mono_pcm16(path: Path, start_sample: int = 0, sample_count: int | None
     return rate, total_frames, np.frombuffer(pcm, dtype="<i2").astype(np.float64) / 32768.0
 
 
-def _source_component(store: CaptureStore, specification: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], int, int, float, int, np.ndarray, float, float, float | None]:
+def _source_component(store: CaptureStore, specification: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], int, int, float, int, np.ndarray, float, float, float | None, float, int]:
     if not isinstance(specification, dict):
         raise ValueError("scene components must be objects")
     capture_id = specification.get("capture_id")
@@ -87,9 +87,14 @@ def _source_component(store: CaptureStore, specification: dict[str, Any]) -> tup
         raise ValueError("component gain must be finite and between 0 and 4")
     offset = specification.get("frequency_offset_hz", 0.0)
     drift = specification.get("drift_hz_per_second", 0.0)
+    clock_error = specification.get("clock_error_ppm", 0.0)
+    if not isinstance(clock_error, (int, float)) or isinstance(clock_error, bool) or not np.isfinite(clock_error) or not -5000 <= clock_error <= 5000:
+        raise ValueError("component clock_error_ppm must be finite and between -5000 and 5000")
+    clock_scale = 1.0 + float(clock_error) * 1e-6
+    rendered_count = max(1, int(round(sample_count / clock_scale)))
     if any(not isinstance(value, (int, float)) or isinstance(value, bool) or not np.isfinite(value) for value in (offset, drift)):
         raise ValueError("component frequency offset and drift must be finite numbers")
-    maximum_shift = abs(float(offset)) + abs(float(drift)) * sample_count / rate
+    maximum_shift = abs(float(offset)) + abs(float(drift)) * rendered_count / rate
     if maximum_shift > rate / 4:
         raise ValueError("component frequency offset and drift exceed the supported quarter-rate limit")
     lowpass_hz = specification.get("lowpass_hz")
@@ -98,7 +103,8 @@ def _source_component(store: CaptureStore, specification: dict[str, Any]) -> tup
         or not np.isfinite(lowpass_hz) or not 100 <= lowpass_hz < rate / 2
     ):
         raise ValueError("component lowpass_hz must be finite and between 100 Hz and Nyquist")
-    return capture, region, source_start, sample_count, float(gain), scene_start, audio, float(offset), float(drift), None if lowpass_hz is None else float(lowpass_hz)
+    return (capture, region, source_start, sample_count, float(gain), scene_start, audio,
+            float(offset), float(drift), None if lowpass_hz is None else float(lowpass_hz), float(clock_error), rendered_count)
 
 
 def _frequency_shift(audio: np.ndarray, sample_rate: int, offset_hz: float, drift_hz_per_second: float) -> np.ndarray:
@@ -129,13 +135,23 @@ def _lowpass(audio: np.ndarray, sample_rate: int, cutoff_hz: float) -> np.ndarra
     return np.fft.irfft(np.fft.rfft(audio) * response, n=audio.size)
 
 
-def _render(components: list[tuple[dict[str, Any], dict[str, Any], int, int, float, int, np.ndarray, float, float, float | None]], sample_count: int, sample_rate: int) -> bytes:
+def _clock_resample(audio: np.ndarray, clock_error_ppm: float, rendered_count: int) -> np.ndarray:
+    if clock_error_ppm == 0 and rendered_count == audio.size:
+        return audio
+    scale = 1.0 + clock_error_ppm * 1e-6
+    source_positions = np.arange(audio.size, dtype=np.float64)
+    output_positions = np.arange(rendered_count, dtype=np.float64) * scale
+    return np.interp(output_positions, source_positions, audio, left=0.0, right=0.0)
+
+
+def _render(components: list[tuple[dict[str, Any], dict[str, Any], int, int, float, int, np.ndarray, float, float, float | None, float, int]], sample_count: int, sample_rate: int) -> bytes:
     mixed = np.zeros(sample_count, dtype=np.float64)
-    for _, _, source_start, count, gain, scene_start, audio, offset, drift, lowpass_hz in components:
-        available = min(count, sample_count - scene_start)
+    for _, _, source_start, source_count, gain, scene_start, audio, offset, drift, lowpass_hz, clock_error, rendered_count in components:
+        available = min(rendered_count, sample_count - scene_start)
         if available <= 0:
             continue
-        shifted = _frequency_shift(audio[:available], sample_rate, offset, drift)
+        resampled = _clock_resample(audio[:source_count], clock_error, rendered_count)[:available]
+        shifted = _frequency_shift(resampled, sample_rate, offset, drift)
         if lowpass_hz is not None:
             shifted = _lowpass(shifted, sample_rate, lowpass_hz)
         mixed[scene_start : scene_start + available] += shifted * gain
@@ -162,7 +178,7 @@ def create_mixed_scene(
     sample_rate = int(next(iter(rates)))
     if not 4000 <= sample_rate <= 192000:
         raise ValueError("scene sample rate must be between 4000 and 192000 Hz")
-    required_samples = max(item[5] + item[3] for item in resolved)
+    required_samples = max(item[5] + item[11] for item in resolved)
     count = required_samples if sample_count is None else sample_count
     if not isinstance(count, int) or isinstance(count, bool) or count < required_samples:
         raise ValueError("scene sample_count must cover every component")
@@ -182,7 +198,7 @@ def create_mixed_scene(
         wav.writeframes(pcm)
 
     manifest_components = []
-    for capture, region, source_start, component_count, gain, scene_start, _, offset, drift, lowpass_hz in resolved:
+    for capture, region, source_start, component_count, gain, scene_start, _, offset, drift, lowpass_hz, clock_error, rendered_count in resolved:
         manifest_components.append({
             "capture_id": capture["id"],
             "source_sha256": capture["sha256"],
@@ -193,6 +209,8 @@ def create_mixed_scene(
             "frequency_offset_hz": offset,
             "drift_hz_per_second": drift,
             "lowpass_hz": lowpass_hz,
+            "clock_error_ppm": clock_error,
+            "rendered_sample_count": rendered_count,
             "frequency_low_hz": region["frequency_low_hz"],
             "frequency_high_hz": region["frequency_high_hz"],
             "labels": {
@@ -257,8 +275,8 @@ def import_mixed_scene(
     ):
         raise ValueError("scene manifest has invalid audio dimensions")
     for component in components:
-        capture, region, src, count, gain, start, source_audio, offset, drift, lowpass_hz = _source_component(store, component)
-        if start + count > sample_count:
+        capture, region, src, count, gain, start, source_audio, offset, drift, lowpass_hz, clock_error, rendered_count = _source_component(store, component)
+        if start + rendered_count > sample_count:
             raise ValueError("scene manifest sample_count truncates a component")
         if capture["sha256"] != component.get("source_sha256"):
             raise ValueError("scene source capture hash no longer matches the manifest")
@@ -281,7 +299,9 @@ def import_mixed_scene(
             raise ValueError("scene frequency impairment disagrees with its manifest")
         if component.get("lowpass_hz") != lowpass_hz:
             raise ValueError("scene filtering impairment disagrees with its manifest")
-        resolved.append((capture, region, src, count, gain, start, source_audio, offset, drift, lowpass_hz))
+        if component.get("clock_error_ppm", 0.0) != clock_error or component.get("rendered_sample_count", count) != rendered_count:
+            raise ValueError("scene clock impairment disagrees with its manifest")
+        resolved.append((capture, region, src, count, gain, start, source_audio, offset, drift, lowpass_hz, clock_error, rendered_count))
     expected_pcm = _render(resolved, sample_count, sample_rate)
     with wave.open(str(audio_path), "rb") as wav:
         if (
@@ -313,11 +333,11 @@ def import_mixed_scene(
             },
         )
         region_ids = []
-        for component, (source_capture, source_region, _, count, _, start, _, _, _, _) in zip(components, resolved):
+        for component, (source_capture, source_region, _, _, _, start, _, _, _, _, _, rendered_count) in zip(components, resolved):
             region_ids.append(store.add_region(
                 capture_id,
                 sample_start=start,
-                sample_count=count,
+                sample_count=rendered_count,
                 frequency_low_hz=source_region["frequency_low_hz"],
                 frequency_high_hz=source_region["frequency_high_hz"],
                 label=SignalLabel(

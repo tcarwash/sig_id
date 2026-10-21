@@ -192,9 +192,10 @@ Synthetic track:
   rendering on import. The split manifest keeps connected component lineages in one
   partition and reports scenes whose sources are absent from the corpus. Per-component
   carrier offsets, linear frequency drift, and smooth component low-pass filtering are
-  deterministic and verified on import. Scene constituent crops now augment training
+  and sample-clock error up to 5000 ppm are deterministic and verified on import; source
+  and rendered sample bounds are both retained. Scene constituent crops now augment training
   and validation only when all source lineages share that split; held-out scene crops are
-  scored separately. Clock error remains open. A first detector benchmark now reports temporal component recall,
+  scored separately. A first detector benchmark now reports temporal component recall,
   candidate precision, and false candidates per hour on imported scenes and
   noise-only captures; broader impaired-scene coverage remains open. The baseline
   separately evaluates accepted held-out mixed-scene constituent regions, while only

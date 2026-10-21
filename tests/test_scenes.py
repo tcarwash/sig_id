@@ -8,7 +8,7 @@ import pytest
 from sigid.dataset import CaptureStore
 from sigid.detection import detect_tracks
 from sigid.detection_evaluation import evaluate_synthetic_detector
-from sigid.scenes import _lowpass, create_mixed_scene, import_mixed_scene
+from sigid.scenes import _clock_resample, _lowpass, create_mixed_scene, import_mixed_scene
 from sigid.spectrum import waterfall
 from sigid.synthetic import generate_2fsk_wav, generate_bpsk_wav, generate_noise_wav
 from sigid.synthetic_dataset import import_synthetic_wav
@@ -39,7 +39,7 @@ def test_mixed_scene_is_deterministic_and_imports_overlapping_constituent_labels
     )
     components = [
         {"capture_id": fsk["capture"]["id"], "sample_count": 6400, "scene_start_sample": 0, "gain": 0.7,
-         "frequency_offset_hz": 200, "drift_hz_per_second": 10},
+         "frequency_offset_hz": 200, "drift_hz_per_second": 10, "clock_error_ppm": 2500},
         {"capture_id": bpsk["capture"]["id"], "sample_count": 6400, "scene_start_sample": 3200, "gain": 0.5,
          "frequency_offset_hz": -150, "drift_hz_per_second": -10, "lowpass_hz": 3500},
     ]
@@ -55,6 +55,7 @@ def test_mixed_scene_is_deterministic_and_imports_overlapping_constituent_labels
     assert manifest["components"][0]["frequency_offset_hz"] == 200
     assert manifest["components"][1]["drift_hz_per_second"] == -10
     assert manifest["components"][1]["lowpass_hz"] == 3500
+    assert manifest["components"][0]["rendered_sample_count"] == 6384
     candidates = detect_tracks(waterfall(first, fft_size=512, hop_size=128, max_rows=256))
     centers = [candidate["center_hz"] for candidate in candidates]
     assert len(candidates) >= 2
@@ -66,7 +67,7 @@ def test_mixed_scene_is_deterministic_and_imports_overlapping_constituent_labels
     )
     assert imported["capture"]["source_kind"] == "synthetic"
     assert [region["sample_start"] for region in imported["regions"]] == [0, 3200]
-    assert [region["sample_count"] for region in imported["regions"]] == [6400, 6400]
+    assert [region["sample_count"] for region in imported["regions"]] == [6384, 6400]
     assert {region["method"] for region in imported["regions"]} == {
         "binary frequency shift keying", "binary phase-shift keying"
     }
@@ -139,6 +140,11 @@ def test_mixed_scene_rejects_invalid_frequency_impairments(tmp_path):
     with pytest.raises(ValueError, match="quarter-rate"):
         create_mixed_scene(tmp_path / "invalid-scene.wav", recipe, store=store)
 
+    recipe[0]["frequency_offset_hz"] = 0
+    recipe[0]["clock_error_ppm"] = 6000
+    with pytest.raises(ValueError, match="clock_error_ppm"):
+        create_mixed_scene(tmp_path / "invalid-clock-scene.wav", recipe, store=store)
+
 
 def test_scene_lowpass_rejects_out_of_band_energy():
     import numpy as np
@@ -153,3 +159,18 @@ def test_scene_lowpass_rejects_out_of_band_energy():
     high = spectrum[np.argmin(np.abs(frequencies - 2400))]
     assert low > 3500
     assert high < 1
+
+
+def test_scene_clock_error_resamples_and_shifts_tone_frequency():
+    import numpy as np
+
+    sample_rate = 8000
+    source = np.sin(2 * np.pi * 1000 * np.arange(sample_rate) / sample_rate)
+    scale = 1.0 + 2500e-6
+    rendered_count = round(source.size / scale)
+    rendered = _clock_resample(source, 2500, rendered_count)
+    spectrum = np.abs(np.fft.rfft(rendered * np.hanning(rendered.size)))
+    frequencies = np.fft.rfftfreq(rendered.size, 1 / sample_rate)
+    peak_hz = frequencies[np.argmax(spectrum)]
+    assert rendered.size == 7980
+    assert peak_hz == pytest.approx(1002.5, abs=1.0)

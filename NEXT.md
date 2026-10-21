@@ -80,7 +80,8 @@ validation remain open.
   remains outside the validated decode list.
 - `sig-id-mix-scene` now combines 2–8 accepted synthetic captures with exact sample
   offsets, gains, optional deterministic carrier offsets, linear frequency drift, and
-  smooth low-pass filtering;
+  smooth low-pass filtering and bounded sample-clock error. The manifest retains both
+  source and rendered sample bounds;
   `sig-id-import-scene` verifies the rendered samples and stores
   overlapping constituent regions with their source method labels. The split manifest
   joins source lineages connected by a scene, places a scene-linked cluster in the test
