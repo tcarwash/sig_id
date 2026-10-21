@@ -189,8 +189,10 @@ Synthetic track:
   clean parent, regenerates the child for verification, and keeps parent lineage;
   deterministic mixed scenes now combine accepted synthetic captures at explicit
   sample offsets/gains, preserve overlapping constituent labels, and verify exact
-  rendering on import. Frequency offsets, filtering, clock error, scene split
-  inclusion and held-out mixed-scene evaluation remain open.
+  rendering on import. The split manifest keeps connected component lineages in one
+  partition and reports scenes whose sources are absent from the corpus. Frequency
+  offsets, filtering, clock error, adding scene regions as training examples, and
+  held-out mixed-scene evaluation remain open.
 - A resumable command now creates and imports six modulation methods across clean
   and configurable AWGN variants, atomically indexing capture IDs and a shared
   lineage group for future split-safe evaluation. Cancellation UI, quotas and richer

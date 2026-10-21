@@ -58,6 +58,120 @@ def _split_counts(group_count: int, fractions: tuple[float, float, float]) -> tu
     return train, validation, group_count - train - validation
 
 
+def _scene_aware_assignments(
+    group_modes: dict[str, str],
+    group_hashes: dict[str, str],
+    scenes: list[dict[str, Any]],
+    capture_groups: dict[str, str],
+    *,
+    seed: int,
+    fractions: tuple[float, float, float],
+) -> tuple[dict[str, str], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Keep every set of source lineages used by a scene in one split."""
+    parent = {group: group for group in group_modes}
+
+    def find(group: str) -> str:
+        while parent[group] != group:
+            parent[group] = parent[parent[group]]
+            group = parent[group]
+        return group
+
+    def union(left: str, right: str) -> None:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root == right_root:
+            return
+        if group_hashes[left_root] <= group_hashes[right_root]:
+            parent[right_root] = left_root
+        else:
+            parent[left_root] = right_root
+
+    dependencies = []
+    exclusions = []
+    for scene in scenes:
+        metadata = scene["source_metadata"]
+        component_ids = metadata.get("component_capture_ids")
+        if not isinstance(component_ids, list) or len(component_ids) < 2:
+            exclusions.append({"capture_id": scene["id"], "reason": "scene has no valid component list"})
+            continue
+        if any(component_id not in capture_groups for component_id in component_ids):
+            exclusions.append({
+                "capture_id": scene["id"],
+                "reason": "one or more scene components are absent from the source corpus",
+                "missing_component_capture_ids": [item for item in component_ids if item not in capture_groups],
+            })
+            continue
+        groups = sorted({capture_groups[component_id] for component_id in component_ids})
+        for group in groups[1:]:
+            union(groups[0], group)
+        dependencies.append({
+            "capture_id": scene["id"],
+            "sha256": scene["sha256"],
+            "component_capture_ids": component_ids,
+            "lineage_groups": groups,
+        })
+
+    clusters: dict[str, set[str]] = {}
+    for group in group_modes:
+        clusters.setdefault(find(group), set()).add(group)
+    cluster_modes = {
+        root: {group_modes[group] for group in groups}
+        for root, groups in clusters.items()
+    }
+    for mode in (*MODES, "noise"):
+        independent_clusters = sum(mode in modes for modes in cluster_modes.values())
+        if independent_clusters < 3:
+            raise ValueError(
+                f"mode {mode} needs at least three independent source groups after mixed-scene lineage joins"
+            )
+
+    split_names = ("train", "validation", "test")
+    targets: dict[str, tuple[int, int, int]] = {}
+    for mode in (*MODES, "noise"):
+        count = sum(mode in modes for modes in cluster_modes.values())
+        targets[mode] = _split_counts(count, fractions)
+
+    rng = random.Random(seed)
+    ordered = list(clusters)
+    rng.shuffle(ordered)
+    rarity = {
+        root: sum(1 / sum(mode in modes for modes in cluster_modes.values()) for mode in cluster_modes[root])
+        for root in ordered
+    }
+    ordered.sort(key=lambda root: (-len(cluster_modes[root]), -rarity[root], group_hashes[min(clusters[root], key=lambda g: group_hashes[g])]))
+    assigned_counts = {split: {mode: 0 for mode in (*MODES, "noise")} for split in split_names}
+    assignment: dict[str, str] = {}
+    for root in ordered:
+        modes = cluster_modes[root]
+        scores = []
+        for split_index, split in enumerate(split_names):
+            score = 0.0
+            for mode in modes:
+                current = assigned_counts[split][mode]
+                target = targets[mode][split_index]
+                weight = 1 / max(1, target)
+                score += (((current + 1 - target) ** 2) - ((current - target) ** 2)) * weight
+            score += assigned_counts[split]["noise"] * 0.001
+            scores.append((score, split_index))
+        _, chosen_index = min(scores)
+        chosen = split_names[chosen_index]
+        for group in clusters[root]:
+            assignment[group] = chosen
+        for mode in modes:
+            assigned_counts[chosen][mode] += 1
+
+    for split in split_names:
+        present = {mode for mode, count in assigned_counts[split].items() if count}
+        if not set((*MODES, "noise")).issubset(present):
+            raise ValueError(f"scene-aware split assignment cannot place every method and noise in {split}")
+    for scene in dependencies:
+        component_splits = {assignment[group] for group in scene["lineage_groups"]}
+        if len(component_splits) != 1:
+            raise AssertionError("mixed-scene source lineages crossed split boundaries")
+        scene["split"] = next(iter(component_splits))
+    return assignment, dependencies, exclusions
+
+
 def create_split_manifest(
     corpus_path: str | Path,
     store: CaptureStore,
@@ -170,19 +284,21 @@ def create_split_manifest(
         if len(grouped[mode]) < 3:
             raise ValueError(f"mode {mode} needs at least three independent source groups for three-way evaluation")
 
-    split_for_group: dict[str, str] = {}
+    capture_groups = {record["capture_id"]: record["lineage_group"] for record in validated_records}
+    mixed_scenes = [
+        capture for capture in store.list_captures()
+        if capture["source_kind"] == "synthetic"
+        and capture["source_metadata"].get("generator") == "sig-id-mixed-scene"
+    ]
+    split_for_group, scene_dependencies, scene_exclusions = _scene_aware_assignments(
+        group_modes,
+        group_hashes,
+        mixed_scenes,
+        capture_groups,
+        seed=seed,
+        fractions=fractions,
+    )
     split_names = ("train", "validation", "test")
-    for mode_index, mode in enumerate((*MODES, "noise")):
-        groups = sorted(grouped[mode], key=lambda group: group_hashes[group])
-        rng = random.Random(seed + mode_index * 1009)
-        rng.shuffle(groups)
-        n_train, n_validation, _ = _split_counts(len(groups), fractions)
-        for split, items in (
-            ("train", groups[:n_train]),
-            ("validation", groups[n_train : n_train + n_validation]),
-            ("test", groups[n_train + n_validation :]),
-        ):
-            split_for_group.update({group: split for group in items})
 
     for record in validated_records:
         record["split"] = split_for_group[record["lineage_group"]]
@@ -214,7 +330,9 @@ def create_split_manifest(
         "fractions": {"train": fractions[0], "validation": fractions[1], "test": fractions[2]},
         "source_corpus": corpus_path.name,
         "source_corpus_sha256": hashlib.sha256(raw).hexdigest(),
-        "group_rule": "all captures sharing a clean synthetic source capture ID remain in one split",
+        "group_rule": "source lineages connected by mixed-scene constituents share one split",
+        "mixed_scene_dependencies": scene_dependencies,
+        "excluded_mixed_scenes": scene_exclusions,
         "counts": counts,
         "records": validated_records,
     }

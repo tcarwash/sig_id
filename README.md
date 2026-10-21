@@ -151,7 +151,9 @@ sig-id-import-scene --data-dir ~/.local/share/sig-id data/scenes/mix.wav data/sc
 
 Scene imports re-render against the original accepted synthetic captures before
 storing, so edited samples or recipe fields cannot pass as synthetic ground truth.
-These scene labels are not yet included by the current corpus split/training commands.
+The split command keeps every component lineage used by an indexed scene in one
+partition and reports scenes whose sources are absent from the corpus. Scene regions
+are not yet included as classifier training examples.
 
 Create a deterministic noisy child from an imported clean source. Import the clean
 source first; the child manifest records its hashes and recipe, and the importer checks
