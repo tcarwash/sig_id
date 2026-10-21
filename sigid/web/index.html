@@ -123,6 +123,7 @@
             <button id="demod-run" type="submit" disabled>Recover raw bits</button>
           </form>
           <pre id="demod-output" class="decoded-text" aria-live="polite">Select a saved capture or region to analyze.</pre>
+          <button id="demod-export-2fsk" class="demod-export" type="button" disabled>Export 2-FSK analysis JSON</button>
           <h2>M-FSK tone and bit analysis</h2>
           <p class="subhead">Natural-binary bits are reported only when the tone count is a power of two; otherwise the recovered tone indices remain available.</p>
           <form id="mfsk-form" class="demod-form">
@@ -134,6 +135,7 @@
             <button id="mfsk-run" type="submit" disabled>Recover tone symbols</button>
           </form>
           <pre id="mfsk-output" class="decoded-text" aria-live="polite">Select a saved capture or region to analyze.</pre>
+          <button id="demod-export-mfsk" class="demod-export" type="button" disabled>Export M-FSK analysis JSON</button>
           <h3>BPSK raw bits</h3>
           <p class="subhead">The absolute bit polarity is ambiguous without a known preamble or framing; both hypotheses are returned.</p>
           <form id="bpsk-form" class="demod-form">
@@ -143,6 +145,7 @@
             <button id="bpsk-run" type="submit" disabled>Recover BPSK bits</button>
           </form>
           <pre id="bpsk-output" class="decoded-text" aria-live="polite">Select a saved capture or region to analyze.</pre>
+          <button id="demod-export-bpsk" class="demod-export" type="button" disabled>Export BPSK analysis JSON</button>
           <h3>QPSK raw symbols and bits</h3>
           <p class="subhead">Four 90° rotation hypotheses are shown because absolute constellation rotation is unknown.</p>
           <form id="qpsk-form" class="demod-form">
@@ -152,6 +155,7 @@
             <button id="qpsk-run" type="submit" disabled>Recover QPSK symbols</button>
           </form>
           <pre id="qpsk-output" class="decoded-text" aria-live="polite">Select a saved capture or region to analyze.</pre>
+          <button id="demod-export-qpsk" class="demod-export" type="button" disabled>Export QPSK analysis JSON</button>
         </section>
 
         <section class="panel tracks-panel">

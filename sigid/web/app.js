@@ -1,7 +1,8 @@
 import { liveRowLimit, liveTimeWindow } from "/waterfall-window.mjs";
+import { createDemodExport, downloadDemodExport } from "/demod-export.mjs";
 
 const el = (id) => document.getElementById(id);
-const state = { capture: null, waterfall: null, drag: null, selection: null, regions: [], tracks: [], liveView: false, modelAvailable: false, view: null };
+const state = { capture: null, waterfall: null, drag: null, selection: null, regions: [], tracks: [], liveView: false, modelAvailable: false, view: null, demodExports: {} };
 const baseCanvas = el("waterfall");
 const overlayCanvas = el("overlay");
 let livePoll = null;
@@ -9,6 +10,31 @@ let fldigiPoll = null;
 let fldigiOffset = null;
 let trialPoll = null;
 let watchedTrialTrack = null;
+
+const DEMOD_EXPORT_BUTTONS = {
+  "2fsk": "demod-export-2fsk",
+  mfsk: "demod-export-mfsk",
+  bpsk: "demod-export-bpsk",
+  qpsk: "demod-export-qpsk",
+};
+
+function clearDemodExports() {
+  state.demodExports = {};
+  for (const id of Object.values(DEMOD_EXPORT_BUTTONS)) el(id).disabled = true;
+}
+
+function storeDemodExport(mode, result, settings) {
+  state.demodExports[mode] = createDemodExport({ capture: state.capture, mode, result, settings });
+  el(DEMOD_EXPORT_BUTTONS[mode]).disabled = false;
+}
+
+for (const [mode, buttonId] of Object.entries(DEMOD_EXPORT_BUTTONS)) {
+  el(buttonId).addEventListener("click", () => {
+    const artifact = state.demodExports[mode];
+    if (!artifact) return;
+    downloadDemodExport(artifact, `${artifact.source_capture.capture_id}-${mode}-demod.json`);
+  });
+}
 
 async function refreshFldigiStatus() {
   try {
@@ -247,6 +273,7 @@ el("live-start").addEventListener("click", async () => {
     });
     el("live-start").disabled = true;
     el("live-stop").disabled = false;
+    clearDemodExports();
     state.capture = null;
     state.liveView = true;
     state.waterfall = null;
@@ -393,6 +420,7 @@ el("synthetic-form").addEventListener("submit", async (event) => {
 });
 
 async function loadCapture() {
+  clearDemodExports();
   state.liveView = false;
   state.view = null;
   state.selection = null;
@@ -779,18 +807,20 @@ el("demod-form").addEventListener("submit", async (event) => {
   el("demod-output").textContent = "Analyzing selected audio…";
   try {
     const selection = state.selection;
+    const settings = {
+      sample_start: selection?.sample_start ?? 0,
+      sample_count: Math.min(1_000_000, selection?.sample_count ?? Math.min(120_000, state.capture.sample_count)),
+      symbol_rate: Number(el("demod-rate").value),
+      tone_0_hz: Number(el("demod-tone0").value),
+      tone_1_hz: Number(el("demod-tone1").value),
+      timing_offset_samples: Number(el("demod-offset").value),
+    };
     const result = await request(`/api/captures/${state.capture.id}/demod/2fsk`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sample_start: selection?.sample_start ?? 0,
-        sample_count: Math.min(1_000_000, selection?.sample_count ?? Math.min(120_000, state.capture.sample_count)),
-        symbol_rate: Number(el("demod-rate").value),
-        tone_0_hz: Number(el("demod-tone0").value),
-        tone_1_hz: Number(el("demod-tone1").value),
-        timing_offset_samples: Number(el("demod-offset").value),
-      }),
+      body: JSON.stringify(settings),
     });
+    storeDemodExport("2fsk", result, settings);
     const confidence = result.soft_metrics.length
       ? result.soft_metrics.reduce((sum, value) => sum + Math.abs(value), 0) / result.soft_metrics.length
       : 0;
@@ -814,19 +844,21 @@ el("mfsk-form").addEventListener("submit", async (event) => {
   el("mfsk-output").textContent = "Analyzing selected audio…";
   try {
     const selection = state.selection;
+    const settings = {
+      sample_start: selection?.sample_start ?? 0,
+      sample_count: Math.min(1_000_000, selection?.sample_count ?? Math.min(120_000, state.capture.sample_count)),
+      symbol_rate: Number(el("mfsk-rate").value),
+      tone_count: Number(el("mfsk-count").value),
+      base_tone_hz: Number(el("mfsk-base").value),
+      tone_spacing_hz: Number(el("mfsk-spacing").value),
+      timing_offset_samples: Number(el("mfsk-offset").value),
+    };
     const result = await request(`/api/captures/${state.capture.id}/demod/mfsk`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sample_start: selection?.sample_start ?? 0,
-        sample_count: Math.min(1_000_000, selection?.sample_count ?? Math.min(120_000, state.capture.sample_count)),
-        symbol_rate: Number(el("mfsk-rate").value),
-        tone_count: Number(el("mfsk-count").value),
-        base_tone_hz: Number(el("mfsk-base").value),
-        tone_spacing_hz: Number(el("mfsk-spacing").value),
-        timing_offset_samples: Number(el("mfsk-offset").value),
-      }),
+      body: JSON.stringify(settings),
     });
+    storeDemodExport("mfsk", result, settings);
     const confidence = result.soft_confidence.length
       ? result.soft_confidence.reduce((sum, value) => sum + value, 0) / result.soft_confidence.length
       : 0;
@@ -851,17 +883,19 @@ el("bpsk-form").addEventListener("submit", async (event) => {
   el("bpsk-output").textContent = "Analyzing selected audio…";
   try {
     const selection = state.selection;
+    const settings = {
+      sample_start: selection?.sample_start ?? 0,
+      sample_count: Math.min(1_000_000, selection?.sample_count ?? Math.min(120_000, state.capture.sample_count)),
+      symbol_rate: Number(el("bpsk-rate").value),
+      carrier_hz: Number(el("bpsk-carrier").value),
+      timing_offset_samples: Number(el("bpsk-offset").value),
+    };
     const result = await request(`/api/captures/${state.capture.id}/demod/bpsk`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sample_start: selection?.sample_start ?? 0,
-        sample_count: Math.min(1_000_000, selection?.sample_count ?? Math.min(120_000, state.capture.sample_count)),
-        symbol_rate: Number(el("bpsk-rate").value),
-        carrier_hz: Number(el("bpsk-carrier").value),
-        timing_offset_samples: Number(el("bpsk-offset").value),
-      }),
+      body: JSON.stringify(settings),
     });
+    storeDemodExport("bpsk", result, settings);
     const grouped = (bits) => bits.match(/.{1,64}/g)?.join("\n") || "(no complete symbols)";
     const confidence = result.soft_metrics.length
       ? result.soft_metrics.reduce((sum, value) => sum + Math.abs(value), 0) / result.soft_metrics.length
@@ -885,17 +919,19 @@ el("qpsk-form").addEventListener("submit", async (event) => {
   el("qpsk-output").textContent = "Analyzing selected audio…";
   try {
     const selection = state.selection;
+    const settings = {
+      sample_start: selection?.sample_start ?? 0,
+      sample_count: Math.min(1_000_000, selection?.sample_count ?? Math.min(120_000, state.capture.sample_count)),
+      symbol_rate: Number(el("qpsk-rate").value),
+      carrier_hz: Number(el("qpsk-carrier").value),
+      timing_offset_samples: Number(el("qpsk-offset").value),
+    };
     const result = await request(`/api/captures/${state.capture.id}/demod/qpsk`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sample_start: selection?.sample_start ?? 0,
-        sample_count: Math.min(1_000_000, selection?.sample_count ?? Math.min(120_000, state.capture.sample_count)),
-        symbol_rate: Number(el("qpsk-rate").value),
-        carrier_hz: Number(el("qpsk-carrier").value),
-        timing_offset_samples: Number(el("qpsk-offset").value),
-      }),
+      body: JSON.stringify(settings),
     });
+    storeDemodExport("qpsk", result, settings);
     const grouped = (bits) => bits.match(/.{1,64}/g)?.join("\n") || "(no complete symbols)";
     const hypotheses = result.symbol_hypotheses.map((item, index) =>
       `Hypothesis ${index + 1} · rotation ${(item.rotation_radians * 180 / Math.PI).toFixed(0)}°\nSymbols: ${item.symbols.join(" ")}\nBits:\n${grouped(item.bits)}`

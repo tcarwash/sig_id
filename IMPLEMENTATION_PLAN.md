@@ -305,8 +305,9 @@ replay, filtering, and exports; keep this separate from Fldigi text APIs.
   BPSK/QPSK analysis with operator-supplied rate, tone/carrier and timing parameters. APIs
   expose raw decisions, soft metrics and absolute sample bounds; M-FSK bits are emitted
   only for power-of-two mappings, BPSK returns both polarity hypotheses and QPSK returns
-  four carrier-rotation hypotheses. Automatic rate/offset acquisition and differential
-  methods remain open.
+  four carrier-rotation hypotheses. The UI exports results, settings, capture hash and
+  sample bounds as a protocol-unknown JSON artifact. Automatic rate/offset acquisition
+  and differential methods remain open.
 - Add complex-IQ file input for analysis using an explicit data type/sample rate
   and SigMF metadata where available; live SDR hardware integration follows later.
 

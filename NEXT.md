@@ -126,6 +126,8 @@ validation remain open.
   soft metrics and both global polarity hypotheses because framing/preamble is unknown.
 - Manual QPSK analysis for a saved capture or selected region. It returns raw symbols,
   candidate bits and soft metrics under all four 90-degree carrier rotations.
+- Each raw demodulator can export its complete result and settings as JSON with capture
+  hash, source sample range and protocol-unknown status for reproducible manual analysis.
 
 ## Next action
 

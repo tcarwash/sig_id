@@ -27,7 +27,9 @@ soft margins and natural-binary bits only for power-of-two tone counts. BPSK ana
 returns both global polarity hypotheses, while QPSK analysis returns four possible
 90-degree rotation hypotheses because an unknown capture has no inherent absolute
 phase reference. These are protocol-independent symbol/bit observations, not complete
-protocol decoders.
+protocol decoders. Each demodulator can export a JSON artifact containing the capture
+hash, sample bounds, settings, raw decisions, ambiguity/soft metrics and protocol-unknown
+status so a manual analysis can be reproduced or used as training evidence.
 
 ## Development
 
