@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from sigid.api import create_app, default_track_fft_size
-from sigid.synthetic import generate_2fsk_wav
+from sigid.synthetic import generate_2fsk_wav, generate_ook_wav
 
 
 def make_fixture(path):
@@ -136,6 +136,43 @@ def test_rejects_non_wav_uploads_and_region_outside_capture(tmp_path):
             assert bad_region.status_code == 422
             missing = await client.get("/api/captures/not-a-capture/waterfall")
             assert missing.status_code == 404
+    asyncio.run(exercise())
+
+
+def test_ook_demodulator_api_recovers_saved_capture_bits_and_export_ui(tmp_path):
+    waveform = tmp_path / "ook.wav"
+    bits = "001101011001" * 8
+    generate_ook_wav(waveform, bits, sample_rate=12000, symbol_rate=100, carrier_hz=1500)
+    app = create_app(tmp_path / "app-data")
+
+    async def exercise():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            page = (await client.get("/")).text
+            assert 'id="ook-form"' in page
+            assert 'id="demod-export-ook"' in page
+            uploaded = await client.post(
+                "/api/captures",
+                files={"file": ("ook.wav", waveform.read_bytes(), "audio/wav")},
+            )
+            assert uploaded.status_code == 200, uploaded.text
+            capture = uploaded.json()
+            response = await client.post(
+                f"/api/captures/{capture['id']}/demod/ook",
+                json={
+                    "sample_count": capture["sample_count"],
+                    "symbol_rate": 100,
+                    "carrier_hz": 1500,
+                    "auto_timing": True,
+                },
+            )
+            assert response.status_code == 200, response.text
+            result = response.json()
+            assert result["bits"][:len(bits)] == bits
+            assert result["timing_offset_estimated"] is True
+            assert result["protocol"] is None
+            assert result["capture_sha256"] == capture["sha256"]
+            assert result["sample_start"] == 0
+
     asyncio.run(exercise())
 
 

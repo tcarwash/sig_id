@@ -25,7 +25,10 @@ symbol timing and soft tone metrics; symbol rate and tone mapping are operator-s
 with an optional 32-phase timing search. A corresponding M-FSK analyzer returns hard tone indices,
 soft margins and natural-binary bits only for power-of-two tone counts, with the same
 optional 32-phase timing search. It can also rank a bounded logarithmic symbol-rate
-grid while searching timing phase at each candidate rate. BPSK analysis
+grid while searching timing phase at each candidate rate. The OOK analyzer estimates
+two noncoherent carrier-amplitude levels, returns raw bits and soft metrics, and offers
+timing search; it leaves bits undecided when there is no measurable two-level contrast.
+BPSK analysis
 returns both global polarity hypotheses, while QPSK analysis returns four possible
 90-degree rotation hypotheses because an unknown capture has no inherent absolute
 phase reference. These are protocol-independent symbol/bit observations, not complete

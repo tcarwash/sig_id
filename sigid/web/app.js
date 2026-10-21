@@ -13,6 +13,7 @@ let watchedTrialTrack = null;
 
 const DEMOD_EXPORT_BUTTONS = {
   "2fsk": "demod-export-2fsk",
+  ook: "demod-export-ook",
   mfsk: "demod-export-mfsk",
   bpsk: "demod-export-bpsk",
   qpsk: "demod-export-qpsk",
@@ -284,6 +285,7 @@ el("live-start").addEventListener("click", async () => {
     baseCanvas.getContext("2d").clearRect(0, 0, baseCanvas.width, baseCanvas.height);
     overlayCanvas.getContext("2d").clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
     el("demod-run").disabled = true;
+    el("ook-run").disabled = true;
     el("mfsk-run").disabled = true;
     el("bpsk-run").disabled = true;
     el("qpsk-run").disabled = true;
@@ -426,6 +428,7 @@ async function loadCapture() {
   state.selection = null;
   updateModelButton();
   el("demod-run").disabled = false;
+  el("ook-run").disabled = false;
   el("mfsk-run").disabled = false;
   el("bpsk-run").disabled = false;
   el("qpsk-run").disabled = false;
@@ -859,6 +862,43 @@ el("demod-form").addEventListener("submit", async (event) => {
   } finally {
     button.disabled = !state.capture || state.liveView;
     button.textContent = "Recover raw bits";
+  }
+});
+
+el("ook-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!state.capture || state.liveView) return;
+  clearError();
+  const button = el("ook-run");
+  button.disabled = true;
+  button.textContent = "Recovering…";
+  el("ook-output").textContent = "Analyzing selected audio…";
+  try {
+    const selection = state.selection;
+    const settings = {
+      sample_start: selection?.sample_start ?? 0,
+      sample_count: Math.min(1_000_000, selection?.sample_count ?? Math.min(120_000, state.capture.sample_count)),
+      symbol_rate: Number(el("ook-rate").value),
+      carrier_hz: Number(el("ook-carrier").value),
+      timing_offset_samples: Number(el("ook-offset").value),
+      auto_timing: el("ook-auto-timing").checked,
+    };
+    const result = await request(`/api/captures/${state.capture.id}/demod/ook`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(settings),
+    });
+    storeDemodExport("ook", result, settings);
+    const groupedBits = result.bits.match(/.{1,64}/g)?.join("\n") || "(no complete symbols)";
+    const timing = result.timing_offset_estimated
+      ? `estimated ${result.timing_offset_samples.toFixed(2)} samples (${result.timing_search.phase_count} phases)`
+      : `${result.timing_offset_samples.toFixed(2)} samples`;
+    el("ook-output").textContent = `${result.demodulator} · ${result.symbol_count} symbols · timing ${timing}\nEstimated amplitude 0/1: ${result.estimated_zero_amplitude.toFixed(4)} / ${result.estimated_one_amplitude.toFixed(4)} · level separation ${result.level_separation_score.toFixed(3)}\nProtocol: unknown\n\n${groupedBits}`;
+  } catch (error) {
+    el("ook-output").textContent = `Demodulation failed: ${error.message}`;
+  } finally {
+    button.disabled = !state.capture || state.liveView;
+    button.textContent = "Recover OOK bits";
   }
 });
 

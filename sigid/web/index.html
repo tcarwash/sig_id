@@ -113,7 +113,7 @@
         <section class="panel raw-demod-panel">
           <p class="eyebrow">PROTOCOL-INDEPENDENT ANALYSIS</p>
           <h2>Protocol-independent demodulators</h2>
-          <p class="subhead">Supply modulation parameters to recover uncoded symbols and bits. 2-FSK and M-FSK can search timing phase automatically; these tools do not identify framing or a protocol.</p>
+          <p class="subhead">Supply modulation parameters to recover uncoded symbols and bits. 2-FSK, M-FSK and OOK can search timing phase automatically; these tools do not identify framing or a protocol.</p>
           <h3>2-FSK raw bits</h3>
           <form id="demod-form" class="demod-form">
             <label>Symbol rate<input id="demod-rate" type="number" min="1" step="any" value="100" required /></label>
@@ -125,6 +125,17 @@
           </form>
           <pre id="demod-output" class="decoded-text" aria-live="polite">Select a saved capture or region to analyze.</pre>
           <button id="demod-export-2fsk" class="demod-export" type="button" disabled>Export 2-FSK analysis JSON</button>
+          <h3>OOK raw bits</h3>
+          <p class="subhead">Noncoherent amplitude decisions estimate the off/on levels from this capture. Timing search is available; bit framing and protocol remain unknown.</p>
+          <form id="ook-form" class="demod-form">
+            <label>Symbol rate<input id="ook-rate" type="number" min="1" step="any" value="100" required /></label>
+            <label>Carrier frequency (Hz)<input id="ook-carrier" type="number" min="1" step="any" value="1500" required /></label>
+            <label>Timing offset (samples)<input id="ook-offset" type="number" min="0" step="any" value="0" required /></label>
+            <label class="demod-check"><input id="ook-auto-timing" type="checkbox" /> Estimate timing phase automatically</label>
+            <button id="ook-run" type="submit" disabled>Recover OOK bits</button>
+          </form>
+          <pre id="ook-output" class="decoded-text" aria-live="polite">Select a saved capture or region to analyze.</pre>
+          <button id="demod-export-ook" class="demod-export" type="button" disabled>Export OOK analysis JSON</button>
           <h2>M-FSK tone and bit analysis</h2>
           <p class="subhead">Natural-binary bits are reported only when the tone count is a power of two; otherwise the recovered tone indices remain available. Optional rate search ranks a bounded range of symbol rates.</p>
           <form id="mfsk-form" class="demod-form">

@@ -8,6 +8,155 @@ from typing import Any
 import numpy as np
 
 
+def demodulate_ook(
+    samples: Any,
+    sample_rate: int,
+    *,
+    symbol_rate: float,
+    carrier_hz: float,
+    timing_offset_samples: float = 0.0,
+    auto_timing: bool = False,
+    sample_offset: int = 0,
+    integration_fraction: float = 0.8,
+) -> dict[str, Any]:
+    """Recover uncoded on/off-keyed bits using noncoherent carrier amplitude."""
+    values = np.asarray(samples, dtype=np.float64)
+    if values.ndim != 1 or values.size == 0 or not np.all(np.isfinite(values)):
+        raise ValueError("samples must be a non-empty finite mono array")
+    if not isinstance(sample_rate, int) or isinstance(sample_rate, bool) or sample_rate <= 0:
+        raise ValueError("sample_rate must be a positive integer")
+    if not math.isfinite(symbol_rate) or symbol_rate <= 0 or sample_rate / symbol_rate < 8:
+        raise ValueError("symbol_rate must provide at least eight samples per symbol")
+    if not math.isfinite(carrier_hz) or not 0 < carrier_hz < sample_rate / 2:
+        raise ValueError("carrier_hz must be above 0 Hz and below Nyquist")
+    if not isinstance(auto_timing, bool):
+        raise ValueError("auto_timing must be a boolean")
+    if sample_offset < 0:
+        raise ValueError("sample_offset must be non-negative")
+    samples_per_symbol = sample_rate / symbol_rate
+    if not math.isfinite(timing_offset_samples) or (
+        not auto_timing and not 0 <= timing_offset_samples < samples_per_symbol
+    ):
+        raise ValueError("timing_offset_samples must be within one symbol")
+    if not 0.2 <= integration_fraction <= 1.0:
+        raise ValueError("integration_fraction must be between 0.2 and 1.0")
+
+    if auto_timing:
+        phase_count = min(32, max(8, int(math.ceil(samples_per_symbol))))
+        offsets = np.arange(phase_count, dtype=np.float64) * samples_per_symbol / phase_count
+        trials = [
+            demodulate_ook(
+                values,
+                sample_rate,
+                symbol_rate=symbol_rate,
+                carrier_hz=carrier_hz,
+                timing_offset_samples=float(offset),
+                auto_timing=False,
+                sample_offset=sample_offset,
+                integration_fraction=integration_fraction,
+            )
+            for offset in offsets
+        ]
+        scores = [float(trial["level_separation_score"]) for trial in trials]
+        max_symbols = max(int(trial["symbol_count"]) for trial in trials)
+        eligible = [index for index, trial in enumerate(trials) if int(trial["symbol_count"]) == max_symbols]
+        best_index = max(eligible, key=lambda index: scores[index])
+        return {
+            **trials[best_index],
+            "timing_offset_estimated": True,
+            "timing_search": {
+                "method": "uniform-grid-two-cluster-amplitude-separation",
+                "phase_count": phase_count,
+                "candidate_offsets_samples": offsets.tolist(),
+                "candidate_scores": scores,
+                "candidate_symbol_counts": [int(trial["symbol_count"]) for trial in trials],
+                "selected_score": scores[best_index],
+            },
+        }
+
+    integration_length = max(8, int(math.floor(samples_per_symbol * integration_fraction)))
+    window = np.hanning(integration_length)
+    local_times = np.arange(integration_length, dtype=np.float64) / sample_rate
+    kernel = window * np.exp(-2j * np.pi * carrier_hz * local_times)
+    amplitudes: list[float] = []
+    symbol_bounds: list[list[int]] = []
+    index = 0
+    while True:
+        boundary_start = timing_offset_samples + index * samples_per_symbol
+        boundary_end = timing_offset_samples + (index + 1) * samples_per_symbol
+        if boundary_end > values.size:
+            break
+        center = (boundary_start + boundary_end) / 2
+        first = max(0, int(math.ceil(center - integration_length / 2)))
+        last = first + integration_length
+        if last > values.size:
+            break
+        segment = values[first:last]
+        amplitudes.append(float(2 * abs(np.sum(segment * kernel)) / max(float(window.sum()), np.finfo(float).tiny)))
+        symbol_bounds.append([
+            sample_offset + int(round(boundary_start)),
+            sample_offset + int(round(boundary_end)),
+        ])
+        index += 1
+
+    level_values = np.asarray(amplitudes, dtype=np.float64)
+    if level_values.size:
+        centers = np.quantile(level_values, [0.2, 0.8])
+        for _ in range(32):
+            assignments = np.abs(level_values[:, None] - centers[None, :]).argmin(axis=1)
+            updated = np.asarray([
+                float(np.mean(level_values[assignments == label])) if np.any(assignments == label) else centers[label]
+                for label in range(2)
+            ])
+            if np.max(np.abs(updated - centers)) <= 1e-12:
+                centers = updated
+                break
+            centers = updated
+        centers.sort()
+        decision_threshold = float(np.mean(centers))
+        level_delta = float(centers[1] - centers[0])
+        has_level_contrast = level_delta > np.finfo(float).eps * max(1.0, abs(float(centers[1])))
+        bits = (level_values >= decision_threshold).astype(np.uint8) if has_level_contrast else np.asarray([], dtype=np.uint8)
+        soft_metrics = ((level_values - decision_threshold) / max(level_delta / 2, np.finfo(float).eps)).tolist()
+        separation_score = level_delta / max(float(np.std(level_values)), np.finfo(float).eps)
+    else:
+        centers = np.asarray([0.0, 0.0])
+        decision_threshold = 0.0
+        level_delta = 0.0
+        bits = np.asarray([], dtype=np.uint8)
+        soft_metrics = []
+        separation_score = 0.0
+        has_level_contrast = False
+
+    if not has_level_contrast:
+        symbol_bounds = []
+
+    return {
+        "schema_version": 1,
+        "demodulator": "noncoherent-ook-amplitude-correlator",
+        "status": "complete" if has_level_contrast else "ambiguous_levels" if amplitudes else "no_symbols",
+        "sample_rate": sample_rate,
+        "symbol_rate": symbol_rate,
+        "samples_per_symbol": samples_per_symbol,
+        "carrier_hz": carrier_hz,
+        "timing_offset_samples": timing_offset_samples,
+        "timing_offset_estimated": False,
+        "integration_fraction": integration_fraction,
+        "symbol_count": len(bits),
+        "symbols": bits.astype(int).tolist(),
+        "bits": "".join(str(int(bit)) for bit in bits),
+        "amplitude_estimates": amplitudes,
+        "soft_metrics": soft_metrics,
+        "estimated_zero_amplitude": float(centers[0]),
+        "estimated_one_amplitude": float(centers[1]),
+        "decision_threshold": decision_threshold,
+        "level_separation": level_delta,
+        "level_separation_score": float(separation_score),
+        "symbol_sample_bounds": symbol_bounds,
+        "protocol": None,
+    }
+
+
 def demodulate_2fsk(
     samples: Any,
     sample_rate: int,

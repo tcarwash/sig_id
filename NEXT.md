@@ -136,6 +136,10 @@ validation remain open.
   region. Operator supplies symbol rate and bit-to-tone mapping; timing phase can be
   entered manually or acquired with a 32-phase soft/energy search. Results include raw
   bits, search diagnostics, per-symbol soft metrics and sample bounds, with protocol unknown.
+- Manual noncoherent OOK demodulation for a saved capture or selected region. It
+  estimates off/on carrier levels, returns raw bits and amplitude soft metrics, searches
+  timing phase on request, and abstains when two amplitude levels cannot be distinguished.
+  Framing and protocol remain unknown; exports retain capture hash and sample bounds.
 - Manual M-FSK tone-bank demodulation for a saved capture or selected region. It returns
   hard tone indices and confidence margins; natural-binary bits are emitted only for
   power-of-two tone counts, with protocol unknown. Timing phase can be entered manually
@@ -198,7 +202,7 @@ capture, radio audio routing, trained identification model, and RF validation re
 unverified. Current heuristic candidates pass clean 2-FSK/MFSK, quiet-noise rejection
 and two separated simultaneous 2-FSK signals; real-capture performance is unknown.
 The tested Fldigi modes are a three-family sample, not full-catalog validation.
-2-FSK/M-FSK/BPSK/QPSK recovery is verified against generated source symbols/bits;
+2-FSK/M-FSK/OOK/BPSK/QPSK recovery is verified against generated source symbols/bits;
 2-FSK and BPSK also pass seeded AWGN cases. M-FSK rate search is verified on a small
 synthetic 4-FSK grid. Independent-capture performance and automatic tone/carrier
 acquisition remain unverified.
