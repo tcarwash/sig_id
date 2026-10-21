@@ -154,6 +154,11 @@ Ship this as soon as the gate passes. No classifier is required for 0.1.
   the top of the candidate list and guide the existing tested-mode trial order;
   every result retains model hash/sample bounds and remains a proposal. Automatic
   scheduler policy and real-capture calibration are still open.
+- An explicit live UI opt-in starts a bounded receive-only tested-mode sweep after a
+  track is persistent and the model accepts its method proposal. Abstentions, short
+  snippets and one-off detections cannot start it; output stays tentative. Held-out
+  mixed-scene and real-capture validation remain required before recommending the
+  feature for routine use.
 - Save identified events automatically with pre-roll; queue unknowns according to
   configurable quotas. Add storage usage and retention controls.
 

@@ -14,6 +14,24 @@ from sigid.corpus import MODES
 from sigid.synthetic import generate_bpsk_wav
 
 
+class FakeReceiveBackend:
+    def __init__(self):
+        self.mode = "BPSK31"
+
+    def mode_names(self):
+        return ["BPSK31", "RTTY", "THOR16"]
+
+    def select_mode(self, name):
+        self.mode = name
+        return name
+
+    def receive_text_length(self):
+        return 0
+
+    def receive_text(self, *, start=0, length=65536):
+        return b""
+
+
 def make_model(path):
     feature_count = 260
     np.savez_compressed(
@@ -91,7 +109,9 @@ def test_classifier_api_fails_open_when_model_is_not_configured(tmp_path):
 def test_live_candidate_gets_bounded_model_proposal_and_model_ranking(tmp_path, monkeypatch):
     model_path = tmp_path / "method.npz"
     make_model(model_path)
-    app = create_app(tmp_path / "data", classifier_model_path=model_path)
+    app = create_app(
+        tmp_path / "data", classifier_model_path=model_path, fldigi_client=FakeReceiveBackend()
+    )
     sample_rate = 12_000
     signal_path = tmp_path / "live.wav"
     generate_bpsk_wav(signal_path, "00110101" * 32, sample_rate=sample_rate)
@@ -126,7 +146,9 @@ def test_live_candidate_gets_bounded_model_proposal_and_model_ranking(tmp_path, 
 
     async def exercise():
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
-            response = await client.get("/api/live/analysis", params={"fft_size": 256, "hop_size": 64})
+            response = await client.get(
+                "/api/live/analysis", params={"fft_size": 256, "hop_size": 64, "auto_trial": True}
+            )
             assert response.status_code == 200, response.text
             tracks = response.json()["tracks"]
             assert tracks[0]["id"] == "scored"
@@ -141,5 +163,24 @@ def test_live_candidate_gets_bounded_model_proposal_and_model_ranking(tmp_path, 
             assert proposal["model_sha256"] == app.state.classifier["metadata"]["model_sha256"]
             assert tracks[1]["model_proposal"]["available"] is False
             assert "less than 1024" in tracks[1]["model_proposal"]["reason"]
+
+            assert response.json()["automatic_trial"] is None
+            app.state.classifier["metadata"]["abstention_threshold"] = 1.0
+            snapshot["sample_count"] += 1
+            abstained = await client.get(
+                "/api/live/analysis", params={"fft_size": 256, "hop_size": 64, "auto_trial": True}
+            )
+            assert abstained.json()["tracks"][0]["model_proposal"]["abstained"] is True
+            assert abstained.json()["automatic_trial"] is None
+            app.state.classifier["metadata"]["abstention_threshold"] = 0.0
+            snapshot["sample_count"] += 1
+            response = await client.get(
+                "/api/live/analysis", params={"fft_size": 256, "hop_size": 64, "auto_trial": True}
+            )
+            result = response.json()
+            assert result["tracks"][0]["track_state"] == "persistent"
+            assert result["automatic_trial"]["status"] == "running"
+            assert result["automatic_trial"]["trigger"] == "accepted_model_proposal"
+            assert result["automatic_trial"]["current_mode"] == "RTTY"
 
     asyncio.run(exercise())

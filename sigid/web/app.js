@@ -6,6 +6,7 @@ let livePoll = null;
 let fldigiPoll = null;
 let fldigiOffset = null;
 let trialPoll = null;
+let watchedTrialTrack = null;
 
 async function refreshFldigiStatus() {
   try {
@@ -55,6 +56,33 @@ async function pollFldigiOutput() {
   }
 }
 
+function watchDecoderTrial(result) {
+  if (trialPoll || watchedTrialTrack === result.track_id) return;
+  watchedTrialTrack = result.track_id;
+  fldigiOffset = result.output_offset;
+  el("fldigi-status").textContent = `Trying ${result.current_mode} for ${result.track_id} · receive only · audio routing is external`;
+  el("decoded-text").textContent = `Automatic receive trial: ${result.current_mode}\nTentative only · waiting ${result.note}`;
+  trialPoll = setInterval(async () => {
+    try {
+      const trial = await request("/api/fldigi/trials/current");
+      el("fldigi-status").textContent = `${trial.status} · ${trial.attempted_modes.join(" → ")} · ${trial.note}`;
+      if (trial.status === "tentative_output") {
+        el("decoded-text").textContent = `TENTATIVE · ${trial.current_mode}\n${trial.text}`;
+        fldigiOffset = trial.output_end ?? fldigiOffset;
+      } else if (trial.status !== "running") {
+        el("decoded-text").textContent = `${trial.status.toUpperCase()} · ${trial.current_mode || "no mode"}\n${trial.note}`;
+        if (trialPoll) clearInterval(trialPoll);
+        trialPoll = null;
+        pollFldigiOutput();
+      }
+    } catch (error) {
+      el("fldigi-status").textContent = `Automatic trial stopped · ${error.message}`;
+      if (trialPoll) clearInterval(trialPoll);
+      trialPoll = null;
+    }
+  }, 1000);
+}
+
 async function startDecoderTrial(track) {
   if (!track.track_id || !state.liveView) return;
   try {
@@ -67,29 +95,7 @@ async function startDecoderTrial(track) {
           : track.modulation_hypothesis,
       }),
     });
-    fldigiOffset = result.output_offset;
-    el("fldigi-status").textContent = `Trying ${result.current_mode} for ${result.track_id} · audio routing is external`;
-    el("decoded-text").textContent = `Automatic receive trial: ${result.current_mode}\nTentative only · waiting ${result.note}`;
-    if (trialPoll) clearInterval(trialPoll);
-    trialPoll = setInterval(async () => {
-      try {
-        const trial = await request("/api/fldigi/trials/current");
-        el("fldigi-status").textContent = `${trial.status} · ${trial.attempted_modes.join(" → ")} · ${trial.note}`;
-        if (trial.status === "tentative_output") {
-          el("decoded-text").textContent = `TENTATIVE · ${trial.current_mode}\n${trial.text}`;
-          fldigiOffset = trial.output_end ?? fldigiOffset;
-        } else if (trial.status !== "running") {
-          el("decoded-text").textContent = `${trial.status.toUpperCase()} · ${trial.current_mode || "no mode"}\n${trial.note}`;
-          if (trialPoll) clearInterval(trialPoll);
-          trialPoll = null;
-          pollFldigiOutput();
-        }
-      } catch (error) {
-        el("fldigi-status").textContent = `Automatic trial stopped · ${error.message}`;
-        if (trialPoll) clearInterval(trialPoll);
-        trialPoll = null;
-      }
-    }, 1000);
+    watchDecoderTrial(result);
   } catch (error) { showError(error.message); }
 }
 
@@ -120,11 +126,13 @@ async function refreshModelStatus() {
   try {
     const model = await request("/api/model/status");
     state.modelAvailable = model.available;
+    el("auto-trial").disabled = !model.available;
     el("model-status").textContent = model.available
       ? `Method model ready · family threshold ${(100 * model.family_threshold).toFixed(0)}% · method ${(100 * model.threshold).toFixed(0)}% · synthetic only`
       : `No model loaded${model.error ? ` · ${model.error}` : " · configure SIG_ID_MODEL_PATH"}`;
     updateModelButton();
   } catch (error) {
+    el("auto-trial").disabled = true;
     el("model-status").textContent = `Model status unavailable · ${error.message}`;
   }
 }
@@ -222,13 +230,15 @@ el("live-start").addEventListener("click", async () => {
       try {
         const status = await request("/api/live");
         if (status.active) el("live-status").textContent = `${status.state} · ${status.frames_written.toLocaleString()} samples`;
-        const analysis = await request("/api/live/analysis?fft_size=256&hop_size=64&max_rows=640");
+        const autoTrial = el("auto-trial").checked;
+        const analysis = await request(`/api/live/analysis?fft_size=256&hop_size=64&max_rows=640&auto_trial=${autoTrial}`);
         if (analysis.warming_up) {
           el("waterfall-state").textContent = `Collecting analysis window · ${analysis.window_sample_count.toLocaleString()} samples`;
           return;
         }
         state.waterfall = analysis.spectrum;
         state.tracks = analysis.tracks;
+        if (analysis.automatic_trial?.status === "running") watchDecoderTrial(analysis.automatic_trial);
         el("waterfall-state").textContent = `${analysis.spectrum.db.length} rolling spectrum rows · latest 10 seconds`;
         el("track-status").textContent = state.modelAvailable
           ? "Model-ranked live candidates · proposals remain provisional"

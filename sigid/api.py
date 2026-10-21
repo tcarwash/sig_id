@@ -179,6 +179,7 @@ def create_app(
         hop_size: int = Query(default=64, ge=1, le=8192),
         max_rows: int = Query(default=640, ge=1, le=8192),
         threshold_db: float = Query(default=18.0, ge=1.0, le=60.0),
+        auto_trial: bool = Query(default=False),
     ) -> dict[str, Any]:
         snapshot = live_capture.analysis_audio()
         if snapshot is None or not snapshot["active"]:
@@ -269,12 +270,51 @@ def create_app(
                     ),
                     reverse=True,
                 )
+            automatic_trial = None
+            if auto_trial and model is not None:
+                for track in tracks:
+                    proposal = track.get("model_proposal", {})
+                    if (
+                        track.get("track_state") != "persistent"
+                        or not proposal.get("available")
+                        or proposal.get("abstained")
+                        or not proposal.get("method")
+                        or not proposal.get("family")
+                    ):
+                        continue
+                    try:
+                        automatic_trial = app.state.fldigi_trials.start(
+                            track_id=track["track_id"],
+                            modulation_hypothesis={
+                                "FSK": "FSK-like",
+                                "MFSK": "MFSK-like",
+                                "PSK": "single-tone / unknown",
+                            }.get(proposal["family"], proposal["family"]),
+                            live=True,
+                        )
+                        automatic_trial["trigger"] = "accepted_model_proposal"
+                        track["decoder_trial"] = {
+                            "status": automatic_trial["status"],
+                            "mode": automatic_trial["current_mode"],
+                        }
+                    except ValueError as exc:
+                        reason = str(exc)
+                        if "already had" in reason:
+                            continue
+                        if "already running" in reason:
+                            automatic_trial = None
+                            break
+                        automatic_trial = {"status": "not_started", "reason": reason}
+                    except Exception as exc:
+                        automatic_trial = {"status": "failed", "reason": str(exc)}
+                    break
             return {
                 "active": True,
                 "warming_up": False,
                 "session_id": snapshot["session_id"],
                 "spectrum": spectrum,
                 "tracks": tracks,
+                "automatic_trial": automatic_trial,
                 "analysis": {"threshold_db": threshold_db, "method": "row-median threshold with persistent peak clusters"},
             }
         except ValueError as exc:

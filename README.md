@@ -15,8 +15,10 @@ workbench: when a running Fldigi XML-RPC service is available, users can select 
 receive-text output. RF-free loopback tests decode BPSK31, RTTY and THOR16 payloads
 through temporary virtual audio into the workbench API. Routing actual radio input
 to Fldigi remains an external setup and is not yet validated. The workbench also
-offers a user-started, bounded sweep of tested Fldigi modes for live provisional
-candidates; any recovered text remains tentative until reviewed. Saved recordings
+offers bounded Fldigi mode trials for live candidates. The “Auto-try accepted model IDs”
+checkbox opts into starting a sweep only after a track persists and the loaded model
+accepts a method; abstentions never start trials. Mode changes are receive-only and
+recovered text remains tentative until reviewed. Saved recordings
 have a manual, protocol-independent 2-FSK demodulator that exposes uncoded bits,
 symbol timing and soft tone metrics; symbol rate, tone mapping and timing offset must
 be supplied by the operator. A corresponding M-FSK analyzer returns hard tone indices,
