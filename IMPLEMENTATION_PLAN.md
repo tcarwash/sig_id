@@ -191,8 +191,10 @@ Synthetic track:
   sample offsets/gains, preserve overlapping constituent labels, and verify exact
   rendering on import. The split manifest keeps connected component lineages in one
   partition and reports scenes whose sources are absent from the corpus. Frequency
-  offsets, filtering, clock error, adding scene regions as training examples, and
-  detector-level mixed-scene recall/false-alarm evaluation remain open. The baseline
+  offsets, filtering, clock error, and adding scene regions as training examples
+  remain open. A first detector benchmark now reports temporal component recall,
+  candidate precision, and false candidates per hour on imported scenes and
+  noise-only captures; broader impaired-scene coverage remains open. The baseline
   separately evaluates accepted mixed-scene constituent regions only when their
   source lineages are all held out in test; scene samples are excluded from training
   and threshold calibration.

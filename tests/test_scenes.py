@@ -7,9 +7,10 @@ import pytest
 
 from sigid.dataset import CaptureStore
 from sigid.detection import detect_tracks
+from sigid.detection_evaluation import evaluate_synthetic_detector
 from sigid.scenes import create_mixed_scene, import_mixed_scene
 from sigid.spectrum import waterfall
-from sigid.synthetic import generate_2fsk_wav, generate_bpsk_wav
+from sigid.synthetic import generate_2fsk_wav, generate_bpsk_wav, generate_noise_wav
 from sigid.synthetic_dataset import import_synthetic_wav
 
 
@@ -66,6 +67,27 @@ def test_mixed_scene_is_deterministic_and_imports_overlapping_constituent_labels
     }
     assert all(region["review_state"] == "accepted" for region in imported["regions"])
     assert imported["regions"][0]["sample_start"] + imported["regions"][0]["sample_count"] > imported["regions"][1]["sample_start"]
+
+    noise_path = tmp_path / "noise.wav"
+    generate_noise_wav(noise_path, seed=882, sample_rate=8000, sample_count=16000)
+    noise = import_synthetic_wav(
+        noise_path,
+        noise_path.with_suffix(".wav.json"),
+        store=store,
+        capture_dir=tmp_path / "captures",
+    )
+    evaluation = evaluate_synthetic_detector(
+        store,
+        capture_ids=[imported["capture"]["id"], noise["capture"]["id"]],
+        fft_size=512,
+        hop_size=128,
+    )
+    assert evaluation["ground_truth_components"] == 2
+    assert evaluation["detected_components"] == 2
+    assert evaluation["component_recall"] == 1.0
+    assert evaluation["candidate_precision"] == 1.0
+    assert evaluation["noise_only_false_alarms_per_hour"] == 0.0
+    assert evaluation["false_candidates_per_hour"] == 0.0
 
 
 def test_mixed_scene_import_rejects_recipe_tampering_without_storing_capture(tmp_path):

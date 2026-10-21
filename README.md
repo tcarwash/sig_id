@@ -149,6 +149,17 @@ sig-id-mix-scene --data-dir ~/.local/share/sig-id scene-recipe.json data/scenes/
 sig-id-import-scene --data-dir ~/.local/share/sig-id data/scenes/mix.wav data/scenes/mix.wav.json
 ```
 
+Measure provisional spectral candidate detection on all imported mixed scenes and
+noise-only examples in the dataset. The report includes per-capture matches, component
+recall, candidate precision, and false candidates per hour:
+
+```sh
+sig-id-evaluate-detector --data-dir ~/.local/share/sig-id --output data/reports/detector-scenes.json
+```
+
+This benchmark measures temporal candidate coverage for deterministic synthetic
+scenes; it does not establish real-radio performance or classification accuracy.
+
 Scene imports re-render against the original accepted synthetic captures before
 storing, so edited samples or recipe fields cannot pass as synthetic ground truth.
 The split command keeps every component lineage used by an indexed scene in one
