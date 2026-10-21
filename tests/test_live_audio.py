@@ -99,11 +99,19 @@ def test_live_capture_api_flow(tmp_path):
             started = await client.post("/api/live/start", json={"device_id": 1, "sample_rate": 8000})
             assert started.status_code == 200, started.text
             assert (await client.get("/api/live")).json()["active"] is True
+            analysis = await client.get("/api/live/analysis", params={"fft_size": 64, "hop_size": 16})
+            assert analysis.status_code == 200, analysis.text
+            live_result = analysis.json()
+            assert live_result["active"] is True
+            assert live_result["spectrum"]["sample_starts"][0] == 0
+            assert live_result["spectrum"]["sample_count"] == 1024
+            assert live_result["spectrum"]["sample_rate"] == 8000
             stopped = await client.post("/api/live/stop")
             assert stopped.status_code == 200, stopped.text
             capture = stopped.json()["capture"]
             assert capture["source_kind"] == "live"
             assert capture["sample_count"] == 1024
             assert (await client.get(f"/api/captures/{capture['id']}/waterfall", params={"fft_size": 64, "hop_size": 16})).status_code == 200
+            assert (await client.get("/api/live/analysis")).status_code == 409
 
     asyncio.run(exercise())

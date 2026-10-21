@@ -1,5 +1,5 @@
 const el = (id) => document.getElementById(id);
-const state = { capture: null, waterfall: null, drag: null, selection: null, regions: [], tracks: [] };
+const state = { capture: null, waterfall: null, drag: null, selection: null, regions: [], tracks: [], liveView: false };
 const baseCanvas = el("waterfall");
 const overlayCanvas = el("overlay");
 let livePoll = null;
@@ -98,11 +98,41 @@ el("live-start").addEventListener("click", async () => {
     });
     el("live-start").disabled = true;
     el("live-stop").disabled = false;
+    state.capture = null;
+    state.liveView = true;
+    state.waterfall = null;
+    state.selection = null;
+    state.regions = [];
+    state.tracks = [];
+    baseCanvas.getContext("2d").clearRect(0, 0, baseCanvas.width, baseCanvas.height);
+    overlayCanvas.getContext("2d").clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    el("empty-state").classList.add("hidden");
+    el("workspace").classList.remove("hidden");
+    el("capture-title").textContent = "Live passband";
+    el("capture-meta").textContent = `${started.sample_rate.toLocaleString()} samples/s · ${started.device_name} · rolling analysis`;
+    el("duration").textContent = "Last 10 s";
+    el("audio-player").removeAttribute("src");
+    el("waterfall-state").textContent = "Waiting for audio frames…";
+    el("track-status").textContent = "Waiting for enough samples to analyze…";
+    el("save-region").disabled = true;
+    renderTracks();
     el("live-status").textContent = `Recording · ${started.device_name} · ${started.sample_rate.toLocaleString()} Hz`;
+    renderRegions();
     livePoll = setInterval(async () => {
       try {
         const status = await request("/api/live");
         if (status.active) el("live-status").textContent = `${status.state} · ${status.frames_written.toLocaleString()} samples`;
+        const analysis = await request("/api/live/analysis?fft_size=256&hop_size=64&max_rows=640");
+        if (analysis.warming_up) {
+          el("waterfall-state").textContent = `Collecting analysis window · ${analysis.window_sample_count.toLocaleString()} samples`;
+          return;
+        }
+        state.waterfall = analysis.spectrum;
+        state.tracks = analysis.tracks;
+        el("waterfall-state").textContent = `${analysis.spectrum.db.length} rolling spectrum rows · latest 10 seconds`;
+        el("track-status").textContent = "Live spectral heuristic · candidates are provisional";
+        drawWaterfall();
+        renderTracks();
       } catch (error) { showError(error.message); }
     }, 1000);
   } catch (error) { showError(error.message); }
@@ -192,6 +222,8 @@ el("synthetic-form").addEventListener("submit", async (event) => {
 });
 
 async function loadCapture() {
+  state.liveView = false;
+  state.selection = null;
   el("empty-state").classList.add("hidden");
   el("workspace").classList.remove("hidden");
   state.tracks = [];
@@ -336,7 +368,7 @@ function selectTrack(track) {
   el("protocol").value = "";
   el("variant").value = "";
   el("notes").value = `Auto-detected candidate (${track.modulation_hypothesis}); review before labeling. SNR ${track.peak_snr_db.toFixed(1)} dB.`;
-  el("save-region").disabled = false;
+  el("save-region").disabled = state.liveView || !state.capture;
   el("hint").classList.add("hidden");
   drawOverlays();
   el("selection-summary").scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -424,7 +456,7 @@ overlayCanvas.addEventListener("pointerup", (event) => {
   const t0 = sampleStart / data.sample_rate;
   const t1 = sampleEnd / data.sample_rate;
   el("selection-details").textContent = `Samples ${sampleStart.toLocaleString()}–${sampleEnd.toLocaleString()} · ${t0.toFixed(3)}–${t1.toFixed(3)} s`;
-  el("save-region").disabled = false;
+  el("save-region").disabled = state.liveView || !state.capture;
   drawOverlays();
 });
 

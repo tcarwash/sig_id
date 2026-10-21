@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from collections import deque
 import queue
 import threading
 import time
@@ -16,6 +17,7 @@ from .dataset import CaptureStore
 
 QUEUE_BLOCKS = 32
 MAX_CAPTURE_SECONDS = 1800
+LIVE_ANALYSIS_SECONDS = 10
 
 
 @dataclass(slots=True)
@@ -37,6 +39,8 @@ class _Session:
     state: str = "starting"
     truncated_reason: str | None = None
     status_messages: list[str] = field(default_factory=list)
+    recent_blocks: deque[bytes] = field(default_factory=deque)
+    recent_frames: int = 0
     worker_error: str | None = None
     lock: threading.Lock = field(default_factory=threading.Lock)
 
@@ -96,6 +100,25 @@ class LiveCaptureManager:
                 "frames_written": session.frames_written,
                 "truncated_reason": session.truncated_reason,
                 "status_messages": list(session.status_messages),
+            }
+
+    def analysis_audio(self) -> dict[str, Any] | None:
+        """Copy a bounded, recent mono/stereo PCM window for live visualization."""
+        with self._lock:
+            session = self._session
+        if session is None:
+            return None
+        with session.lock:
+            pcm = b"".join(session.recent_blocks)
+            return {
+                "pcm": pcm,
+                "sample_rate": session.sample_rate,
+                "channels": session.channels,
+                "sample_offset": max(0, session.frames_written - session.recent_frames),
+                "sample_count": session.frames_written,
+                "window_sample_count": session.recent_frames,
+                "session_id": session.id,
+                "active": session.state in {"starting", "recording", "limit_reached", "overrun"},
             }
 
     def start(
@@ -215,7 +238,23 @@ class LiveCaptureManager:
                         continue
                     wav.writeframesraw(block)
                     with session.lock:
-                        session.frames_written += len(block) // (2 * session.channels)
+                        frames = len(block) // (2 * session.channels)
+                        session.frames_written += frames
+                        session.recent_blocks.append(block)
+                        session.recent_frames += frames
+                        capacity = session.sample_rate * LIVE_ANALYSIS_SECONDS
+                        excess = session.recent_frames - capacity
+                        while excess > 0 and session.recent_blocks:
+                            oldest = session.recent_blocks.popleft()
+                            oldest_frames = len(oldest) // (2 * session.channels)
+                            if oldest_frames <= excess:
+                                session.recent_frames -= oldest_frames
+                                excess -= oldest_frames
+                            else:
+                                trim_bytes = excess * 2 * session.channels
+                                session.recent_blocks.appendleft(oldest[trim_bytes:])
+                                session.recent_frames -= excess
+                                excess = 0
         except Exception as exc:
             session.worker_error = str(exc)
             with session.lock:

@@ -33,6 +33,9 @@ the workbench API; radio-input routing and independent-signal validation remain 
 - Local input-device discovery and bounded mono/stereo PCM recording through a
   background writer; live audio is saved as a normal capture with device provenance.
 - Browser controls to start/stop live recording and immediately review its waterfall.
+- Live capture also exposes a bounded rolling ten-second waterfall and provisional
+  signal candidates while recording. The 10-second audio analysis ring is bounded in
+  memory; final labels continue to reference the saved capture's absolute samples.
 - Receive-only Fldigi API/UI: connection status, catalog list, manual mode selection
   and incremental decoded-text polling. Transmit, rig and macro calls are not exposed.
 - Provisional automatic candidates from persistent spectral peaks, shown as amber
@@ -43,9 +46,10 @@ the workbench API; radio-input routing and independent-signal validation remain 
 ## Next action
 
 Continue automatic identification in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md):
-measure candidate recall and false alarms across synthetic fixtures, improve tone
-grouping and burst segmentation, then connect reviewed IDs to the dataset. The current
-candidate hypotheses are heuristic-only and have not been validated on live captures.
+measure candidate recall and false alarms across synthetic and mixed scenes, improve
+tone grouping and burst segmentation, and build the bounded decoder-trial scheduler.
+The current candidate hypotheses are heuristic-only and have not been validated on
+live captures.
 
 ## Evidence boundary
 
@@ -53,9 +57,11 @@ Verified: Fldigi 4.2.13 and its XML-RPC method catalog are installed; unit tests
 cover receive-only client semantics, PCM WAV block indexing/normalization and
 synthetic 2-FSK/MFSK metadata, exact symbols/bits and tone frequencies, SQLite
 capture hashes/regions/label history, JSONL export, spectrogram peak detection, upload/region APIs, and Fldigi
-status/catalog/mode/output APIs. Current full suite: 55 passed, 4 skipped;
+status/catalog/mode/output APIs. Current full suite: 56 passed, 4 skipped;
 `node --check sigid/web/app.js` and `git diff --check` pass. Deterministic fake-device tests
-exercise WAV writing, capture indexing, API start/status/stop and waterfall access.
+exercise WAV writing, capture indexing, API start/status/stop and rolling live
+analysis. The live analysis ring is capped at ten seconds and absolute sample
+positions match completed-WAV waterfall calculations.
 An isolated live Fldigi 4.2.13 process served the API with the documented receive-only
 allow-list: 169 modes, THOR16 selection, and receive-buffer queries all worked. A
 separate, opt-in integration test passes: it creates two copied profiles with all

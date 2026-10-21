@@ -8,6 +8,7 @@ import wave
 from typing import Any
 from uuid import uuid4
 
+import numpy as np
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -16,7 +17,7 @@ from .dataset import CaptureStore, SignalLabel
 from .detection import detect_tracks
 from .fldigi import FldigiClient
 from .live_audio import LiveCaptureManager
-from .spectrum import waterfall
+from .spectrum import waterfall, waterfall_samples
 from .synthetic_dataset import MAX_MANIFEST_BYTES, import_synthetic_wav
 
 
@@ -87,6 +88,48 @@ def create_app(
     @app.get("/api/live")
     def live_status() -> dict[str, Any]:
         return live_capture.status()
+
+    @app.get("/api/live/analysis")
+    def live_analysis(
+        fft_size: int = Query(default=256, ge=32, le=8192),
+        hop_size: int = Query(default=64, ge=1, le=8192),
+        max_rows: int = Query(default=640, ge=1, le=8192),
+        threshold_db: float = Query(default=18.0, ge=1.0, le=60.0),
+    ) -> dict[str, Any]:
+        snapshot = live_capture.analysis_audio()
+        if snapshot is None or not snapshot["active"]:
+            raise HTTPException(status_code=409, detail="live capture is not active")
+        if snapshot["window_sample_count"] < fft_size:
+            return {
+                "active": True,
+                "warming_up": True,
+                "sample_count": snapshot["sample_count"],
+                "window_sample_count": snapshot["window_sample_count"],
+                "tracks": [],
+            }
+        try:
+            channels = snapshot["channels"]
+            pcm = np.frombuffer(snapshot["pcm"], dtype="<i2").reshape(-1, channels)
+            mono = pcm.astype(np.float64).mean(axis=1) / 32768.0
+            spectrum = waterfall_samples(
+                mono,
+                snapshot["sample_rate"],
+                fft_size=fft_size,
+                hop_size=hop_size,
+                max_rows=max_rows,
+                sample_offset=snapshot["sample_offset"],
+                total_sample_count=snapshot["sample_count"],
+            )
+            return {
+                "active": True,
+                "warming_up": False,
+                "session_id": snapshot["session_id"],
+                "spectrum": spectrum,
+                "tracks": detect_tracks(spectrum, threshold_db=threshold_db),
+                "analysis": {"threshold_db": threshold_db, "method": "row-median threshold with persistent peak clusters"},
+            }
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.post("/api/live/start")
     def start_live_capture(data: LiveCaptureStart) -> dict[str, Any]:

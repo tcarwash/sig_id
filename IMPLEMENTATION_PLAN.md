@@ -130,6 +130,8 @@ Ship this as soon as the gate passes. No classifier is required for 0.1.
 
 ## Milestone 2: release 0.2, automatic operation
 
+- Run the same bounded candidate analysis over a rolling live-audio window, while
+  preserving absolute capture sample positions and keeping callback work nonblocking.
 - Add multiresolution signal detection/noise estimation and persistent tracks;
   support manual correction when segmentation merges or splits signals badly.
 - Estimate bandwidth, tone structure, spacing/rate candidates and drift. Start

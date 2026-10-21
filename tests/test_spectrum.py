@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import pytest
+import numpy as np
 
-from sigid.spectrum import waterfall
+from sigid.spectrum import waterfall, waterfall_samples
 from sigid.synthetic import generate_2fsk_wav
+from sigid.wav import WavSource
 
 
 def test_waterfall_locates_synthetic_tone_and_preserves_sample_positions(tmp_path):
@@ -45,3 +47,23 @@ def test_waterfall_rejects_recording_shorter_than_fft(tmp_path):
     generate_2fsk_wav(path, "0", sample_rate=8000, symbol_rate=100)
     with pytest.raises(ValueError, match="at least"):
         waterfall(path, fft_size=256)
+
+
+def test_in_memory_waterfall_matches_wav_with_absolute_sample_offset(tmp_path):
+    path = tmp_path / "tone.wav"
+    generate_2fsk_wav(path, "01" * 20, sample_rate=8000, symbol_rate=100)
+    recorded = waterfall(path, fft_size=256, hop_size=64, max_rows=64)
+    source = WavSource(path)
+    samples = [sample for block in source.blocks() for sample in block.samples]
+    live = waterfall_samples(
+        samples,
+        8000,
+        fft_size=256,
+        hop_size=64,
+        max_rows=64,
+        sample_offset=5000,
+        total_sample_count=5000 + len(samples),
+    )
+    assert live["sample_starts"] == [5000 + start for start in recorded["sample_starts"]]
+    assert live["sample_count"] == 5000 + recorded["sample_count"]
+    np.testing.assert_allclose(live["db"], recorded["db"], atol=0.0001)
