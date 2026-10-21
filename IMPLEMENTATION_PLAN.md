@@ -193,6 +193,10 @@ Learning track:
   evidence view, revision history and bulk approval where evidence permits.
 - Freeze split manifests by original source/session before cropping/augmentation.
   Group scene constituents and all reused parent signals to prevent leakage.
+- A first corpus split tool validates dataset hashes/labels and groups all clean/derived
+  examples under their source capture ID. It requires at least three independent source
+  groups per method and writes a seed/versioned split manifest; real session grouping and
+  held-out protocol/family experiments remain to be implemented.
 - Baseline spectrogram model with masked multi-task losses: predict family first,
   protocol/variant when labeled, and parameters where useful. A protocol label
   must not require an unjustified family/method label.

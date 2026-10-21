@@ -125,6 +125,7 @@ train/validation/test split:
 
 ```sh
 sig-id-build-corpus --output-dir data/corpus --examples-per-mode 4 --snr-db 0 10 20 --seed 42
+sig-id-split-corpus --corpus data/corpus/corpus.json --output data/corpus/splits.json --seed 42
 ```
 
 This creates 96 labeled captures (six methods × four source examples × one clean plus
@@ -132,6 +133,9 @@ three SNR variants). The index and generated audio stay in `data/corpus`; import
 captures and labels are stored under `SIG_ID_DATA_DIR` or the normal application data
 directory. Re-running the same command resumes without duplicating captures; changing
 the recipe requires a new output directory.
+The split command validates each dataset capture and label, requires at least three
+independent source groups per method, and assigns every clean waveform and all of its
+derived impairments to the same train, validation or test split.
 
 Replay it blockwise from Python with `sigid.wav.WavSource`; blocks carry exact sample
 offsets and normalized mono samples. This is a modulation fixture, not a named

@@ -22,6 +22,7 @@ sig-id-generate-bpsk = "sigid.synthetic:bpsk_main"
 sig-id-generate-qpsk = "sigid.synthetic:qpsk_main"
 sig-id-augment-awgn = "sigid.augmentation:main"
 sig-id-build-corpus = "sigid.corpus:main"
+sig-id-split-corpus = "sigid.splits:main"
 sig-id-import-synthetic = "sigid.synthetic_dataset:main"
 sig-id-serve = "sigid.server:main"
 
