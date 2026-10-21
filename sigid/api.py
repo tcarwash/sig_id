@@ -214,6 +214,61 @@ def create_app(
                 sample_position=int(snapshot["sample_count"]),
                 sample_rate=int(snapshot["sample_rate"]),
             )
+            model = app.state.classifier
+            if model is not None and snapshot["sample_rate"] >= 8000:
+                # Score only the portion of each candidate that is still in the
+                # bounded ring, with a strict two-second work cap per track.
+                ring_start = int(snapshot["sample_offset"])
+                ring_end = ring_start + len(mono)
+                scoring_tracks = set(
+                    id(track) for track in sorted(
+                        tracks, key=lambda item: float(item.get("peak_snr_db", 0.0)), reverse=True
+                    )[:4]
+                )
+                for track in tracks:
+                    if id(track) not in scoring_tracks:
+                        track["model_proposal"] = {
+                            "available": False,
+                            "reason": "per-update model scoring limit reached",
+                        }
+                        continue
+                    segment_start = max(ring_start, int(track["sample_start"]))
+                    segment_end = min(ring_end, int(track["sample_start"]) + int(track["sample_count"]))
+                    segment_start = max(segment_start, segment_end - 2 * int(snapshot["sample_rate"]))
+                    if segment_end - segment_start < 1024:
+                        track["model_proposal"] = {
+                            "available": False,
+                            "reason": "candidate has less than 1024 in-ring samples",
+                        }
+                        continue
+                    left = segment_start - ring_start
+                    right = segment_end - ring_start
+                    try:
+                        features = extract_features(mono[left:right], int(snapshot["sample_rate"]))
+                        proposal = propose(
+                            features,
+                            model["parameters"],
+                            model["metadata"]["classes"],
+                            threshold=float(model["metadata"]["abstention_threshold"]),
+                            family_threshold=float(model["metadata"]["family_abstention_threshold"]),
+                        )
+                        track["model_proposal"] = {
+                            "available": True,
+                            **proposal,
+                            "model_sha256": model["metadata"]["model_sha256"],
+                            "sample_start": segment_start,
+                            "sample_count": segment_end - segment_start,
+                        }
+                    except ValueError as exc:
+                        track["model_proposal"] = {"available": False, "reason": str(exc)}
+                tracks.sort(
+                    key=lambda track: (
+                        bool(track.get("model_proposal", {}).get("method")),
+                        float(track.get("model_proposal", {}).get("confidence", 0.0)),
+                        float(track.get("peak_snr_db", 0.0)),
+                    ),
+                    reverse=True,
+                )
             return {
                 "active": True,
                 "warming_up": False,
@@ -292,9 +347,15 @@ def create_app(
     def start_fldigi_trial(data: FldigiTrialStart) -> dict[str, Any]:
         try:
             live = bool(live_capture.status().get("active"))
+            family = data.modulation_hypothesis.upper()
+            trial_hint = {
+                "FSK": "FSK-like",
+                "MFSK": "MFSK-like",
+                "PSK": "single-tone / unknown",
+            }.get(family, data.modulation_hypothesis)
             return app.state.fldigi_trials.start(
                 track_id=data.track_id,
-                modulation_hypothesis=data.modulation_hypothesis,
+                modulation_hypothesis=trial_hint,
                 live=live,
             )
         except ValueError as exc:

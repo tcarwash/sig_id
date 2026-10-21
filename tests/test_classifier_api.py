@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import wave
 
 import httpx
 import numpy as np
@@ -83,5 +84,62 @@ def test_classifier_api_fails_open_when_model_is_not_configured(tmp_path):
                 "/api/captures/unknown/classify", json={"sample_count": 2000}
             )
             assert unavailable.status_code == 503
+
+    asyncio.run(exercise())
+
+
+def test_live_candidate_gets_bounded_model_proposal_and_model_ranking(tmp_path, monkeypatch):
+    model_path = tmp_path / "method.npz"
+    make_model(model_path)
+    app = create_app(tmp_path / "data", classifier_model_path=model_path)
+    sample_rate = 12_000
+    signal_path = tmp_path / "live.wav"
+    generate_bpsk_wav(signal_path, "00110101" * 32, sample_rate=sample_rate)
+    with wave.open(str(signal_path), "rb") as source:
+        samples = np.frombuffer(source.readframes(source.getnframes()), dtype="<i2")
+    snapshot = {
+        "pcm": samples.tobytes(), "sample_rate": sample_rate, "channels": 1,
+        "sample_offset": 0, "sample_count": len(samples),
+        "window_sample_count": len(samples), "session_id": "live-model-test", "active": True,
+    }
+    app.state.live_capture.analysis_audio = lambda: snapshot
+    monkeypatch.setattr(app.state.live_capture, "status", lambda: {"active": True})
+    monkeypatch.setattr(
+        "sigid.api.detect_tracks",
+        lambda spectrum, threshold_db: [
+            {
+                "id": "short", "sample_start": 0, "sample_count": 500,
+                "center_hz": 2400.0, "bandwidth_hz": 200.0, "peak_snr_db": 40.0,
+                "tone_count_candidate": 2, "modulation_hypothesis": "FSK-like",
+                "frequency_low_hz": 2300.0, "frequency_high_hz": 2500.0,
+                "time_start_seconds": 0.0, "time_end_seconds": 500 / sample_rate,
+            },
+            {
+                "id": "scored", "sample_start": 0, "sample_count": len(samples),
+                "center_hz": 1500.0, "bandwidth_hz": 300.0, "peak_snr_db": 20.0,
+                "tone_count_candidate": 2, "modulation_hypothesis": "FSK-like",
+                "frequency_low_hz": 1300.0, "frequency_high_hz": 1700.0,
+                "time_start_seconds": 0.0, "time_end_seconds": len(samples) / sample_rate,
+            },
+        ],
+    )
+
+    async def exercise():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.get("/api/live/analysis", params={"fft_size": 256, "hop_size": 64})
+            assert response.status_code == 200, response.text
+            tracks = response.json()["tracks"]
+            assert tracks[0]["id"] == "scored"
+            track = tracks[0]
+            proposal = track["model_proposal"]
+            assert proposal["available"] is True
+            assert proposal["abstained"] is False
+            assert proposal["method_id"] == "2fsk"
+            assert proposal["protocol"] is None
+            assert proposal["sample_start"] == len(samples) - 2 * sample_rate
+            assert proposal["sample_count"] == 2 * sample_rate
+            assert proposal["model_sha256"] == app.state.classifier["metadata"]["model_sha256"]
+            assert tracks[1]["model_proposal"]["available"] is False
+            assert "less than 1024" in tracks[1]["model_proposal"]["reason"]
 
     asyncio.run(exercise())

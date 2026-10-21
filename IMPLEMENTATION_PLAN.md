@@ -149,6 +149,11 @@ Ship this as soon as the gate passes. No classifier is required for 0.1.
   Automatic launch policy, worker reset/isolation and additional modes remain open.
 - Run initial decoder candidates, record mode-specific evidence, and display
   tentative versus supported output. Cap attempts per signal and per second.
+- The loaded method model now scores bounded two-second snippets for up to four
+  strongest live candidates per analysis update. Accepted family proposals move to
+  the top of the candidate list and guide the existing tested-mode trial order;
+  every result retains model hash/sample bounds and remains a proposal. Automatic
+  scheduler policy and real-capture calibration are still open.
 - Save identified events automatically with pre-roll; queue unknowns according to
   configurable quotas. Add storage usage and retention controls.
 

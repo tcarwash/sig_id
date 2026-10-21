@@ -95,8 +95,11 @@ the workbench API; radio-input routing and independent-signal validation remain 
 
 ## Next action
 
-Connect calibrated modulation proposals to live candidate ranking and decoder trials.
-Add unknown/no-signal training examples, then evaluate unseen families and real captures.
+Next, calibrate the live model proposals on held-out mixed scenes, add unknown/no-signal
+examples, and gate when the tested decoder sweep starts automatically. The current
+proposal path scores up to four strongest live tracks per update over at most two
+seconds each; suggestions retain model hash and sample bounds and remain provisional.
+Evaluate unseen families and real captures before trusting model-ranked trials.
 Continue automatic identification in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md): measure
 candidate recall and false alarms across synthetic and mixed scenes, improve tone
 grouping and burst segmentation, and evaluate FSK, BPSK and QPSK against broader
@@ -110,7 +113,7 @@ Verified: Fldigi 4.2.13 and its XML-RPC method catalog are installed; unit tests
 cover receive-only client semantics, PCM WAV block indexing/normalization and
 synthetic 2-FSK/MFSK metadata, exact symbols/bits and tone frequencies, SQLite
 capture hashes/regions/label history, JSONL export, spectrogram peak detection, upload/region APIs, and Fldigi
-status/catalog/mode/output APIs. Current full suite: 103 passed, 4 skipped;
+status/catalog/mode/output APIs. Current full suite: 104 passed, 4 skipped;
 `node --check sigid/web/app.js` and `git diff --check` pass. The generic text-backend
 contract is exercised by the Fldigi adapter and trial-runner tests. Deterministic fake-device tests
 exercise WAV writing, capture indexing, API start/status/stop and rolling live
@@ -133,7 +136,10 @@ The tested Fldigi modes are a three-family sample, not full-catalog validation.
 2-FSK/M-FSK/BPSK/QPSK recovery is verified against generated source symbols/bits;
 2-FSK and BPSK also pass seeded AWGN cases. Independent-capture performance and
 automatic rate/tone/carrier acquisition remain unverified.
-The baseline trainer and inference path are tested end to end. An exploratory split
+The baseline trainer and inference path are tested end to end. Live candidate inference
+now uses a bounded two-second snippet for up to four strongest tracks, returns auditable
+model/sample provenance, and affects candidate ordering and tested-mode trial ordering;
+it remains a proposal pending calibration. An exploratory split
 with 10 independent synthetic sources per method and one 10 dB variant achieved 10/12
 raw method decisions on its held-out groups; a four-source run achieved 11/24. A newer
 12-source-per-method run with one 10 dB variant calibrated to zero observed validation

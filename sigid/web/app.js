@@ -60,7 +60,12 @@ async function startDecoderTrial(track) {
   try {
     const result = await request("/api/fldigi/trials/start", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ track_id: track.track_id, modulation_hypothesis: track.modulation_hypothesis }),
+      body: JSON.stringify({
+        track_id: track.track_id,
+        modulation_hypothesis: track.model_proposal?.available && !track.model_proposal.abstained
+          ? track.model_proposal.family
+          : track.modulation_hypothesis,
+      }),
     });
     fldigiOffset = result.output_offset;
     el("fldigi-status").textContent = `Trying ${result.current_mode} for ${result.track_id} · audio routing is external`;
@@ -225,7 +230,9 @@ el("live-start").addEventListener("click", async () => {
         state.waterfall = analysis.spectrum;
         state.tracks = analysis.tracks;
         el("waterfall-state").textContent = `${analysis.spectrum.db.length} rolling spectrum rows · latest 10 seconds`;
-        el("track-status").textContent = "Live spectral heuristic · candidates are provisional";
+        el("track-status").textContent = state.modelAvailable
+          ? "Model-ranked live candidates · proposals remain provisional"
+          : "Live spectral heuristic · candidates are provisional";
         drawWaterfall();
         renderTracks();
       } catch (error) { showError(error.message); }
@@ -494,7 +501,13 @@ function renderTracks() {
       const summary = document.createElement("div");
       summary.className = "track-summary";
       const identity = track.track_id ? `${track.track_id.split(":").at(-1)} · ${track.track_state}` : "single analysis";
-      summary.textContent = `${identity} · ${track.modulation_hypothesis} · ${track.tone_count_candidate} tone centers`;
+      const proposal = track.model_proposal;
+      const modelLabel = proposal?.available
+        ? proposal.abstained
+          ? ` · model abstained (${proposal.top_candidate}, ${(100 * proposal.confidence).toFixed(0)}%)`
+          : ` · model ${proposal.method_id} ${(100 * proposal.confidence).toFixed(0)}%`
+        : "";
+      summary.textContent = `${identity} · ${track.modulation_hypothesis} · ${track.tone_count_candidate} tone centers${modelLabel}`;
       const detail = document.createElement("div");
       detail.className = "region-detail";
       detail.textContent = `${track.frequency_low_hz.toFixed(0)}–${track.frequency_high_hz.toFixed(0)} Hz · ${track.time_start_seconds.toFixed(2)}–${track.time_end_seconds.toFixed(2)} s · ${track.peak_snr_db.toFixed(1)} dB peak SNR`;
