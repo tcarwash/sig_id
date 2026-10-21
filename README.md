@@ -41,9 +41,9 @@ pytest
 sig-id-serve
 ```
 
-The opt-in, RF-free Fldigi audio loopback tests exercise BPSK31, RTTY and THOR16 using
-isolated profiles and a temporary PulseAudio/PipeWire null sink. They require a
-configured `~/.fldigi`, `xvfb-run`, and `pactl`:
+The opt-in, RF-free Fldigi audio loopback tests exercise BPSK31, RTTY, THOR16, MFSK16,
+and MT63-500S using isolated profiles and a temporary PulseAudio/PipeWire null sink.
+They require a configured `~/.fldigi`, `xvfb-run`, and `pactl`:
 
 ```sh
 SIGID_TEST_FLDIGI_AUDIO=1 pytest tests/test_fldigi_audio_integration.py

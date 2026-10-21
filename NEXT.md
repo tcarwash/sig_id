@@ -3,8 +3,9 @@
 Status: local WAV upload/replay workbench, spectrogram, manual region labels,
 sample-indexed replay, live audio capture, FSK fixtures and SQLite dataset index
 are implemented. Receive-only Fldigi catalog selection and decoded-text display are
-implemented. Isolated BPSK31, RTTY and THOR16 audio loopbacks pass through Fldigi into
-the workbench API; radio-input routing and independent-signal validation remain open.
+implemented. Isolated BPSK31, RTTY, THOR16, MFSK16, and MT63-500S audio loopbacks pass
+through Fldigi into the workbench API; radio-input routing and independent-signal
+validation remain open.
 
 ## Agreed scope
 
@@ -73,6 +74,10 @@ the workbench API; radio-input routing and independent-signal validation remain 
   candidate persistent; this is spectral continuity evidence, not mode confirmation.
 - Receive-only Fldigi API/UI: connection status, catalog list, manual mode selection
   and incremental decoded-text polling. Transmit, rig and macro calls are not exposed.
+- Isolated end-to-end Fldigi loopbacks now recover the exact test payload through the
+  workbench API for BPSK31, RTTY, THOR16, MFSK16, and MT63-500S. Olivia-8/250 did not
+  produce a repeatable complete payload in the current two-instance audio setup and
+  remains outside the validated decode list.
 - A mode-by-mode isolated Fldigi 4.2.13 selection audit records all 169 catalog
   entries: 165 of 168 actual modem modes select by name. OFDM500F, OFDM750F and
   OFDM3500 remain listed in Fldigi but selecting them through XML-RPC leaves the

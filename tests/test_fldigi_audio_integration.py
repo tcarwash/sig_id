@@ -133,7 +133,10 @@ def _stop_process(process: subprocess.Popen[bytes]) -> None:
         process.wait(timeout=2)
 
 
-@pytest.mark.parametrize("mode", ["BPSK31", "RTTY", "THOR16"])
+@pytest.mark.parametrize(
+    "mode",
+    ["BPSK31", "RTTY", "THOR16", "MFSK16", "MT63-500S"],
+)
 @pytest.mark.skipif(
     os.environ.get("SIGID_TEST_FLDIGI_AUDIO") != "1",
     reason="set SIGID_TEST_FLDIGI_AUDIO=1 for isolated Fldigi audio loopback",
@@ -197,10 +200,14 @@ def test_fldigi_payload_reaches_workbench_api_through_virtual_audio(tmp_path, so
                         "/api/fldigi/output", params={"start": 0, "limit": 65536}
                     )
                     assert output.status_code == 200, output.text
-                    if payload in output.json()["text"]:
+                    received_text = output.json()["text"]
+                    if payload in received_text:
                         return
                     await asyncio.sleep(0.25)
-                pytest.fail(f"full known {mode} payload did not appear through the workbench API")
+                pytest.fail(
+                    f"full known {mode} payload did not appear through the workbench API; "
+                    f"received {received_text[-1000:]!r}"
+                )
 
         asyncio.run(verify_workbench_decode())
     finally:
