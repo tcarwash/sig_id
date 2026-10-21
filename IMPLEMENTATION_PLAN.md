@@ -1,10 +1,10 @@
 # Implementation plan
 
-Status: implementation in progress. WAV replay, live capture and the first manual
-dataset workflow are implemented. Fldigi's receive-only UI/API is connected; see
-[NEXT.md](NEXT.md) for the verified gates. Audio routing/decode, automatic
-identification, model training and RF validation remain open. A BPSK31 software
-audio loopback decodes through Fldigi; routing a real radio input remains open.
+Status: implementation in progress. WAV replay, live capture, the manual dataset
+workflow, and the first provisional spectral candidate pass are implemented. Fldigi's
+receive-only UI/API is connected; see [NEXT.md](NEXT.md) for verified gates. Automatic
+protocol identification, model training and RF validation remain open. A BPSK31
+software audio loopback decodes through Fldigi; routing a real radio input remains open.
 
 ## Delivery strategy
 

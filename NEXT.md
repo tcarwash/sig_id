@@ -35,14 +35,17 @@ workbench API; radio-input routing and independent-signal validation remain open
 - Browser controls to start/stop live recording and immediately review its waterfall.
 - Receive-only Fldigi API/UI: connection status, catalog list, manual mode selection
   and incremental decoded-text polling. Transmit, rig and macro calls are not exposed.
+- Provisional automatic candidates from persistent spectral peaks, shown as amber
+  dashed waterfall overlays with frequency/time, tone-count hypothesis, occupancy
+  and peak SNR. Review selects an editable region and leaves all label fields blank;
+  heuristic predictions are not stored as ground truth.
 
 ## Next action
 
-Continue release 0.1 in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md): connect a
-live radio audio input to the configured Fldigi source and verify a known over-the-air
-or independent audio fixture. The decoder panel can select from the connected Fldigi
-catalog and display the receive text; input-device routing remains an explicit OS or
-Fldigi configuration step.
+Continue automatic identification in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md):
+measure candidate recall and false alarms across synthetic fixtures, improve tone
+grouping and burst segmentation, then connect reviewed IDs to the dataset. The current
+candidate hypotheses are heuristic-only and have not been validated on live captures.
 
 ## Evidence boundary
 
@@ -50,8 +53,8 @@ Verified: Fldigi 4.2.13 and its XML-RPC method catalog are installed; unit tests
 cover receive-only client semantics, PCM WAV block indexing/normalization and
 synthetic 2-FSK/MFSK metadata, exact symbols/bits and tone frequencies, SQLite
 capture hashes/regions/label history, JSONL export, spectrogram peak detection, upload/region APIs, and Fldigi
-status/catalog/mode/output APIs. `pytest`: 51 passed, 2 skipped;
-`node --check sigid/web/app.js` and wheel build pass. Deterministic fake-device tests
+status/catalog/mode/output APIs. Current full suite: 54 passed, 2 skipped;
+`node --check sigid/web/app.js` and `git diff --check` pass. Deterministic fake-device tests
 exercise WAV writing, capture indexing, API start/status/stop and waterfall access.
 An isolated live Fldigi 4.2.13 process served the API with the documented receive-only
 allow-list: 169 modes, THOR16 selection, and receive-buffer queries all worked. A
@@ -62,5 +65,5 @@ null sink, and verifies the complete payload arrives through the workbench API. 
 software loopback, not an independent modem or RF test. A fresh blank profile did
 not expose XML-RPC until initialized. WAV replay is sample-indexed and synthetic
 FSK/MFSK files carry modulation labels while leaving protocol unknown. Live hardware
-capture, radio audio routing,
-automatic identification, trained model, and RF validation remain unverified.
+capture, radio audio routing, trained identification model, and RF validation remain
+unverified. Current heuristic candidates have synthetic fixture evidence only.

@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from .dataset import CaptureStore, SignalLabel
+from .detection import detect_tracks
 from .fldigi import FldigiClient
 from .live_audio import LiveCaptureManager
 from .spectrum import waterfall
@@ -281,6 +282,38 @@ def create_app(
                 hop_size=hop_size,
                 max_rows=max_rows,
             )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/api/captures/{capture_id}/tracks")
+    def get_signal_tracks(
+        capture_id: str,
+        fft_size: int = Query(default=128, ge=32, le=8192),
+        hop_size: int = Query(default=32, ge=1, le=8192),
+        max_rows: int = Query(default=2048, ge=1, le=8192),
+        threshold_db: float = Query(default=18.0, ge=1.0, le=60.0),
+    ) -> dict[str, Any]:
+        try:
+            capture = store.capture(capture_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="capture not found") from exc
+        try:
+            spectrum = waterfall(
+                capture["audio_path"],
+                fft_size=fft_size,
+                hop_size=hop_size,
+                max_rows=max_rows,
+            )
+            return {
+                "tracks": detect_tracks(spectrum, threshold_db=threshold_db),
+                "analysis": {
+                    "fft_size": fft_size,
+                    "hop_size": hop_size,
+                    "rows": len(spectrum["db"]),
+                    "threshold_db": threshold_db,
+                    "method": "row-median threshold with persistent peak clusters",
+                },
+            }
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 

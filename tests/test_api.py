@@ -31,6 +31,7 @@ def test_upload_waterfall_manual_label_audio_and_jsonl_export(tmp_path):
             assert (await client.get("/api/health")).json()["status"] == "ok"
             assert "Signal ID Workbench" in (await client.get("/")).text
             assert "drawWaterfall" in (await client.get("/app.js")).text
+            assert "Provisional signal candidates" in (await client.get("/")).text
             assert "waterfall-layout" in (await client.get("/style.css")).text
             uploaded = await client.post(
                 "/api/captures",
@@ -50,6 +51,13 @@ def test_upload_waterfall_manual_label_audio_and_jsonl_export(tmp_path):
             assert len(data["db"]) <= 24
             assert len(data["db"][0]) == 257
             assert data["sample_starts"] == sorted(data["sample_starts"])
+
+            candidates = await client.get(f"/api/captures/{capture['id']}/tracks")
+            assert candidates.status_code == 200, candidates.text
+            result = candidates.json()
+            assert result["analysis"]["method"] == "row-median threshold with persistent peak clusters"
+            assert any(candidate["modulation_hypothesis"] == "FSK-like" for candidate in result["tracks"])
+            assert all(candidate["protocol"] is None for candidate in result["tracks"])
 
             saved = await client.post(
                 f"/api/captures/{capture['id']}/regions",

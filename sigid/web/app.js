@@ -1,5 +1,5 @@
 const el = (id) => document.getElementById(id);
-const state = { capture: null, waterfall: null, drag: null, selection: null, regions: [] };
+const state = { capture: null, waterfall: null, drag: null, selection: null, regions: [], tracks: [] };
 const baseCanvas = el("waterfall");
 const overlayCanvas = el("overlay");
 let livePoll = null;
@@ -194,6 +194,8 @@ el("synthetic-form").addEventListener("submit", async (event) => {
 async function loadCapture() {
   el("empty-state").classList.add("hidden");
   el("workspace").classList.remove("hidden");
+  state.tracks = [];
+  renderTracks();
   const c = state.capture;
   el("capture-title").textContent = c.source_metadata.uploaded_filename || c.source_metadata.device_name || c.source_metadata.generator || "Audio recording";
   const manifestLink = el("manifest-download");
@@ -212,6 +214,15 @@ async function loadCapture() {
   drawWaterfall();
   state.regions = await request(`/api/captures/${c.id}/regions`);
   renderRegions();
+  try {
+    const result = await request(`/api/captures/${c.id}/tracks`);
+    state.tracks = result.tracks;
+    el("track-status").textContent = `Spectral heuristic · ${result.analysis.fft_size}-point FFT · candidates are provisional`;
+  } catch (error) {
+    state.tracks = [];
+    el("track-status").textContent = `Candidate analysis unavailable · ${error.message}`;
+  }
+  renderTracks();
   el("waterfall-state").textContent = `${state.waterfall.db.length} spectrum rows · ${state.waterfall.fft_size}-point FFT`;
 }
 
@@ -274,6 +285,17 @@ function drawOverlays() {
   ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
   const nyquist = data.sample_rate / 2;
   const bins = data.frequency_hz.length;
+  for (const track of state.tracks) {
+    const rowA = sampleToRow(track.sample_start);
+    const rowB = Math.max(rowA + 1, sampleToRow(track.sample_start + track.sample_count));
+    const x = Math.max(0, Math.floor((track.frequency_low_hz / nyquist) * (bins - 1)));
+    const right = Math.min(bins - 1, Math.ceil((track.frequency_high_hz / nyquist) * (bins - 1)));
+    ctx.strokeStyle = "#f1be69";
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 3]);
+    ctx.strokeRect(x, rowA, Math.max(2, right - x), Math.max(2, rowB - rowA));
+  }
+  ctx.setLineDash([]);
   for (const region of state.regions) {
     const rowA = sampleToRow(region.sample_start);
     const rowB = Math.max(rowA + 1, sampleToRow(region.sample_start + region.sample_count));
@@ -293,6 +315,61 @@ function drawOverlays() {
     ctx.strokeRect(Math.min(x1, x2), Math.min(y1, y2), Math.max(2, Math.abs(x2 - x1)), Math.max(2, Math.abs(y2 - y1)));
     ctx.setLineDash([]);
   }
+}
+
+function selectTrack(track) {
+  const data = state.waterfall;
+  if (!data) return;
+  const nyquist = data.sample_rate / 2;
+  const bins = data.frequency_hz.length;
+  const x1 = Math.max(0, Math.min(bins - 1, Math.round(track.frequency_low_hz / nyquist * (bins - 1))));
+  const x2 = Math.max(x1 + 1, Math.min(bins - 1, Math.round(track.frequency_high_hz / nyquist * (bins - 1))));
+  const y1 = sampleToRow(track.sample_start);
+  const y2 = Math.max(y1 + 1, sampleToRow(track.sample_start + track.sample_count));
+  const binStep = nyquist / (bins - 1);
+  const sampleEnd = Math.min(data.sample_count, track.sample_start + track.sample_count);
+  state.selection = { sample_start: track.sample_start, sample_count: Math.max(1, sampleEnd - track.sample_start), frequency_low_hz: x1 * binStep, frequency_high_hz: x2 * binStep, x1, y1, x2, y2 };
+  el("selection-summary").textContent = `${state.selection.frequency_low_hz.toFixed(0)}–${state.selection.frequency_high_hz.toFixed(0)} Hz · ${track.modulation_hypothesis}`;
+  el("selection-details").textContent = `Provisional candidate · ${(track.time_start_seconds).toFixed(2)}–${track.time_end_seconds.toFixed(2)} s · ${track.tone_count_candidate} tone centers · protocol unknown`;
+  el("family").value = "";
+  el("method").value = "";
+  el("protocol").value = "";
+  el("variant").value = "";
+  el("notes").value = `Auto-detected candidate (${track.modulation_hypothesis}); review before labeling. SNR ${track.peak_snr_db.toFixed(1)} dB.`;
+  el("save-region").disabled = false;
+  el("hint").classList.add("hidden");
+  drawOverlays();
+  el("selection-summary").scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function renderTracks() {
+  const list = el("track-list");
+  el("track-count").textContent = String(state.tracks.length);
+  list.replaceChildren();
+  if (!state.tracks.length) {
+    const empty = document.createElement("p");
+    empty.className = "subhead";
+    empty.textContent = "No persistent narrow-tone candidates detected. This heuristic can miss signals; manual selection is always available.";
+    list.append(empty);
+  } else {
+    for (const track of state.tracks) {
+      const row = document.createElement("div");
+      row.className = "track-row";
+      const summary = document.createElement("div");
+      summary.className = "track-summary";
+      summary.textContent = `${track.modulation_hypothesis} · ${track.tone_count_candidate} tone centers`;
+      const detail = document.createElement("div");
+      detail.className = "region-detail";
+      detail.textContent = `${track.frequency_low_hz.toFixed(0)}–${track.frequency_high_hz.toFixed(0)} Hz · ${track.time_start_seconds.toFixed(2)}–${track.time_end_seconds.toFixed(2)} s · ${track.peak_snr_db.toFixed(1)} dB peak SNR`;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = "Review region";
+      button.addEventListener("click", () => selectTrack(track));
+      row.append(summary, detail, button);
+      list.append(row);
+    }
+  }
+  drawOverlays();
 }
 
 function canvasPoint(event) {
