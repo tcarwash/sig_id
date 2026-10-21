@@ -79,7 +79,8 @@ validation remain open.
   produce a repeatable complete payload in the current two-instance audio setup and
   remains outside the validated decode list.
 - `sig-id-mix-scene` now combines 2–8 accepted synthetic captures with exact sample
-  offsets and gains; `sig-id-import-scene` verifies the rendered samples and stores
+  offsets, gains, optional deterministic carrier offsets and linear frequency drift;
+  `sig-id-import-scene` verifies the rendered samples and stores
   overlapping constituent regions with their source method labels. The split manifest
   joins source lineages connected by a scene, places a scene-linked cluster in the test
   partition, and reports scenes whose components are not all in the source corpus.

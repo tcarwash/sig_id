@@ -38,8 +38,10 @@ def test_mixed_scene_is_deterministic_and_imports_overlapping_constituent_labels
         carrier_hz=3000,
     )
     components = [
-        {"capture_id": fsk["capture"]["id"], "sample_count": 6400, "scene_start_sample": 0, "gain": 0.7},
-        {"capture_id": bpsk["capture"]["id"], "sample_count": 6400, "scene_start_sample": 3200, "gain": 0.5},
+        {"capture_id": fsk["capture"]["id"], "sample_count": 6400, "scene_start_sample": 0, "gain": 0.7,
+         "frequency_offset_hz": 200, "drift_hz_per_second": 10},
+        {"capture_id": bpsk["capture"]["id"], "sample_count": 6400, "scene_start_sample": 3200, "gain": 0.5,
+         "frequency_offset_hz": -150, "drift_hz_per_second": -10},
     ]
 
     first = tmp_path / "scene.wav"
@@ -50,11 +52,13 @@ def test_mixed_scene_is_deterministic_and_imports_overlapping_constituent_labels
     assert second.read_bytes() == first_bytes
     assert manifest["sample_count"] == 9600
     assert manifest["labels"]["modulation_method"] is None
+    assert manifest["components"][0]["frequency_offset_hz"] == 200
+    assert manifest["components"][1]["drift_hz_per_second"] == -10
     candidates = detect_tracks(waterfall(first, fft_size=512, hop_size=128, max_rows=256))
     centers = [candidate["center_hz"] for candidate in candidates]
     assert len(candidates) >= 2
-    assert any(800 <= center <= 1100 for center in centers)
-    assert any(2800 <= center <= 3200 for center in centers)
+    assert any(1000 <= center <= 1300 for center in centers)
+    assert any(2700 <= center <= 3000 for center in centers)
 
     imported = import_mixed_scene(
         first, first.with_suffix(".wav.json"), store=store, capture_dir=tmp_path / "captures"
@@ -115,3 +119,21 @@ def test_mixed_scene_import_rejects_recipe_tampering_without_storing_capture(tmp
     with pytest.raises(ValueError, match="recipe"):
         import_mixed_scene(output, sidecar, store=store, capture_dir=tmp_path / "captures")
     assert len(store.list_captures()) == before
+
+
+def test_mixed_scene_rejects_invalid_frequency_impairments(tmp_path):
+    store = CaptureStore(tmp_path / "dataset.sqlite3")
+    first = _import_source(
+        tmp_path, store, "offset-first.wav", generate_2fsk_wav, bits="01" * 25,
+        sample_rate=8000, symbol_rate=100,
+    )
+    second = _import_source(
+        tmp_path, store, "offset-second.wav", generate_bpsk_wav, bits="01" * 25,
+        sample_rate=8000, symbol_rate=100,
+    )
+    recipe = [
+        {"capture_id": first["capture"]["id"], "sample_count": 4000, "frequency_offset_hz": 3000},
+        {"capture_id": second["capture"]["id"], "sample_count": 4000},
+    ]
+    with pytest.raises(ValueError, match="quarter-rate"):
+        create_mixed_scene(tmp_path / "invalid-scene.wav", recipe, store=store)

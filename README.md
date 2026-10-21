@@ -133,12 +133,14 @@ manifest. It does not invent a named protocol.
 
 Combine already imported, accepted synthetic captures into a deterministic scene.
 Put their capture IDs in a JSON recipe; offsets and lengths are in samples at the
-source sample rate, and overlapping components retain separate labels on import:
+source sample rate, and overlapping components retain separate labels on import.
+Optional `frequency_offset_hz` and `drift_hz_per_second` values shift each signal
+before mixing, with drift measured across that component's duration:
 
 ```json
 {
   "components": [
-    {"capture_id": "CAPTURE_ID_A", "sample_count": 48000, "scene_start_sample": 0, "gain": 0.7},
+    {"capture_id": "CAPTURE_ID_A", "sample_count": 48000, "scene_start_sample": 0, "gain": 0.7, "frequency_offset_hz": 125, "drift_hz_per_second": 2},
     {"capture_id": "CAPTURE_ID_B", "sample_count": 48000, "scene_start_sample": 24000, "gain": 0.4}
   ]
 }
