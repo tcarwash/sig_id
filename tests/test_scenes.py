@@ -8,7 +8,7 @@ import pytest
 from sigid.dataset import CaptureStore
 from sigid.detection import detect_tracks
 from sigid.detection_evaluation import evaluate_synthetic_detector
-from sigid.scenes import create_mixed_scene, import_mixed_scene
+from sigid.scenes import _lowpass, create_mixed_scene, import_mixed_scene
 from sigid.spectrum import waterfall
 from sigid.synthetic import generate_2fsk_wav, generate_bpsk_wav, generate_noise_wav
 from sigid.synthetic_dataset import import_synthetic_wav
@@ -41,7 +41,7 @@ def test_mixed_scene_is_deterministic_and_imports_overlapping_constituent_labels
         {"capture_id": fsk["capture"]["id"], "sample_count": 6400, "scene_start_sample": 0, "gain": 0.7,
          "frequency_offset_hz": 200, "drift_hz_per_second": 10},
         {"capture_id": bpsk["capture"]["id"], "sample_count": 6400, "scene_start_sample": 3200, "gain": 0.5,
-         "frequency_offset_hz": -150, "drift_hz_per_second": -10},
+         "frequency_offset_hz": -150, "drift_hz_per_second": -10, "lowpass_hz": 3500},
     ]
 
     first = tmp_path / "scene.wav"
@@ -54,6 +54,7 @@ def test_mixed_scene_is_deterministic_and_imports_overlapping_constituent_labels
     assert manifest["labels"]["modulation_method"] is None
     assert manifest["components"][0]["frequency_offset_hz"] == 200
     assert manifest["components"][1]["drift_hz_per_second"] == -10
+    assert manifest["components"][1]["lowpass_hz"] == 3500
     candidates = detect_tracks(waterfall(first, fft_size=512, hop_size=128, max_rows=256))
     centers = [candidate["center_hz"] for candidate in candidates]
     assert len(candidates) >= 2
@@ -137,3 +138,18 @@ def test_mixed_scene_rejects_invalid_frequency_impairments(tmp_path):
     ]
     with pytest.raises(ValueError, match="quarter-rate"):
         create_mixed_scene(tmp_path / "invalid-scene.wav", recipe, store=store)
+
+
+def test_scene_lowpass_rejects_out_of_band_energy():
+    import numpy as np
+
+    sample_rate = 8000
+    time = np.arange(sample_rate) / sample_rate
+    audio = np.sin(2 * np.pi * 800 * time) + np.sin(2 * np.pi * 2400 * time)
+    filtered = _lowpass(audio, sample_rate, 1200)
+    spectrum = np.abs(np.fft.rfft(filtered))
+    frequencies = np.fft.rfftfreq(filtered.size, 1 / sample_rate)
+    low = spectrum[np.argmin(np.abs(frequencies - 800))]
+    high = spectrum[np.argmin(np.abs(frequencies - 2400))]
+    assert low > 3500
+    assert high < 1
