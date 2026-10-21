@@ -42,7 +42,7 @@ def _validate_manifest(manifest: dict[str, Any], wav_path: Path) -> None:
     if not isinstance(labels, dict) or not isinstance(parameters, dict):
         raise ValueError("synthetic manifest must include labels and parameters objects")
     if labels.get("protocol") is not None or labels.get("variant") is not None:
-        raise ValueError("current generic FSK generators cannot claim a protocol or variant")
+        raise ValueError("current generic modulation generators cannot claim a protocol or variant")
 
     if generator == "sig-id-2fsk":
         if manifest.get("generator_version") != "0.1.0":
@@ -97,6 +97,26 @@ def _validate_manifest(manifest: dict[str, Any], wav_path: Path) -> None:
             expected_bits = "".join(f"{symbol:0{bits_per_symbol}b}" for symbol in symbols)
         if manifest.get("reference_bits") != expected_bits:
             raise ValueError("MFSK reference bits do not match the declared symbol mapping")
+    elif generator == "sig-id-bpsk":
+        if manifest.get("generator_version") != "0.1.0":
+            raise ValueError("unsupported BPSK generator version")
+        expected_family = "PSK"
+        expected_method = "binary phase-shift keying"
+        bits = manifest.get("reference_bits")
+        if not isinstance(bits, str) or not bits or any(bit not in "01" for bit in bits):
+            raise ValueError("BPSK manifest must contain exact reference bits")
+        sample_rate = manifest.get("sample_rate")
+        symbol_rate = parameters.get("symbol_rate")
+        if (
+            not isinstance(sample_rate, int)
+            or isinstance(sample_rate, bool)
+            or not isinstance(symbol_rate, int)
+            or isinstance(symbol_rate, bool)
+            or symbol_rate <= 0
+            or sample_rate % symbol_rate
+            or len(bits) * (sample_rate // symbol_rate) != manifest.get("sample_count")
+        ):
+            raise ValueError("BPSK reference bits do not match the waveform dimensions")
     else:
         raise ValueError(f"unsupported synthetic generator: {generator!r}")
 
@@ -114,7 +134,7 @@ def _validate_manifest(manifest: dict[str, Any], wav_path: Path) -> None:
     # Recreate from the reference symbols with the shipped deterministic
     # generator. This prevents a hand-edited sidecar from turning arbitrary
     # audio into accepted synthetic ground truth.
-    from .synthetic import generate_2fsk_wav, generate_mfsk_wav
+    from .synthetic import generate_2fsk_wav, generate_bpsk_wav, generate_mfsk_wav
 
     try:
         with tempfile.TemporaryDirectory(prefix="sig-id-validate-") as temporary:
@@ -129,7 +149,7 @@ def _validate_manifest(manifest: dict[str, Any], wav_path: Path) -> None:
                     tone_high_hz=parameters["tone_high_hz"],
                     amplitude=parameters["amplitude"],
                 )
-            else:
+            elif generator == "sig-id-mfsk":
                 generate_mfsk_wav(
                     regenerated,
                     manifest["reference_symbols"],
@@ -139,6 +159,16 @@ def _validate_manifest(manifest: dict[str, Any], wav_path: Path) -> None:
                     base_tone_hz=parameters["base_tone_hz"],
                     tone_spacing_hz=parameters["tone_spacing_hz"],
                     amplitude=parameters["amplitude"],
+                )
+            else:
+                generate_bpsk_wav(
+                    regenerated,
+                    manifest["reference_bits"],
+                    sample_rate=manifest["sample_rate"],
+                    symbol_rate=parameters["symbol_rate"],
+                    carrier_hz=parameters["carrier_hz"],
+                    amplitude=parameters["amplitude"],
+                    initial_phase_radians=parameters["initial_phase_radians"],
                 )
             if regenerated.read_bytes() != wav_path.read_bytes():
                 raise ValueError("WAV samples do not match the synthetic generator manifest")

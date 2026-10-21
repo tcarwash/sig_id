@@ -108,8 +108,10 @@ el("live-start").addEventListener("click", async () => {
     overlayCanvas.getContext("2d").clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
     el("demod-run").disabled = true;
     el("mfsk-run").disabled = true;
+    el("bpsk-run").disabled = true;
     el("demod-output").textContent = "Stop and save the capture before running protocol-independent demodulation.";
     el("mfsk-output").textContent = el("demod-output").textContent;
+    el("bpsk-output").textContent = el("demod-output").textContent;
     el("empty-state").classList.add("hidden");
     el("workspace").classList.remove("hidden");
     el("capture-title").textContent = "Live passband";
@@ -230,6 +232,7 @@ async function loadCapture() {
   state.selection = null;
   el("demod-run").disabled = false;
   el("mfsk-run").disabled = false;
+  el("bpsk-run").disabled = false;
   el("empty-state").classList.add("hidden");
   el("workspace").classList.remove("hidden");
   state.tracks = [];
@@ -570,6 +573,40 @@ el("mfsk-form").addEventListener("submit", async (event) => {
   } finally {
     button.disabled = !state.capture || state.liveView;
     button.textContent = "Recover tone symbols";
+  }
+});
+
+el("bpsk-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!state.capture || state.liveView) return;
+  clearError();
+  const button = el("bpsk-run");
+  button.disabled = true;
+  button.textContent = "Recovering…";
+  el("bpsk-output").textContent = "Analyzing selected audio…";
+  try {
+    const selection = state.selection;
+    const result = await request(`/api/captures/${state.capture.id}/demod/bpsk`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sample_start: selection?.sample_start ?? 0,
+        sample_count: Math.min(1_000_000, selection?.sample_count ?? Math.min(120_000, state.capture.sample_count)),
+        symbol_rate: Number(el("bpsk-rate").value),
+        carrier_hz: Number(el("bpsk-carrier").value),
+        timing_offset_samples: Number(el("bpsk-offset").value),
+      }),
+    });
+    const grouped = (bits) => bits.match(/.{1,64}/g)?.join("\n") || "(no complete symbols)";
+    const confidence = result.soft_metrics.length
+      ? result.soft_metrics.reduce((sum, value) => sum + Math.abs(value), 0) / result.soft_metrics.length
+      : 0;
+    el("bpsk-output").textContent = `${result.demodulator} · ${result.symbol_count} symbols · mean |soft metric| ${confidence.toFixed(3)}\nPolarity ambiguous: ${result.polarity_ambiguous}\nProtocol: unknown\n\nBit hypothesis A:\n${grouped(result.bits)}\n\nBit hypothesis B (inverted):\n${grouped(result.inverted_bits)}`;
+  } catch (error) {
+    el("bpsk-output").textContent = `Demodulation failed: ${error.message}`;
+  } finally {
+    button.disabled = !state.capture || state.liveView;
+    button.textContent = "Recover BPSK bits";
   }
 });
 

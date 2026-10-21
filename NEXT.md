@@ -22,7 +22,9 @@ the workbench API; radio-input routing and independent-signal validation remain 
   annotation download.
 - SQLite capture metadata, source SHA-256, overlapping regions and append-only label
   revisions.
-- Clean deterministic 2-FSK WAV and sidecar manifest with exact reference bits.
+- Clean deterministic 2-FSK and BPSK WAVs with manifests and exact reference bits;
+  deterministic 2-FSK, M-FSK and BPSK manifests are verified and imported with their
+  protocol kept unknown.
 - Generic 2–64-tone FSK fixture generation with exact tone symbols and, for
   power-of-two tone counts, exact natural-binary reference bits. MFSK fixtures
   carry family and method labels while protocol and variant remain null.
@@ -48,14 +50,17 @@ the workbench API; radio-input routing and independent-signal validation remain 
 - Manual M-FSK tone-bank demodulation for a saved capture or selected region. It returns
   hard tone indices and confidence margins; natural-binary bits are emitted only for
   power-of-two tone counts, with protocol unknown.
+- Manual BPSK analysis for a saved capture or selected region. It returns raw bits,
+  soft metrics and both global polarity hypotheses because framing/preamble is unknown.
 
 ## Next action
 
 Continue automatic identification in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md):
 measure candidate recall and false alarms across synthetic and mixed scenes, improve
 tone grouping and burst segmentation, and build the bounded decoder-trial scheduler.
-In parallel, add timing/frequency acquisition and BPSK/QPSK symbol analysis, then
-evaluate both FSK demodulators against frequency/timing offsets and noisy captures.
+Continue automatic identification and rate/frequency acquisition. Extend BPSK beyond
+fixed-carrier integration and add QPSK symbol analysis; evaluate the current FSK and
+BPSK paths against offsets, impairments and independent captures.
 Current candidate hypotheses are heuristic-only and have not been validated on live
 captures.
 
@@ -84,6 +89,6 @@ capture, radio audio routing, trained identification model, and RF validation re
 unverified. Current heuristic candidates pass clean 2-FSK/MFSK, quiet-noise rejection
 and two separated simultaneous 2-FSK signals; real-capture performance is unknown.
 The tested Fldigi modes are a three-family sample, not full-catalog validation.
-2-FSK/M-FSK recovery is verified against generated source symbols/bits; 2-FSK also
-passes a seeded AWGN case. Independent-capture performance and automatic rate/tone
-acquisition remain unverified.
+2-FSK/M-FSK/BPSK recovery is verified against generated source symbols/bits; 2-FSK
+and BPSK also pass seeded AWGN cases. Independent-capture performance and automatic
+rate/tone/carrier acquisition remain unverified.

@@ -5,7 +5,7 @@ import wave
 
 import pytest
 
-from sigid.synthetic import generate_2fsk_wav, generate_mfsk_wav, mfsk_main
+from sigid.synthetic import bpsk_main, generate_2fsk_wav, generate_bpsk_wav, generate_mfsk_wav, mfsk_main
 from sigid.wav import WavSource
 
 
@@ -125,6 +125,46 @@ def test_mfsk_cli_generates_a_labeled_fixture(tmp_path, monkeypatch, capsys):
     assert path.exists()
     assert output["reference_symbols"] == [0, 3, 1]
     assert output["labels"]["modulation_family"] == "MFSK"
+
+
+def test_bpsk_generator_and_cli_preserve_exact_bits_and_unknown_protocol(tmp_path, monkeypatch, capsys):
+    path = tmp_path / "bpsk.wav"
+    manifest = generate_bpsk_wav(
+        path,
+        "00101101",
+        sample_rate=12000,
+        symbol_rate=100,
+        carrier_hz=1600,
+    )
+    assert json.loads(path.with_suffix(".wav.json").read_text()) == manifest
+    assert manifest["labels"]["modulation_method"] == "binary phase-shift keying"
+    assert manifest["labels"]["protocol"] is None
+    second = tmp_path / "same.wav"
+    generate_bpsk_wav(second, "00101101", sample_rate=12000, symbol_rate=100, carrier_hz=1600)
+    assert path.read_bytes() == second.read_bytes()
+
+    cli_path = tmp_path / "cli-bpsk.wav"
+    monkeypatch.setattr("sys.argv", ["sig-id-generate-bpsk", str(cli_path), "101001"])
+    bpsk_main()
+    cli_manifest = json.loads(capsys.readouterr().out)
+    assert cli_manifest["reference_bits"] == "101001"
+    assert cli_manifest["labels"]["protocol"] is None
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"sample_rate": 8000, "symbol_rate": 300},
+        {"sample_rate": True},
+        {"symbol_rate": 0},
+        {"carrier_hz": 6000},
+        {"initial_phase_radians": float("nan")},
+        {"amplitude": 0},
+    ],
+)
+def test_bpsk_generator_rejects_invalid_parameters(tmp_path, kwargs):
+    with pytest.raises(ValueError):
+        generate_bpsk_wav(tmp_path / "invalid.wav", "101", **kwargs)
 
 
 @pytest.mark.parametrize(

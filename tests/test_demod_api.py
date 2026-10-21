@@ -5,7 +5,7 @@ import asyncio
 import httpx
 
 from sigid.api import create_app
-from sigid.synthetic import generate_2fsk_wav, generate_mfsk_wav
+from sigid.synthetic import generate_2fsk_wav, generate_bpsk_wav, generate_mfsk_wav
 
 
 def test_api_demodulates_saved_region_to_raw_bits_without_protocol_label(tmp_path):
@@ -96,5 +96,40 @@ def test_api_demodulates_mfsk_symbols_and_power_of_two_bits(tmp_path):
             )
             assert unsupported_mapping.status_code == 200
             assert unsupported_mapping.json()["bits"] is None
+
+    asyncio.run(exercise())
+
+
+def test_api_bpsk_preserves_both_global_polarity_hypotheses(tmp_path):
+    bits = "010010111001" * 8
+    wav_path = tmp_path / "known-bpsk.wav"
+    generate_bpsk_wav(
+        wav_path,
+        bits,
+        sample_rate=12000,
+        symbol_rate=100,
+        carrier_hz=1500,
+        initial_phase_radians=0.5,
+    )
+    app = create_app(tmp_path / "app-data")
+
+    async def exercise():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            uploaded = await client.post(
+                "/api/captures",
+                files={"file": ("known-bpsk.wav", wav_path.read_bytes(), "audio/wav")},
+            )
+            capture_id = uploaded.json()["id"]
+            decoded = await client.post(
+                f"/api/captures/{capture_id}/demod/bpsk",
+                json={"sample_count": len(bits) * 120, "carrier_hz": 1500},
+            )
+            assert decoded.status_code == 200, decoded.text
+            result = decoded.json()
+            assert result["bits"] == bits or result["inverted_bits"] == bits
+            assert result["polarity_ambiguous"] is True
+            assert result["protocol"] is None
 
     asyncio.run(exercise())

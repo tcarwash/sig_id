@@ -3,8 +3,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from sigid.demod import demodulate_2fsk, demodulate_mfsk
-from sigid.synthetic import generate_2fsk_wav, generate_mfsk_wav
+from sigid.demod import demodulate_2fsk, demodulate_bpsk, demodulate_mfsk
+from sigid.synthetic import generate_2fsk_wav, generate_bpsk_wav, generate_mfsk_wav
 from sigid.wav import WavSource
 
 
@@ -104,6 +104,34 @@ def test_mfsk_non_power_of_two_returns_symbols_without_invented_bits():
     assert result["symbols"] == [0] * 12
     assert result["bits"] is None
     assert result["bits_per_symbol"] is None
+
+
+def test_bpsk_demodulator_recovers_bits_with_explicit_polarity_hypothesis(tmp_path):
+    bits = "00110101100101101010" * 5
+    path = tmp_path / "known-bpsk.wav"
+    manifest = generate_bpsk_wav(
+        path,
+        bits,
+        sample_rate=12000,
+        symbol_rate=100,
+        carrier_hz=1500,
+        initial_phase_radians=0.73,
+    )
+    samples = read_samples(path)
+    rng = np.random.default_rng(100)
+    samples = samples + rng.normal(0, 0.04, size=samples.size)
+    result = demodulate_bpsk(
+        samples,
+        12000,
+        symbol_rate=100,
+        carrier_hz=1500,
+        sample_offset=2400,
+    )
+    assert result["bits"] == bits or result["inverted_bits"] == bits
+    assert result["inverted_bits"] == "".join("1" if bit == "0" else "0" for bit in result["bits"])
+    assert result["polarity_ambiguous"] is True
+    assert len(result["soft_metrics"]) == len(bits)
+    assert manifest["labels"]["protocol"] is None
 
 
 @pytest.mark.parametrize(

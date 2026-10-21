@@ -18,7 +18,9 @@ to Fldigi remains an external setup and is not yet validated. Saved recordings a
 have a manual, protocol-independent 2-FSK demodulator that exposes uncoded bits,
 symbol timing and soft tone metrics; symbol rate, tone mapping and timing offset must
 be supplied by the operator. A corresponding M-FSK analyzer returns hard tone indices,
-soft margins and natural-binary bits only for power-of-two tone counts.
+soft margins and natural-binary bits only for power-of-two tone counts. The BPSK
+analysis returns both global polarity hypotheses because an unknown capture has no
+inherent absolute bit polarity.
 
 ## Development
 
@@ -80,6 +82,12 @@ binary tone mapping, modulation-method labels, and no invented protocol label:
 sig-id-generate-mfsk data/fixtures/mfsk4.wav 0,1,3,2 --symbol-rate 100
 ```
 
+Generate an uncoded BPSK fixture with its exact reference bits and carrier parameters:
+
+```sh
+sig-id-generate-bpsk data/fixtures/bpsk.wav 001101101001 --carrier-hz 1500
+```
+
 Register the waveform and validated sidecar in the local dataset from the command
 line, or choose both files in the workbench's **Synthetic Dataset** panel:
 
@@ -87,9 +95,9 @@ line, or choose both files in the workbench's **Synthetic Dataset** panel:
 sig-id-import-synthetic data/fixtures/mfsk4.wav
 ```
 
-The importer verifies that the WAV exactly matches the deterministic generator
-manifest, then stores a full-capture modulation label and the source manifest. It
-does not invent a named protocol.
+The importer verifies that the WAV exactly matches the deterministic FSK, M-FSK or
+BPSK generator manifest, then stores a full-capture modulation label and the source
+manifest. It does not invent a named protocol.
 
 Replay it blockwise from Python with `sigid.wav.WavSource`; blocks carry exact sample
 offsets and normalized mono samples. This is a modulation fixture, not a named

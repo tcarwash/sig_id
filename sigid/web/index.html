@@ -109,8 +109,9 @@
 
         <section class="panel raw-demod-panel">
           <p class="eyebrow">PROTOCOL-INDEPENDENT ANALYSIS</p>
-          <h2>2-FSK raw symbols and bits</h2>
-          <p class="subhead">Enter the tone frequencies and symbol rate. This recovers uncoded tone decisions; it does not identify framing or a protocol.</p>
+          <h2>Protocol-independent demodulators</h2>
+          <p class="subhead">Supply modulation parameters to recover uncoded symbols and bits. These tools do not identify framing or a protocol.</p>
+          <h3>2-FSK raw bits</h3>
           <form id="demod-form" class="demod-form">
             <label>Symbol rate<input id="demod-rate" type="number" min="1" step="any" value="100" required /></label>
             <label>Tone for bit 0 (Hz)<input id="demod-tone0" type="number" min="1" step="any" value="1000" required /></label>
@@ -130,6 +131,15 @@
             <button id="mfsk-run" type="submit" disabled>Recover tone symbols</button>
           </form>
           <pre id="mfsk-output" class="decoded-text" aria-live="polite">Select a saved capture or region to analyze.</pre>
+          <h3>BPSK raw bits</h3>
+          <p class="subhead">The absolute bit polarity is ambiguous without a known preamble or framing; both hypotheses are returned.</p>
+          <form id="bpsk-form" class="demod-form">
+            <label>Symbol rate<input id="bpsk-rate" type="number" min="1" step="any" value="100" required /></label>
+            <label>Carrier frequency (Hz)<input id="bpsk-carrier" type="number" min="1" step="any" value="1500" required /></label>
+            <label>Timing offset (samples)<input id="bpsk-offset" type="number" min="0" step="any" value="0" required /></label>
+            <button id="bpsk-run" type="submit" disabled>Recover BPSK bits</button>
+          </form>
+          <pre id="bpsk-output" class="decoded-text" aria-live="polite">Select a saved capture or region to analyze.</pre>
         </section>
 
         <section class="panel tracks-panel">
