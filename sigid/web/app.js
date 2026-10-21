@@ -1,4 +1,4 @@
-import { liveTimeWindow } from "/waterfall-window.mjs";
+import { liveRowLimit, liveTimeWindow } from "/waterfall-window.mjs";
 
 const el = (id) => document.getElementById(id);
 const state = { capture: null, waterfall: null, drag: null, selection: null, regions: [], tracks: [], liveView: false, modelAvailable: false, view: null };
@@ -283,7 +283,8 @@ el("live-start").addEventListener("click", async () => {
         const status = await request("/api/live");
         if (status.active) el("live-status").textContent = `${status.state} · ${status.frames_written.toLocaleString()} samples`;
         const autoTrial = el("auto-trial").checked;
-        const analysis = await request(`/api/live/analysis?fft_size=4096&hop_size=512&max_rows=640&auto_trial=${autoTrial}`);
+        const rowLimit = liveRowLimit(started.sample_rate, 512);
+        const analysis = await request(`/api/live/analysis?fft_size=4096&hop_size=512&max_rows=${rowLimit}&auto_trial=${autoTrial}`);
         if (analysis.warming_up) {
           el("waterfall-state").textContent = `Collecting analysis window · ${analysis.window_sample_count.toLocaleString()} samples`;
           return;
