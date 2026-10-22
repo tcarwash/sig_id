@@ -25,6 +25,7 @@ import pytest
 
 from sigid.api import create_app
 from sigid.fldigi import FldigiClient
+from sigid.fldigi_replay import IsolatedFldigiReplay
 
 
 def _run(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -141,7 +142,7 @@ def _stop_process(process: subprocess.Popen[bytes]) -> None:
     os.environ.get("SIGID_TEST_FLDIGI_AUDIO") != "1",
     reason="set SIGID_TEST_FLDIGI_AUDIO=1 for isolated Fldigi audio loopback",
 )
-def test_fldigi_payload_reaches_workbench_api_through_virtual_audio(tmp_path, socket_enabled, mode):
+def test_fldigi_payload_reaches_workbench_api_through_virtual_audio(tmp_path, mode):
     for executable in ("fldigi", "xvfb-run", "pactl"):
         if shutil.which(executable) is None:
             pytest.skip(f"{executable} is required for the Fldigi audio integration test")
@@ -217,10 +218,73 @@ def test_fldigi_payload_reaches_workbench_api_through_virtual_audio(tmp_path, so
 
 
 @pytest.mark.skipif(
+    os.environ.get("SIGID_TEST_FLDIGI_REGION_REPLAY") != "1",
+    reason="set SIGID_TEST_FLDIGI_REGION_REPLAY=1 for an RF-free saved-region decode",
+)
+@pytest.mark.parametrize("mode", ["BPSK31", "RTTY", "THOR16"])
+def test_isolated_region_replay_decodes_a_known_fldigi_transmission(tmp_path, mode):
+    """Transmit inside a null sink, save that audio, then decode it via the production replay worker."""
+    for executable in ("fldigi", "xvfb-run", "pactl", "paplay", "parecord"):
+        if shutil.which(executable) is None:
+            pytest.skip(f"{executable} is required for the isolated region replay test")
+
+    sink = f"sigid_region_{os.getpid()}"
+    try:
+        module_id = _run(
+            "pactl", "load-module", "module-null-sink",
+            f"sink_name={sink}", "rate=48000", "channels=2",
+        ).stdout.strip()
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        pytest.skip(f"could not create an isolated PulseAudio null sink: {exc}")
+
+    transmitter = None
+    recorder = None
+    replay = IsolatedFldigiReplay(decode_timeout=25)
+    try:
+        try:
+            port = _free_port()
+            transmitter = _isolated_profile(tmp_path, "tx", sink, port)
+        except RuntimeError as exc:
+            pytest.skip(str(exc))
+        sender, sender_rpc = _connect(f"http://127.0.0.1:{port}/RPC2", transmitter)
+        payload = "SIGID REGION REPLAY 123"
+        sender.select_modem(mode)
+        sender.set_carrier(1000)
+        audio_path = tmp_path / "known-transmission.wav"
+        recorder = subprocess.Popen(
+            ["parecord", f"--device={sink}.monitor", "--file-format=wav",
+             "--rate=48000", "--channels=2", str(audio_path)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, start_new_session=True,
+        )
+        time.sleep(0.5)
+        sender_rpc.text.clear_tx()
+        sender_rpc.text.add_tx(payload)
+        sender_rpc.main.tx()
+        time.sleep(14)
+        sender_rpc.main.rx()
+        time.sleep(0.3)
+        _stop_process(recorder)
+        recorder = None
+        assert audio_path.stat().st_size > 100_000, "virtual sink recorded no transmission audio"
+
+        result = replay.decode(audio_path, mode=mode, carrier_hz=1000)
+        assert result["status"] == "completed", result
+        assert payload in result["text"], result["text"]
+        assert result["backend_version"]
+    finally:
+        if recorder is not None:
+            _stop_process(recorder)
+        if transmitter is not None:
+            _stop_process(transmitter)
+        replay.close()
+        _run("pactl", "unload-module", module_id, check=False)
+
+
+@pytest.mark.skipif(
     os.environ.get("SIGID_TEST_FLDIGI_CATALOG") != "1",
     reason="set SIGID_TEST_FLDIGI_CATALOG=1 to audit selection of the installed catalog",
 )
-def test_every_installed_catalog_entry_is_selectable_in_isolated_fldigi(tmp_path, socket_enabled):
+def test_every_installed_catalog_entry_is_selectable_in_isolated_fldigi(tmp_path):
     for executable in ("fldigi", "xvfb-run", "pactl"):
         if shutil.which(executable) is None:
             pytest.skip(f"{executable} is required for the Fldigi catalog audit")

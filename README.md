@@ -98,6 +98,14 @@ They require a configured `~/.fldigi`, `xvfb-run`, and `pactl`:
 SIGID_TEST_FLDIGI_AUDIO=1 pytest tests/test_fldigi_audio_integration.py
 ```
 
+The saved-region replay worker has a separate end-to-end check. It captures a known
+transmission from a temporary null sink, then decodes that WAV through the same
+isolated replay path used by the inspector. BPSK31, RTTY and THOR16 are covered:
+
+```sh
+SIGID_TEST_FLDIGI_REGION_REPLAY=1 pytest -s tests/test_fldigi_audio_integration.py -k known_fldigi_transmission
+```
+
 To audit selection of every mode in an isolated Fldigi profile (without changing
 the operator's running Fldigi mode), run:
 

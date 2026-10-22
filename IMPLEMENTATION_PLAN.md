@@ -70,7 +70,10 @@ Timebox the first investigation to 1-2 focused implementation days, then decide.
 2. Launch isolated Fldigi instances, select a mode, generate a known payload into its
    input and retrieve text. BPSK31, RTTY and THOR16 now pass this audio loopback gate;
    continue with additional families and independent fixtures.
-3. Repeat across remaining representative Fldigi families. Measure startup/interleaver delay,
+3. The saved-region replay worker now passes a true WAV round-trip for BPSK31, RTTY
+   and THOR16: transmit to a temporary null sink, record the WAV, and decode it in
+   a separate isolated instance. Continue across remaining representative families.
+   Measure startup/interleaver delay,
    input pacing, stale-output clearing, tune/selection behavior, and output latency.
 4. Capture offline generated audio for a known payload; decode it again. Store the
    clean waveform and manifest. Prove that no radio audio output is involved.

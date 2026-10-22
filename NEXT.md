@@ -9,7 +9,7 @@ validation remain open. Saved-capture regions can be replayed in the selected mo
 through a separate Fldigi process and a private PulseAudio/PipeWire sink; output is
 persisted against the exact capture window. The inspector can also explicitly save
 that region with the selected mode as its variant label. This replay path is native
-Linux only and awaits direct end-to-end replay and UI smoke verification.
+Linux only. A known-message audio round-trip now passes for BPSK31, RTTY and THOR16.
 
 ## Agreed scope
 
@@ -54,7 +54,7 @@ Linux only and awaits direct end-to-end replay and UI smoke verification.
   profile with audio set to PulseAudio and all known PTT paths forced off; it never
   changes the operator's running Fldigi instance. The label action remains explicit and
   saves the selected mode as the region variant. Run the dedicated RF-free replay
-  integration check before treating this feature as release-validated.
+  integration check covers a known-message round-trip in BPSK31, RTTY and THOR16.
 - Graceful application shutdown finalizes an outstanding capture. Writer faults retain
   completed audio blocks and mark the indexed recording partial; metadata-index failures
   retain the readable WAV and report its path. Input close failures still drain the
@@ -271,7 +271,7 @@ Verified: Fldigi 4.2.13 and its XML-RPC method catalog are installed; unit tests
 cover receive-only client semantics, PCM WAV block indexing/normalization and
 synthetic 2-FSK/MFSK metadata, exact symbols/bits and tone frequencies, SQLite
 capture hashes/regions/label history, JSONL export, spectrogram peak detection, upload/region APIs, and Fldigi
-status/catalog/mode/output APIs, WEFAX product import and image delivery. Current full suite: 177 passed, 7 skipped;
+status/catalog/mode/output APIs, WEFAX product import and image delivery. Current full suite: 180 passed, 10 skipped;
 the opt-in isolated selection audit checks all 169 entries (165 selectable, four unresolved),
 and `node --test tests/test_waterfall_window.mjs`, module syntax validation, headless
 Chromium loading, and `git diff --check` pass. The generic text-backend
