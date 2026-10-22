@@ -56,6 +56,13 @@ and MT63-500S.
   changes the operator's running Fldigi instance. The label action remains explicit and
   saves the selected mode as the region variant. RF-free tests verify known-message
   round-trips in BPSK31, RTTY, THOR16, MFSK16 and MT63-500S.
+- A reproducible Fldigi 4.2.13 capability registry covers all 169 audited catalog
+  entries. It distinguishes 165 selection successes from the five modes with
+  known-message audio and isolated-region round-trip evidence; other selectable modes
+  remain explicitly decode-unverified, and three unselectable OFDM entries plus the
+  RSID end marker retain their documented states. See
+  `reports/fldigi-4.2.13-capabilities.json`; broader per-mode decoding and specialized
+  receive-product evidence remain required for the full-catalog 1.0 gate.
 - While recording, the inspector and accepted-model scheduler can replay a selected
   live candidate's exact sample window using isolated Fldigi processes. The bounded
   tested-mode sweep tries up to three modes in hypothesis order and stops at the first
@@ -193,6 +200,9 @@ and MT63-500S.
   `RSID_EOT` is not a receive mode and is now omitted from the workbench selector.
   The client rejects silent mode-switch failures. This is selection evidence only,
   not decode support. See `reports/fldigi-4.2.13-catalog-selection.json`.
+  `reports/fldigi-4.2.13-capabilities.json` derives per-mode validation states from
+  that audit and the named round-trip tests; the builder and its completeness/claim
+  checks live in `sigid/fldigi_capabilities.py` and `tests/test_fldigi_capabilities.py`.
 - Live waterfall follow mode has a fixed thirty-second scale, with unavailable startup
   history and dropped display-update ranges left blank.
 - Fldigi WEFAX receive products can be polled, validated as bounded supported image
