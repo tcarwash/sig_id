@@ -18,5 +18,9 @@ test("QPSK shortlist exposes the validated mode without implying complete catalo
     narrowKnownModes({ modulation: "8PSK" }).map((candidate) => candidate.mode),
     ["8PSK125", "8PSK250", "8PSK500"],
   );
-  assert.equal(REVIEWED_MODE_CANDIDATES.length, 17);
+  assert.deepEqual(
+    narrowKnownModes({ modulation: "BPSK" }).map((candidate) => candidate.mode),
+    ["BPSK31", "BPSK63", "BPSK125", "BPSK250"],
+  );
+  assert.equal(REVIEWED_MODE_CANDIDATES.length, 19);
 });

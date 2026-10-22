@@ -3,6 +3,8 @@
 export const REVIEWED_MODE_CANDIDATES = Object.freeze([
   { mode: "BPSK31", modulation: "BPSK", evidence: "Fldigi loopback validated" },
   { mode: "BPSK63", modulation: "BPSK", evidence: "Fldigi loopback validated" },
+  { mode: "BPSK125", modulation: "BPSK", evidence: "Fldigi loopback validated" },
+  { mode: "BPSK250", modulation: "BPSK", evidence: "Fldigi loopback validated" },
   { mode: "QPSK31", modulation: "QPSK", evidence: "Fldigi loopback validated" },
   { mode: "QPSK63", modulation: "QPSK", evidence: "Fldigi loopback validated" },
   { mode: "QPSK125", modulation: "QPSK", evidence: "Fldigi loopback validated" },
