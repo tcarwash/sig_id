@@ -330,8 +330,8 @@ el("live-start").addEventListener("click", async () => {
     el("workspace").classList.remove("hidden");
     el("capture-title").textContent = "Live passband";
     el("capture-meta").textContent = `${started.sample_rate.toLocaleString()} samples/s · ${started.device_name} · rolling analysis`;
-    el("time-start").textContent = "−30 s";
-    el("time-end").textContent = "Now";
+    el("time-start").textContent = "Now";
+    el("time-end").textContent = "−30 s";
     el("audio-player").removeAttribute("src");
     el("waterfall-state").textContent = "Waiting for audio frames…";
     el("track-status").textContent = "Waiting for enough samples to analyze…";
@@ -568,8 +568,8 @@ function drawWaterfall() {
   }
   for (let index=view.rowStart;index<view.rowEnd;index++) {
     const y = state.liveView
-      ? Math.floor((data.sample_starts[index]-state.view.timeStartSample)/(state.view.timeEndSample-state.view.timeStartSample)*rows)
-      : index-view.rowStart;
+      ? Math.floor((state.view.timeEndSample-data.sample_starts[index])/(state.view.timeEndSample-state.view.timeStartSample)*rows)
+      : view.rowEnd - 1 - index;
     if (y<0 || y>=rows) continue;
     for (let x=0;x<bins;x++) {
       const level = Math.max(0,Math.min(255,Math.round((data.db[index][x+view.frequencyStart]+95)*255/75)));
@@ -587,11 +587,11 @@ function drawWaterfall() {
   const lastTime = Math.min(data.sample_count, data.sample_starts[view.rowEnd - 1] + data.hop_size) / data.sample_rate;
   if (state.liveView) {
     const labels = liveTimeLabels(Math.max(0, state.view.timeStartSample), state.view.timeEndSample, data.sample_rate);
-    el("time-start").textContent = "−30 s";
-    el("time-end").textContent = labels.end;
+    el("time-start").textContent = labels.end;
+    el("time-end").textContent = "−30 s";
   } else {
-    el("time-start").textContent = `${firstTime.toFixed(2)} s`;
-    el("time-end").textContent = `${lastTime.toFixed(2)} s`;
+    el("time-start").textContent = `${lastTime.toFixed(2)} s`;
+    el("time-end").textContent = `${firstTime.toFixed(2)} s`;
   }
   drawOverlays();
 }
@@ -641,14 +641,13 @@ function reprojectSelection() {
   const x = (frequency) => Math.round((frequency - lowHz) / Math.max(1, highHz - lowHz) * (bins - 1));
   state.selection.x1 = x(state.selection.frequency_low_hz);
   state.selection.x2 = x(state.selection.frequency_high_hz);
-  state.selection.y1 = sampleToRow(state.selection.sample_start) - view.rowStart;
-  state.selection.y2 = sampleToRow(state.selection.sample_start + state.selection.sample_count) - view.rowStart;
+  state.selection.y1 = sampleToRow(state.selection.sample_start);
+  state.selection.y2 = sampleToRow(state.selection.sample_start + state.selection.sample_count);
 }
 
 function sampleToRow(sample) {
   if (state.liveView && state.view) {
-    const bounds = waterfallViewBounds();
-    return bounds.rowStart+(sample-state.view.timeStartSample)/(state.view.timeEndSample-state.view.timeStartSample)*overlayCanvas.height;
+    return (state.view.timeEndSample-sample)/(state.view.timeEndSample-state.view.timeStartSample)*overlayCanvas.height;
   }
   const starts = state.waterfall.sample_starts;
   let lo = 0;
@@ -658,7 +657,8 @@ function sampleToRow(sample) {
     if (starts[mid] < sample) lo = mid + 1;
     else hi = mid;
   }
-  return Math.max(0, Math.min(starts.length - 1, lo));
+  const bounds = waterfallViewBounds();
+  return Math.max(0, Math.min(bounds.rowEnd - bounds.rowStart - 1, bounds.rowEnd - 1 - lo));
 }
 
 function drawOverlays() {
@@ -671,7 +671,7 @@ function drawOverlays() {
   const lowHz = data.frequency_hz[view.frequencyStart];
   const highHz = data.frequency_hz[view.frequencyEnd - 1];
   const bins = view.frequencyEnd - view.frequencyStart;
-  const visibleRow = (sample) => sampleToRow(sample) - view.rowStart;
+  const visibleRow = (sample) => sampleToRow(sample);
   const visibleX = (frequency) => Math.round((frequency - lowHz) / Math.max(1, highHz - lowHz) * (bins - 1));
   for (const track of state.tracks) {
     const rowA = visibleRow(track.sample_start);
@@ -722,8 +722,8 @@ function selectTrack(track) {
   const bins = view.frequencyEnd - view.frequencyStart;
   const x1 = Math.max(0, Math.min(bins - 1, Math.round((track.frequency_low_hz - lowHz) / Math.max(1, highHz - lowHz) * (bins - 1))));
   const x2 = Math.max(x1 + 1, Math.min(bins - 1, Math.round((track.frequency_high_hz - lowHz) / Math.max(1, highHz - lowHz) * (bins - 1))));
-  const y1 = Math.max(0, sampleToRow(track.sample_start) - view.rowStart);
-  const y2 = Math.max(y1 + 1, sampleToRow(track.sample_start + track.sample_count) - view.rowStart);
+  const y1 = Math.max(0, sampleToRow(track.sample_start));
+  const y2 = Math.max(y1 + 1, sampleToRow(track.sample_start + track.sample_count));
   const binStep = (highHz - lowHz) / Math.max(1, bins - 1);
   const sampleEnd = Math.min(data.sample_count, track.sample_start + track.sample_count);
   state.selection = { sample_start: track.sample_start, sample_count: Math.max(1, sampleEnd - track.sample_start), frequency_low_hz: track.frequency_low_hz, frequency_high_hz: track.frequency_high_hz, x1, y1, x2, y2 };
@@ -858,11 +858,12 @@ overlayCanvas.addEventListener("pointerup", (event) => {
   }
   const rowStart = Math.min(state.drag.y, point.y);
   const rowEnd = Math.max(state.drag.y, point.y);
-  const rowSamples = data.sample_starts;
-  const firstRow = view.rowStart + rowStart;
-  const lastRow = Math.min(view.rowEnd - 1, view.rowStart + rowEnd);
-  const sampleStart = state.liveView ? Math.max(0, Math.floor(sampleAtCanvasRow(rowStart))) : rowSamples[firstRow];
-  const sampleEnd = state.liveView ? Math.min(data.sample_count, Math.ceil(sampleAtCanvasRow(rowEnd))) : Math.min(data.sample_count, rowSamples[lastRow] + data.fft_size);
+  const firstSample = sampleAtCanvasRow(rowStart);
+  const lastSample = sampleAtCanvasRow(rowEnd);
+  const sampleStart = Math.max(0, Math.floor(Math.min(firstSample, lastSample)));
+  const sampleEnd = state.liveView
+    ? Math.min(data.sample_count, Math.ceil(Math.max(firstSample, lastSample)))
+    : Math.min(data.sample_count, Math.ceil(Math.max(firstSample, lastSample)) + data.fft_size);
   if (state.liveView && sampleEnd <= sampleStart) {
     state.drag = null;
     state.selection = null;
@@ -1286,8 +1287,8 @@ function renderSignalLabels() {
   const high = data.frequency_hz[bounds.frequencyEnd - 1];
   const items = [];
   for (const [index, track] of state.tracks.entries()) {
-    const start = sampleToRow(track.sample_start) - bounds.rowStart;
-    const end = sampleToRow(track.sample_start + track.sample_count) - bounds.rowStart;
+    const start = Math.min(sampleToRow(track.sample_start), sampleToRow(track.sample_start + track.sample_count));
+    const end = Math.max(sampleToRow(track.sample_start), sampleToRow(track.sample_start + track.sample_count));
     if (end < 0 || start >= overlayCanvas.height || track.frequency_high_hz < low || track.frequency_low_hz > high) continue;
     const trial = state.decoderTrial?.track_id === track.track_id ? state.decoderTrial : null;
     const activity = trial?.status === "running" ? ` · trying ${trial.mode}` : trial?.status === "tentative_output" ? ` · tentative ${trial.mode} output` : "";
@@ -1299,8 +1300,8 @@ function renderSignalLabels() {
     });
   }
   for (const region of state.regions) {
-    const start = sampleToRow(region.sample_start) - bounds.rowStart;
-    const end = sampleToRow(region.sample_start + region.sample_count) - bounds.rowStart;
+    const start = Math.min(sampleToRow(region.sample_start), sampleToRow(region.sample_start + region.sample_count));
+    const end = Math.max(sampleToRow(region.sample_start), sampleToRow(region.sample_start + region.sample_count));
     if (end < 0 || start >= overlayCanvas.height || (region.frequency_high_hz ?? high) < low || (region.frequency_low_hz ?? low) > high) continue;
     items.push({region, text: `Saved · ${region.variant || region.protocol || region.method || region.family || "Unknown"}`,
       x: ((region.frequency_low_hz ?? low) - low) / Math.max(1, high - low) * width,
@@ -1453,9 +1454,9 @@ showOutput("text");
 new ResizeObserver(() => { if (state.waterfall) renderSignalLabels(); }).observe(overlayCanvas.parentElement);
 
 function sampleAtCanvasRow(y) {
-  if (state.liveView) return state.view.timeStartSample + y / Math.max(1,overlayCanvas.height) * (state.view.timeEndSample-state.view.timeStartSample);
+  if (state.liveView) return state.view.timeEndSample - y / Math.max(1,overlayCanvas.height) * (state.view.timeEndSample-state.view.timeStartSample);
   const view=waterfallViewBounds();
-  return state.waterfall.sample_starts[Math.min(view.rowEnd-1,view.rowStart+Math.round(y))];
+  return state.waterfall.sample_starts[Math.max(view.rowStart, Math.min(view.rowEnd - 1, view.rowEnd - 1 - Math.round(y)))];
 }
 function applyLiveDisplay() {
   if (!state.liveView || state.frozen || !liveDisplay?.data?.db.length) return;
