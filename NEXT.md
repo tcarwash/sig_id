@@ -64,6 +64,23 @@ is resizable by pointer or keyboard, remembers its height, and stays within the 
 - Saved annotation markers now open an editable label with its complete revision history.
   Saving appends a revision on the same region, preserving original bounds and evidence;
   concurrent stale reviews receive a conflict instead of overwriting newer labels.
+  A canonical, versioned mode registry now serves `/api/modes`; searching PSK31 offers
+  distinct BPSK31/QPSK31 choices and selecting BPSK31 fills PSK/BPSK/PSK31/BPSK31.
+  Canonical IDs and registry version persist with label revisions; contradictory mode
+  fields are rejected at API/store boundaries. Manual regions can explicitly record
+  `user_added_missed_detection` origin. Saved detector proposals expose Yes, Wrong
+  identity and Not a signal actions. Feedback is append-only and bound to the exact
+  label and geometry revisions; wrong identity saves the corrected canonical mode as a new revision,
+  not-signal marks the hypothesis rejected, and stale feedback conflicts against both
+  label and geometry revisions. Schema 15 preserves existing labels and geometry;
+  unmapped legacy labels are not rewritten.
+  Geometry has separate append-only revisions. Selecting an annotation and choosing
+  Adjust bounds enables a new waterfall drag; saving appends the new time/frequency
+  extent, while history shows old bounds and a draft can be discarded. Audio playback
+  uses byte-range responses so browsers can seek to exact sample-indexed regions. Split creates
+  child annotations with explicit source/result lineage; merge creates a new unknown
+  observation without discarding source labels. Superseded regions remain inspectable
+  but are excluded from further split/merge actions.
   Output context distinguishes shared Fldigi text, tentative track trials, raw-analysis
   capture/sample ranges and received-image library products. Delayed raw results are
   discarded after source changes. Hover/focus details and collision leader lines keep
@@ -275,6 +292,14 @@ is resizable by pointer or keyboard, remembers its height, and stays within the 
 
 ## Next action
 
+The staged near-live product sequence is in
+[NEAR_LIVE_PRODUCT_PLAN.md](NEAR_LIVE_PRODUCT_PLAN.md). Canonical mode resolution,
+user-added-missed-signal provenance, revision-bound identity feedback, geometry
+correction and split/merge lineage are implemented locally. Next add scene-completeness
+review, then retained source history and track-aware decoding. Integrated hub validation
+and trusted dataset releases follow; streaming Fldigi catch-up needs a measured
+feasibility gate.
+
 The core GUI overhaul, Linux Compose run path, exact-window replay for saved/live regions
 and isolated accepted-model trials are implemented. Continue with broader isolated Fldigi
 decode fixtures and per-mode capability evidence, then address unresolved catalog modes,
@@ -311,10 +336,12 @@ Verified: Fldigi 4.2.13 and its XML-RPC method catalog are installed; unit tests
 cover receive-only client semantics, PCM WAV block indexing/normalization and
 synthetic 2-FSK/MFSK metadata, exact symbols/bits and tone frequencies, SQLite
 capture hashes/regions/label history, JSONL export, spectrogram peak detection, upload/region APIs, and Fldigi
-status/catalog/mode/output APIs, WEFAX product import and image delivery. Current full suite: 186 passed, 20 skipped;
+status/catalog/mode/output APIs, WEFAX product import and image delivery. Current full suite: 209 passed, 52 skipped;
+five tests still report teardown errors because `sig-id-fldigi-replay_*` executor threads outlive their tests.
 the opt-in isolated selection audit checks all 169 entries (165 selectable, four unresolved),
 and `node --test tests/test_waterfall_window.mjs`, module syntax validation, headless
-Chromium loading, and `git diff --check` pass. The generic text-backend
+Chromium workflow (including correction, geometry, split and merge), and `git diff --check` pass.
+The generic text-backend
 contract is exercised by the Fldigi adapter and trial-runner tests. Deterministic fake-device tests
 exercise WAV writing, capture indexing, API start/status/stop and rolling live
 analysis. The live analysis ring is capped at ten seconds and absolute sample

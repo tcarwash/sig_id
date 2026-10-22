@@ -6,7 +6,7 @@ import { narrowKnownModes } from "/mode-candidates.mjs";
 import { layoutSignalLabels, signalCaption, hitSignal } from "/signal-overlays.mjs";
 
 const el = (id) => document.getElementById(id);
-const state = { capture: null, waterfall: null, drag: null, selection: null, regions: [], tracks: [], bitAnnotations: [], protocolStencils: [], liveView: false, liveSessionId: null, modelAvailable: false, view: null, demodExports: {}, selectedTrack: null, frozen: false };
+const state = { capture: null, waterfall: null, drag: null, selection: null, regions: [], tracks: [], bitAnnotations: [], protocolStencils: [], liveView: false, liveSessionId: null, modelAvailable: false, view: null, demodExports: {}, selectedTrack: null, frozen: false, labelModeId: null, modeSearchResults: [], modeSearchRequest: 0, applyingMode: false, adjustingGeometry: false, geometryDraft: false, splitMode: false, splitChildren: [], splitParentSelection: null, mergeRegionIds: new Set(), modeProposalRegion: null, proposalCaptureRequest: 0, proposalEvidenceCaptures: [] };
 let lastExpandedOutputHeight = 180;
 const baseCanvas = el("waterfall");
 const overlayCanvas = el("overlay");
@@ -447,9 +447,26 @@ el("play-selection").addEventListener("click", async () => {
       return;
     }
     playback.endSeconds = endSeconds;
-    playback.started = true;
-    audio.currentTime = playback.startSeconds;
     try {
+      await new Promise((resolve, reject) => {
+        const target = playback.startSeconds;
+        const finish = () => {
+          clearTimeout(timeout);
+          audio.removeEventListener("seeked", onSeeked);
+          if (Math.abs(audio.currentTime - target) <= 0.02) resolve();
+          else reject(new Error("Audio seek did not reach the selected sample offset."));
+        };
+        const onSeeked = () => finish();
+        const timeout = setTimeout(() => {
+          audio.removeEventListener("seeked", onSeeked);
+          reject(new Error("Audio seek timed out."));
+        }, 2000);
+        audio.addEventListener("seeked", onSeeked, { once: true });
+        audio.currentTime = target;
+        if (!audio.seeking && Math.abs(audio.currentTime - target) <= 0.02) finish();
+      });
+      if (selectedAudioPlayback !== playback) return;
+      playback.started = true;
       await audio.play();
       if (selectedAudioPlayback === playback) el("audio-region-status").textContent = `Playing selected audio · ${playback.startSeconds.toFixed(2)}–${endSeconds.toFixed(2)} s`;
     } catch (error) {
@@ -834,6 +851,196 @@ async function request(url, options) {
   }
   return response.json();
 }
+
+function clearModeSelection(clearSearch = true) {
+  state.labelModeId = null;
+  if (clearSearch && !state.applyingMode) el("mode-search").value = "";
+  el("mode-resolution").textContent = "Partial labels are welcome; unknown attributes stay blank.";
+}
+
+function applyModeSelection(mode) {
+  state.applyingMode = true;
+  state.labelModeId = mode.id;
+  el("mode-search").value = mode.display_name;
+  for (const field of ["family", "method", "protocol", "variant"]) el(field).value = mode[field] || "";
+  el("mode-resolution").textContent = `${mode.display_name} → ${mode.family} / ${mode.method} / ${mode.protocol} / ${mode.variant} · registry ${mode.registry_version}`;
+  state.applyingMode = false;
+}
+
+el("mode-search").addEventListener("input", async () => {
+  const query = el("mode-search").value.trim();
+  clearModeSelection(false);
+  const requestId = ++state.modeSearchRequest;
+  const options = el("mode-results");
+  options.replaceChildren();
+  if (query.length < 2) return;
+  try {
+    const result = await request(`/api/modes?q=${encodeURIComponent(query)}`);
+    if (requestId !== state.modeSearchRequest) return;
+    state.modeSearchResults = result.modes;
+    for (const mode of result.modes) {
+      const option = document.createElement("option");
+      option.value = mode.display_name;
+      option.label = `${mode.family} · ${mode.method} · ${mode.protocol}`;
+      options.append(option);
+    }
+    el("mode-resolution").textContent = result.modes.length
+      ? `${result.modes.length} matching canonical modes · choose a specific result to fill the taxonomy.`
+      : "No canonical match · keep a partial or unknown label if appropriate.";
+  } catch (error) {
+    if (requestId === state.modeSearchRequest) el("mode-resolution").textContent = `Mode lookup unavailable: ${error.message}`;
+  }
+});
+
+el("mode-search").addEventListener("change", () => {
+  const query = el("mode-search").value.trim().toLocaleLowerCase();
+  const exact = state.modeSearchResults.find((mode) => mode.display_name.toLocaleLowerCase() === query || mode.id.toLocaleLowerCase() === query);
+  if (exact) applyModeSelection(exact);
+});
+
+for (const field of ["family", "method", "protocol", "variant"]) {
+  el(field).addEventListener("input", () => {
+    if (state.applyingMode) return;
+    if (state.labelModeId) clearModeSelection();
+  });
+}
+
+function setModeProposalSource(region = null) {
+  const eligible = Boolean(region && state.capture && region.lineage_state !== "superseded");
+  state.modeProposalRegion = eligible ? { capture_id: state.capture.id, region_id: region.id } : null;
+  el("mode-proposal-submit").disabled = !eligible;
+  el("mode-proposal-source-one").textContent = eligible
+    ? `Evidence source 1 · ${state.capture.source_metadata.uploaded_filename || state.capture.id} · samples ${region.sample_start}–${region.sample_start + region.sample_count} · SHA-256 ${state.capture.sha256}`
+    : "Select an active saved region first to attach it as the first evidence source.";
+}
+
+async function refreshModeProposalList() {
+  try {
+    const proposals = await request("/api/mode-proposals");
+    const list = el("mode-proposal-list");
+    list.replaceChildren();
+    if (!proposals.length) { list.textContent = "No user-proposed modes yet."; return; }
+    for (const proposal of proposals) {
+      const card = document.createElement("article");
+      const title = document.createElement("strong");
+      title.textContent = `${proposal.display_name} · ${proposal.status.replaceAll("_", " ")}`;
+      const summary = document.createElement("p");
+      summary.textContent = `${proposal.id} · ${proposal.family}/${proposal.method}/${proposal.protocol}/${proposal.variant} · ${proposal.evidence_regions.length} evidence regions`;
+      const rationale = document.createElement("p");
+      rationale.textContent = proposal.distinguishing_evidence;
+      card.append(title, summary, rationale);
+      if (proposal.status === "pending") {
+        for (const [decision, caption] of [["accepted", "Accept locally"], ["rejected", "Reject"]]) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.textContent = caption;
+          button.addEventListener("click", async () => {
+            const note = el("mode-proposal-review-note").value.trim();
+            if (note.length < 40) { el("mode-proposal-status").textContent = "Add at least 40 characters explaining the review decision."; return; }
+            button.disabled = true;
+            try {
+              await request(`/api/mode-proposals/${encodeURIComponent(proposal.id)}/decision`, {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ decision, note }),
+              });
+              el("mode-proposal-status").textContent = decision === "accepted"
+                ? "Mode accepted into this local registry; this is not peer verification."
+                : "Mode proposal rejected with review rationale saved.";
+              await refreshModeProposalList();
+            } catch (error) {
+              el("mode-proposal-status").textContent = `Review failed: ${error.message}`;
+              button.disabled = false;
+            }
+          });
+          card.append(button);
+        }
+      }
+      list.append(card);
+    }
+  } catch (error) {
+    el("mode-proposal-list").textContent = `Could not load mode proposals: ${error.message}`;
+  }
+}
+
+async function refreshModeEvidenceCaptures() {
+  const select = el("mode-proposal-capture-2");
+  try {
+    const captures = await request("/api/captures");
+    state.proposalEvidenceCaptures = captures;
+    select.replaceChildren(new Option("Choose a recording", ""));
+    for (const capture of captures) {
+      const label = capture.source_metadata.uploaded_filename || capture.source_metadata.generator || capture.id;
+      select.add(new Option(`${label} · ${capture.sha256.slice(0, 10)}`, capture.id));
+    }
+  } catch (error) {
+    el("mode-proposal-status").textContent = `Could not load recordings for evidence: ${error.message}`;
+  }
+}
+
+el("mode-proposal-capture-2").addEventListener("change", async () => {
+  const captureId = el("mode-proposal-capture-2").value;
+  const regionSelect = el("mode-proposal-region-2");
+  regionSelect.replaceChildren(new Option("Choose a region", ""));
+  if (!captureId) return;
+  const requestId = ++state.proposalCaptureRequest;
+  try {
+    const regions = await request(`/api/captures/${captureId}/regions`);
+    if (requestId !== state.proposalCaptureRequest) return;
+    for (const region of regions.filter((item) => item.lineage_state !== "superseded")) {
+      const sampleRate = state.proposalEvidenceCaptures.find((capture) => capture.id === captureId)?.sample_rate || 1;
+      const time = (region.sample_start / sampleRate).toFixed(2);
+      const label = [region.variant, region.protocol, region.method, region.family].find(Boolean) || "Unknown signal";
+      regionSelect.add(new Option(`${label} · ${time}s · ${region.id.slice(0, 8)}`, region.id));
+    }
+  } catch (error) {
+    el("mode-proposal-status").textContent = `Could not load evidence regions: ${error.message}`;
+  }
+});
+
+el("mode-proposal-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!state.modeProposalRegion) return;
+  const captureId = el("mode-proposal-capture-2").value;
+  const regionId = el("mode-proposal-region-2").value;
+  const button = el("mode-proposal-submit");
+  button.disabled = true;
+  el("mode-proposal-status").textContent = "Validating source references and submitting proposal…";
+  try {
+    const result = await request("/api/mode-proposals", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: el("mode-proposal-id").value.trim(),
+        display_name: el("mode-proposal-name").value.trim(),
+        family: el("mode-proposal-family").value.trim(),
+        method: el("mode-proposal-method").value.trim(),
+        protocol: el("mode-proposal-protocol").value.trim(),
+        variant: el("mode-proposal-variant").value.trim(),
+        aliases: el("mode-proposal-aliases").value.split(",").map((value) => value.trim()).filter(Boolean),
+        rationale: el("mode-proposal-rationale").value.trim(),
+        distinguishing_evidence: el("mode-proposal-distinguishing").value.trim(),
+        evidence_regions: [
+          { ...state.modeProposalRegion, evidence_type: el("mode-proposal-type-1").value, observations: el("mode-proposal-observations-1").value.trim() },
+          { capture_id: captureId, region_id: regionId, evidence_type: el("mode-proposal-type-2").value, observations: el("mode-proposal-observations-2").value.trim() },
+        ],
+      }),
+    });
+    el("mode-proposal-status").textContent = `${result.display_name} saved as a pending proposal. It will not appear in mode search until locally reviewed.`;
+    await refreshModeProposalList();
+  } catch (error) {
+    el("mode-proposal-status").textContent = `Proposal not saved: ${error.message}`;
+  } finally {
+    button.disabled = !state.modeProposalRegion;
+  }
+});
+
+refreshModeEvidenceCaptures();
+refreshModeProposalList();
+el("mode-proposal-details").addEventListener("toggle", () => {
+  if (el("mode-proposal-details").open) {
+    refreshModeEvidenceCaptures();
+    refreshModeProposalList();
+  }
+});
 
 async function refreshBitAnnotations(captureId = state.capture?.id) {
   const container = el("saved-bit-annotations");
@@ -1321,7 +1528,7 @@ overlayCanvas.addEventListener("pointerup", (event) => {
   const view = waterfallViewBounds();
   const rect = overlayCanvas.getBoundingClientRect();
   const moved = Math.hypot((state.drag.x - point.x) * rect.width / overlayCanvas.width, (state.drag.y - point.y) * rect.height / overlayCanvas.height);
-  if (moved < 5) {
+  if (moved < 5 && !state.splitMode) {
     const sample = sampleAtCanvasRow(point.y);
     const frequency = data.frequency_hz[Math.min(view.frequencyEnd - 1, view.frequencyStart + point.x)];
     const track = hitSignal(state.tracks, sample, frequency);
@@ -1355,6 +1562,26 @@ overlayCanvas.addEventListener("pointerup", (event) => {
   };
   updateCarrierFromSelection(state.selection);
   state.drag = null;
+  if (state.splitMode && state.editRegion) {
+    const { x1, y1, x2, y2, ...bounds } = state.selection;
+    state.splitChildren.push(bounds);
+    state.selection = { ...state.splitParentSelection };
+    el("save-split").disabled = state.splitChildren.length < 2;
+    el("split-status").textContent = `${state.splitChildren.length} child bound${state.splitChildren.length === 1 ? "" : "s"} drawn · draw at least two distinct-signal regions, then save.`;
+    drawOverlays();
+    return;
+  }
+  if (state.adjustingGeometry && state.editRegion) {
+    state.adjustingGeometry = false;
+    state.geometryDraft = true;
+    el("save-region-bounds").hidden = false;
+    el("cancel-region-bounds").hidden = false;
+    el("geometry-status").textContent = `Proposed bounds · samples ${sampleStart.toLocaleString()}–${sampleEnd.toLocaleString()} · ${frequencyLow.toFixed(0)}–${frequencyHigh.toFixed(0)} Hz. Save to append a geometry revision.`;
+    el("selection-summary").textContent = "Proposed corrected bounds";
+    el("selection-details").textContent = "Original geometry remains in history until these bounds are saved.";
+    drawOverlays();
+    return;
+  }
   state.selectedTrack = null;
   beginNewRegion();
   openInspector("label");
@@ -1387,6 +1614,8 @@ el("save-region").addEventListener("click", async () => {
         sample_count: selection.sample_count,
         frequency_low_hz: selection.frequency_low_hz,
         frequency_high_hz: selection.frequency_high_hz,
+        mode_id: state.labelModeId,
+        origin: !edit && state.selectedTrack ? "detector_proposal" : el("missed-signal").checked && !edit ? "user_added_missed_detection" : "manual",
         family: el("family").value.trim() || null,
         method: el("method").value.trim() || null,
         protocol: el("protocol").value.trim() || null,
@@ -1404,6 +1633,7 @@ el("save-region").addEventListener("click", async () => {
     el("selection-summary").textContent = "No region selected";
     el("selection-details").textContent = "Drag over the waterfall to mark a signal.";
     for (const field of ["family", "method", "protocol", "variant", "notes"]) el(field).value = "";
+    el("missed-signal").checked = false;
     drawOverlays();
   } catch (error) {
     if (state.capture?.id !== captureId) return;
@@ -1414,6 +1644,178 @@ el("save-region").addEventListener("click", async () => {
       el("label-state").textContent = "A newer label exists. Reopen its marker to review it; your draft is retained here.";
     }
     button.disabled = false;
+  }
+});
+
+async function submitAnnotationFeedback(action) {
+  const edit = state.editRegion;
+  const captureId = state.capture?.id;
+  if (!edit || !captureId) return;
+  if (action === "incorrect_identity" && !state.labelModeId) {
+    el("feedback-status").textContent = "Choose the corrected canonical mode above first.";
+    return;
+  }
+  const buttons = ["feedback-correct", "feedback-wrong", "feedback-not-signal"].map(el);
+  buttons.forEach((button) => { button.disabled = true; });
+  el("feedback-status").textContent = "Saving feedback…";
+  try {
+    const result = await request(`/api/captures/${captureId}/regions/${edit.id}/feedback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        expected_revision: edit.revision,
+        expected_geometry_revision: edit.geometry_revision,
+        action,
+        ...(action === "incorrect_identity" ? { corrected_mode_id: state.labelModeId } : {}),
+      }),
+    });
+    if (state.capture?.id !== captureId) return;
+    state.regions = await request(`/api/captures/${captureId}/regions`);
+    renderRegions();
+    const updated = state.regions.find((region) => region.id === edit.id);
+    const message = `${action.replaceAll("_", " ")} recorded · label revision ${result.resulting_revision}`;
+    if (updated) selectSavedRegion(updated);
+    el("feedback-status").textContent = message;
+  } catch (error) {
+    if (state.capture?.id !== captureId) return;
+    el("feedback-status").textContent = error.status === 409
+      ? "A newer label exists. Reopen the region before submitting feedback."
+      : `Feedback failed: ${error.message}`;
+  } finally {
+    buttons.forEach((button) => { button.disabled = false; });
+  }
+}
+
+el("feedback-correct").addEventListener("click", () => submitAnnotationFeedback("correct"));
+el("feedback-wrong").addEventListener("click", () => submitAnnotationFeedback("incorrect_identity"));
+el("feedback-not-signal").addEventListener("click", () => submitAnnotationFeedback("not_signal"));
+
+el("edit-region-bounds").addEventListener("click", () => {
+  if (!state.editRegion || !state.selection) return;
+  state.adjustingGeometry = true;
+  state.geometryDraft = false;
+  el("save-region-bounds").hidden = true;
+  el("cancel-region-bounds").hidden = false;
+  el("geometry-status").textContent = "Drag across the waterfall to propose corrected time/frequency bounds. The saved geometry remains unchanged until you save.";
+});
+
+el("save-region-bounds").addEventListener("click", async () => {
+  const edit = state.editRegion;
+  const captureId = state.capture?.id;
+  const selection = state.selection;
+  if (!edit || !captureId || !selection || !state.geometryDraft) return;
+  const button = el("save-region-bounds");
+  button.disabled = true;
+  try {
+    const result = await request(`/api/captures/${captureId}/regions/${edit.id}/geometry`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        expected_revision: edit.geometry_revision,
+        sample_start: selection.sample_start,
+        sample_count: selection.sample_count,
+        frequency_low_hz: selection.frequency_low_hz,
+        frequency_high_hz: selection.frequency_high_hz,
+      }),
+    });
+    if (state.capture?.id !== captureId) return;
+    state.regions = await request(`/api/captures/${captureId}/regions`);
+    renderRegions();
+    const updated = state.regions.find((region) => region.id === edit.id);
+    if (updated) selectSavedRegion(updated);
+    el("geometry-status").textContent = `Bounds saved as geometry revision ${result.geometry_revision}; previous bounds remain in history.`;
+  } catch (error) {
+    el("geometry-status").textContent = error.status === 409
+      ? "Bounds changed since this annotation was opened. Reopen it before saving."
+      : `Could not save corrected bounds: ${error.message}`;
+    button.hidden = false;
+    el("cancel-region-bounds").hidden = false;
+  } finally {
+    button.disabled = false;
+  }
+});
+
+el("cancel-region-bounds").addEventListener("click", () => {
+  if (!state.capture || !state.editRegion) return;
+  const current = state.regions.find((region) => region.id === state.editRegion.id);
+  if (current) selectSavedRegion(current);
+});
+
+el("start-split").addEventListener("click", () => {
+  const parent = state.regions.find((region) => region.id === state.editRegion?.id);
+  if (!parent || parent.lineage_state === "superseded" || !state.selection) return;
+  state.splitMode = true;
+  state.splitChildren = [];
+  state.splitParentSelection = { ...state.selection };
+  el("save-split").hidden = false;
+  el("save-split").disabled = true;
+  el("cancel-split").hidden = false;
+  el("start-split").disabled = true;
+  el("split-status").textContent = "Draw each child signal's time/frequency bounds on the waterfall. At least two are required.";
+});
+
+el("cancel-split").addEventListener("click", () => {
+  const current = state.regions.find((region) => region.id === state.editRegion?.id);
+  if (current) selectSavedRegion(current);
+});
+
+el("save-split").addEventListener("click", async () => {
+  const edit = state.editRegion;
+  const captureId = state.capture?.id;
+  if (!edit || !captureId || state.splitChildren.length < 2) return;
+  const button = el("save-split");
+  button.disabled = true;
+  try {
+    const operation = await request(`/api/captures/${captureId}/regions/${edit.id}/split`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expected_geometry_revision: edit.geometry_revision, children: state.splitChildren }),
+    });
+    if (state.capture?.id !== captureId) return;
+    state.splitMode = false;
+    state.regions = await request(`/api/captures/${captureId}/regions`);
+    renderRegions();
+    const firstChild = state.regions.find((region) => region.id === operation.result_region_ids[0]);
+    if (firstChild) selectSavedRegion(firstChild);
+    el("split-status").textContent = `Split recorded · ${operation.result_region_ids.length} new regions · parent retained as superseded history.`;
+  } catch (error) {
+    el("split-status").textContent = error.status === 409
+      ? "This region changed or was already superseded. Reopen the current region before splitting."
+      : `Split failed: ${error.message}`;
+  } finally {
+    button.disabled = state.splitChildren.length < 2;
+  }
+});
+
+el("merge-regions").addEventListener("click", async () => {
+  const captureId = state.capture?.id;
+  const sources = state.regions.filter((region) => state.mergeRegionIds.has(region.id) && region.lineage_state !== "superseded");
+  if (!captureId || sources.length < 2) return;
+  const button = el("merge-regions");
+  button.disabled = true;
+  el("merge-status").textContent = "Recording the merge relation…";
+  try {
+    const operation = await request(`/api/captures/${captureId}/regions/merge`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        source_region_ids: sources.map((region) => region.id),
+        expected_geometry_revisions: Object.fromEntries(sources.map((region) => [region.id, region.geometry_revision])),
+      }),
+    });
+    if (state.capture?.id !== captureId) return;
+    state.mergeRegionIds.clear();
+    state.regions = await request(`/api/captures/${captureId}/regions`);
+    renderRegions();
+    const merged = state.regions.find((region) => region.id === operation.result_region_id);
+    if (merged) selectSavedRegion(merged);
+    el("merge-status").textContent = "Merge recorded. Source labels remain unchanged; review the new unknown region separately.";
+  } catch (error) {
+    el("merge-status").textContent = error.status === 409
+      ? "A selected region changed or was already superseded. Refresh the list and try again."
+      : `Merge failed: ${error.message}`;
+  } finally {
+    updateMergeControls();
   }
 });
 
@@ -1657,13 +2059,14 @@ function renderRegions() {
   } else {
     for (const region of state.regions) {
       const row = document.createElement("div");
-      row.className = "region-row";
+      row.className = region.lineage_state === "superseded" ? "region-row superseded" : "region-row";
+      row.dataset.regionId = region.id;
       const main = document.createElement("div");
       main.className = "region-main";
       main.textContent = [region.family, region.method].filter(Boolean).join(" · ") || "Unknown signal";
       const detail = document.createElement("div");
       detail.className = "region-detail";
-      detail.textContent = `${(region.sample_start / state.capture.sample_rate).toFixed(2)} s · ${(region.sample_count / state.capture.sample_rate).toFixed(2)} s duration`;
+      detail.textContent = `${(region.sample_start / state.capture.sample_rate).toFixed(2)} s · ${(region.sample_count / state.capture.sample_rate).toFixed(2)} s duration${region.lineage_state === "superseded" ? " · superseded by split/merge" : ""}`;
       const left = document.createElement("div");
       left.append(main, detail);
       const protocol = document.createElement("div");
@@ -1672,18 +2075,44 @@ function renderRegions() {
       const badge = document.createElement("span");
       badge.className = "region-badge";
       const badgeLabels = { synthetic: "SYNTHETIC", human: "HUMAN LABEL", decoder: "DECODER", external: "EXTERNAL", rsid: "RSID", prediction: "PREDICTION", unknown: "UNKNOWN" };
-      badge.textContent = region.review_state === "accepted" ? (badgeLabels[region.source] || "ACCEPTED") : "PENDING REVIEW";
+      badge.textContent = region.lineage_state === "superseded" ? "SUPERSEDED" : region.review_state === "accepted" ? (badgeLabels[region.source] || "ACCEPTED") : "PENDING REVIEW";
       row.append(left, protocol, badge);
+      const mergeLabel = document.createElement("label");
+      mergeLabel.className = "demod-check region-merge-select";
+      const mergeCheckbox = document.createElement("input");
+      mergeCheckbox.type = "checkbox";
+      mergeCheckbox.dataset.regionMergeId = region.id;
+      mergeCheckbox.checked = state.mergeRegionIds.has(region.id);
+      mergeCheckbox.disabled = state.liveView || region.lineage_state === "superseded";
+      mergeCheckbox.setAttribute("aria-label", `Select ${region.variant || region.protocol || region.method || region.family || "unknown region"} for merge`);
+      mergeCheckbox.addEventListener("change", () => {
+        if (mergeCheckbox.checked) state.mergeRegionIds.add(region.id);
+        else state.mergeRegionIds.delete(region.id);
+        updateMergeControls();
+      });
+      mergeLabel.append(mergeCheckbox, document.createTextNode("Merge"));
+      row.append(mergeLabel);
       const review = document.createElement("button");
       review.type = "button";
-      review.textContent = "Review";
+      review.textContent = region.lineage_state === "superseded" ? "History" : "Review";
       review.addEventListener("click", () => selectSavedRegion(region));
       row.append(review);
       list.append(row);
     }
   }
   renderRegionShortcuts();
+  updateMergeControls();
   drawOverlays();
+}
+
+function updateMergeControls() {
+  const selected = [...state.mergeRegionIds].filter((regionId) =>
+    state.regions.some((region) => region.id === regionId && region.lineage_state !== "superseded"),
+  );
+  state.mergeRegionIds = new Set(selected);
+  const button = el("merge-regions");
+  button.disabled = selected.length < 2 || state.liveView;
+  button.textContent = selected.length >= 2 ? `Merge ${selected.length} selected regions` : "Merge selected regions";
 }
 
 el("wav-file").addEventListener("change", (event) => {
@@ -1805,7 +2234,7 @@ function renderSignalLabels() {
     const start = Math.min(sampleToRow(region.sample_start), sampleToRow(region.sample_start + region.sample_count));
     const end = Math.max(sampleToRow(region.sample_start), sampleToRow(region.sample_start + region.sample_count));
     if (end < 0 || start >= overlayCanvas.height || (region.frequency_high_hz ?? high) < low || (region.frequency_low_hz ?? low) > high) continue;
-    items.push({region, text: `Saved · ${region.variant || region.protocol || region.method || region.family || "Unknown"}`,
+    items.push({region, text: `${region.lineage_state === "superseded" ? "Superseded · " : "Saved · "}${region.variant || region.protocol || region.method || region.family || "Unknown"}`,
       x: ((region.frequency_low_hz ?? low) - low) / Math.max(1, high - low) * width,
       y: Math.max(0, start / overlayCanvas.height * height)});
   }
@@ -1875,7 +2304,29 @@ function selectSavedRegion(region) {
     frequency_low_hz:region.frequency_low_hz ?? 0, frequency_high_hz:region.frequency_high_hz ?? Math.min(3000,data.sample_rate/2)};
   updateCarrierFromSelection(state.selection);
   state.selectedTrack = null;
-  state.editRegion = {id:region.id, revision:region.revision};
+  state.editRegion = {id:region.id, revision:region.revision, geometry_revision:region.geometry_revision};
+  setModeProposalSource(region);
+  state.labelModeId = region.mode_id || null;
+  el("mode-search").value = region.mode_id || "";
+  el("mode-resolution").textContent = region.mode_id ? `Canonical mode ${region.mode_id} · taxonomy retained with registry version in label evidence` : "Partial labels are welcome; unknown attributes stay blank.";
+  el("missed-signal").checked = region.origin === "user_added_missed_detection";
+  el("feedback-panel").hidden = region.origin !== "detector_proposal" || region.lineage_state === "superseded";
+  el("feedback-status").textContent = "";
+  el("bounds-panel").hidden = false;
+  el("edit-region-bounds").disabled = region.lineage_state === "superseded";
+  el("save-region-bounds").hidden = true;
+  el("cancel-region-bounds").hidden = true;
+  state.adjustingGeometry = false;
+  state.geometryDraft = false;
+  state.splitMode = false;
+  state.splitChildren = [];
+  state.splitParentSelection = null;
+  el("start-split").disabled = region.lineage_state === "superseded";
+  el("save-split").hidden = true;
+  el("save-split").disabled = true;
+  el("cancel-split").hidden = true;
+  el("split-status").textContent = "";
+  el("geometry-status").textContent = `Geometry revision ${region.geometry_revision} · original bounds retained when corrected.`;
   reprojectSelection();
   for (const field of ["family","method","protocol","variant","notes"]) el(field).value = region[field] || "";
   el("selection-summary").textContent = region.variant || region.protocol || region.method || region.family || "Saved unknown region";
@@ -1884,7 +2335,9 @@ function selectSavedRegion(region) {
   el("save-region").textContent = "Save revision";
   el("inspector-context").textContent = `Saved annotation · ${state.selection.frequency_low_hz.toFixed(0)}–${state.selection.frequency_high_hz.toFixed(0)} Hz · revision ${region.revision}`;
   loadLabelHistory(region, state.capture.id);
-  el("save-region").disabled = state.liveView;
+  loadGeometryHistory(region, state.capture.id);
+  loadLineageHistory(region, state.capture.id);
+  el("save-region").disabled = state.liveView || region.lineage_state === "superseded";
   updateModelButton();
   for (const dialog of document.querySelectorAll("dialog[open]")) dialog.close();
   openInspector("label");
@@ -1898,6 +2351,7 @@ async function refreshLibrary() {
     for (const capture of captures) {
       const row = document.createElement("div");
       row.className = "capture-row";
+      row.dataset.captureId = capture.id;
       const title = document.createElement("span");
       title.textContent = `${capture.source_metadata.uploaded_filename || capture.source_metadata.generator || capture.source_metadata.device_name || "Recording"} · ${(capture.sample_count / capture.sample_rate).toFixed(1)} s`;
       const open = document.createElement("button"); open.type = "button"; open.textContent = "Open";
@@ -2040,6 +2494,26 @@ function startSpectrumStream(generation,sessionId) {
 
 function beginNewRegion() {
   state.editRegion = null;
+  setModeProposalSource(null);
+  state.labelModeId = null;
+  el("mode-search").value = "";
+  el("mode-resolution").textContent = "Choose a known mode to fill its family and protocol, or leave blank for an unknown/partial label.";
+  el("missed-signal").checked = false;
+  el("feedback-panel").hidden = true;
+  el("feedback-status").textContent = "";
+  el("bounds-panel").hidden = true;
+  state.splitMode = false;
+  state.splitChildren = [];
+  state.splitParentSelection = null;
+  el("save-split").hidden = true;
+  el("cancel-split").hidden = true;
+  el("split-status").textContent = "";
+  el("merge-status").textContent = "";
+  el("save-region-bounds").hidden = true;
+  el("cancel-region-bounds").hidden = true;
+  el("geometry-status").textContent = "";
+  state.adjustingGeometry = false;
+  state.geometryDraft = false;
   el("save-region").textContent = "Save region label";
   el("label-history").hidden = true;
   el("label-history-list").replaceChildren();
@@ -2060,6 +2534,46 @@ async function loadLabelHistory(region,captureId) {
     }
   } catch(error) {
     if(state.editRegion?.id===region.id) el("label-history-list").textContent=`History unavailable · ${error.message}`;
+  }
+}
+
+async function loadGeometryHistory(region,captureId) {
+  const target=el("geometry-history-list");
+  target.textContent="Loading bounds revisions…";
+  try {
+    const history=await request(`/api/captures/${captureId}/regions/${region.id}/geometry`);
+    if(state.capture?.id!==captureId || state.editRegion?.id!==region.id) return;
+    target.replaceChildren();
+    for(const item of history) {
+      const line=document.createElement("p");
+      const t0=(item.sample_start/state.capture.sample_rate).toFixed(2);
+      const t1=((item.sample_start+item.sample_count)/state.capture.sample_rate).toFixed(2);
+      const frequency=item.frequency_low_hz===null ? "frequency unknown" : `${item.frequency_low_hz.toFixed(0)}–${item.frequency_high_hz.toFixed(0)} Hz`;
+      line.textContent=`Geometry ${item.revision} · ${t0}–${t1} s · ${frequency}`;
+      target.append(line);
+    }
+  } catch(error) {
+    if(state.editRegion?.id===region.id) target.textContent=`Bounds history unavailable · ${error.message}`;
+  }
+}
+
+async function loadLineageHistory(region,captureId) {
+  const target=el("lineage-history-list");
+  target.textContent="Loading split/merge history…";
+  try {
+    const history=await request(`/api/captures/${captureId}/regions/${region.id}/lineage`);
+    if(state.capture?.id!==captureId || state.editRegion?.id!==region.id) return;
+    target.replaceChildren();
+    for(const operation of history) {
+      const item=document.createElement("p");
+      const sources=operation.source_region_ids.map((id)=>id===region.id?"this region":id.slice(0,8)).join(", ");
+      const results=operation.result_region_ids.map((id)=>id===region.id?"this region":id.slice(0,8)).join(", ");
+      item.textContent=`${operation.relation} · ${sources} → ${results}`;
+      target.append(item);
+    }
+    if(!history.length) target.textContent="No split/merge lineage recorded.";
+  } catch(error) {
+    if(state.editRegion?.id===region.id) target.textContent=`Lineage history unavailable · ${error.message}`;
   }
 }
 

@@ -6,12 +6,15 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 from pathlib import Path
+import re
 import sqlite3
 from typing import Any
 from uuid import uuid4
 
 from .wav import WavSource
+from .modes import mode_name_conflicts, resolve_mode_label
 
 
 SOURCE_KINDS = {"live", "wav", "synthetic", "reference"}
@@ -33,6 +36,7 @@ class SignalLabel:
     review_state: str = "pending"
     evidence: dict[str, Any] | None = None
     notes: str = ""
+    mode_id: str | None = None
 
 
 class CaptureStore:
@@ -52,7 +56,7 @@ class CaptureStore:
     def _initialize(self) -> None:
         with self._connect() as db:
             version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1, 2, 3, 4, 5, 6):
+            if version not in (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15):
                 raise RuntimeError(f"unsupported dataset schema version: {version}")
             db.executescript(
                 """
@@ -75,6 +79,7 @@ class CaptureStore:
                     sample_count INTEGER NOT NULL CHECK(sample_count > 0),
                     frequency_low_hz REAL,
                     frequency_high_hz REAL,
+                    origin TEXT NOT NULL DEFAULT 'manual',
                     created_utc TEXT NOT NULL,
                     CHECK((frequency_low_hz IS NULL AND frequency_high_hz IS NULL) OR
                           (frequency_low_hz IS NOT NULL AND frequency_high_hz IS NOT NULL AND
@@ -82,6 +87,19 @@ class CaptureStore:
                 );
                 CREATE INDEX IF NOT EXISTS regions_by_capture ON regions(capture_id, sample_start);
                 CREATE INDEX IF NOT EXISTS captures_by_sha256 ON captures(sha256);
+                CREATE TABLE IF NOT EXISTS region_geometry_revisions (
+                    region_id TEXT NOT NULL REFERENCES regions(id) ON DELETE CASCADE,
+                    revision INTEGER NOT NULL CHECK(revision > 0),
+                    sample_start INTEGER NOT NULL CHECK(sample_start >= 0),
+                    sample_count INTEGER NOT NULL CHECK(sample_count > 0),
+                    frequency_low_hz REAL,
+                    frequency_high_hz REAL,
+                    created_utc TEXT NOT NULL,
+                    UNIQUE(region_id, revision),
+                    CHECK((frequency_low_hz IS NULL AND frequency_high_hz IS NULL) OR
+                          (frequency_low_hz IS NOT NULL AND frequency_high_hz IS NOT NULL AND frequency_low_hz < frequency_high_hz))
+                );
+                CREATE INDEX IF NOT EXISTS geometry_by_region ON region_geometry_revisions(region_id, revision DESC);
                 CREATE TABLE IF NOT EXISTS label_revisions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     region_id TEXT NOT NULL REFERENCES regions(id) ON DELETE CASCADE,
@@ -91,6 +109,7 @@ class CaptureStore:
                     method TEXT,
                     protocol TEXT,
                     variant TEXT,
+                    mode_id TEXT,
                     source TEXT NOT NULL CHECK(source IN ('unknown','prediction','rsid','decoder','human','synthetic','external')),
                     review_state TEXT NOT NULL CHECK(review_state IN ('pending','accepted','rejected')),
                     evidence_json TEXT NOT NULL,
@@ -98,6 +117,53 @@ class CaptureStore:
                     UNIQUE(region_id, revision)
                 );
                 CREATE INDEX IF NOT EXISTS labels_by_region ON label_revisions(region_id, revision DESC);
+                CREATE TABLE IF NOT EXISTS annotation_feedback (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    region_id TEXT NOT NULL,
+                    label_revision INTEGER NOT NULL,
+                    geometry_revision INTEGER NOT NULL,
+                    resulting_revision INTEGER,
+                    action TEXT NOT NULL CHECK(action IN ('correct','incorrect_identity','not_signal')),
+                    correction_json TEXT NOT NULL,
+                    note TEXT NOT NULL,
+                    created_utc TEXT NOT NULL,
+                    FOREIGN KEY(region_id, label_revision) REFERENCES label_revisions(region_id, revision) ON DELETE CASCADE,
+                    FOREIGN KEY(region_id, geometry_revision) REFERENCES region_geometry_revisions(region_id, revision) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS feedback_by_region ON annotation_feedback(region_id, id);
+                CREATE TABLE IF NOT EXISTS region_lineage (
+                    relation_id TEXT NOT NULL,
+                    relation TEXT NOT NULL CHECK(relation IN ('split','merge')),
+                    source_region_id TEXT NOT NULL REFERENCES regions(id) ON DELETE CASCADE,
+                    result_region_id TEXT NOT NULL REFERENCES regions(id) ON DELETE CASCADE,
+                    source_index INTEGER NOT NULL CHECK(source_index >= 0),
+                    result_index INTEGER NOT NULL CHECK(result_index >= 0),
+                    created_utc TEXT NOT NULL,
+                    PRIMARY KEY(relation_id, source_region_id, result_region_id)
+                );
+                CREATE INDEX IF NOT EXISTS lineage_by_source ON region_lineage(source_region_id, created_utc);
+                CREATE INDEX IF NOT EXISTS lineage_by_result ON region_lineage(result_region_id, created_utc);
+                CREATE TABLE IF NOT EXISTS mode_registry_entries (
+                    id TEXT PRIMARY KEY,
+                    display_name TEXT NOT NULL,
+                    family TEXT NOT NULL,
+                    method TEXT NOT NULL,
+                    protocol TEXT NOT NULL,
+                    variant TEXT NOT NULL,
+                    aliases_json TEXT NOT NULL,
+                    rationale TEXT NOT NULL,
+                    distinguishing_evidence TEXT NOT NULL,
+                    evidence_json TEXT NOT NULL,
+                    created_utc TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS mode_registry_decisions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    mode_id TEXT NOT NULL REFERENCES mode_registry_entries(id) ON DELETE CASCADE,
+                    decision TEXT NOT NULL CHECK(decision IN ('accepted','rejected')),
+                    note TEXT NOT NULL,
+                    created_utc TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS mode_decisions_by_mode ON mode_registry_decisions(mode_id, id DESC);
                 CREATE TABLE IF NOT EXISTS decoder_runs (
                     id TEXT PRIMARY KEY,
                     session_id TEXT NOT NULL,
@@ -170,7 +236,24 @@ class CaptureStore:
                 db.execute("ALTER TABLE decoder_runs ADD COLUMN association TEXT NOT NULL DEFAULT 'track_window_tentative'")
             if "carrier_hz" not in columns:
                 db.execute("ALTER TABLE decoder_runs ADD COLUMN carrier_hz REAL")
-            db.execute("PRAGMA user_version = 6")
+            region_columns = {row[1] for row in db.execute("PRAGMA table_info(regions)")}
+            if "origin" not in region_columns:
+                db.execute("ALTER TABLE regions ADD COLUMN origin TEXT NOT NULL DEFAULT 'manual'")
+            label_columns = {row[1] for row in db.execute("PRAGMA table_info(label_revisions)")}
+            if "mode_id" not in label_columns:
+                db.execute("ALTER TABLE label_revisions ADD COLUMN mode_id TEXT")
+            db.execute("""INSERT OR IGNORE INTO region_geometry_revisions
+                (region_id, revision, sample_start, sample_count, frequency_low_hz, frequency_high_hz, created_utc)
+                SELECT id, 1, sample_start, sample_count, frequency_low_hz, frequency_high_hz, created_utc FROM regions""")
+            feedback_columns = {row[1] for row in db.execute("PRAGMA table_info(annotation_feedback)")}
+            if "geometry_revision" not in feedback_columns:
+                db.execute("ALTER TABLE annotation_feedback ADD COLUMN geometry_revision INTEGER")
+                db.execute("""UPDATE annotation_feedback SET geometry_revision=(
+                    SELECT MAX(revision) FROM region_geometry_revisions WHERE region_id=annotation_feedback.region_id
+                ) WHERE geometry_revision IS NULL""")
+            if "resulting_revision" not in feedback_columns:
+                db.execute("ALTER TABLE annotation_feedback ADD COLUMN resulting_revision INTEGER")
+            db.execute("PRAGMA user_version = 15")
 
     @staticmethod
     def _sha256(path: Path) -> str:
@@ -222,6 +305,7 @@ class CaptureStore:
         frequency_low_hz: float | None = None,
         frequency_high_hz: float | None = None,
         label: SignalLabel | None = None,
+        origin: str = "manual",
     ) -> str:
         if sample_start < 0 or sample_count <= 0:
             raise ValueError("region sample_start must be non-negative and sample_count positive")
@@ -229,8 +313,10 @@ class CaptureStore:
             raise ValueError("both frequency bounds must be provided together")
         if frequency_low_hz is not None and frequency_low_hz >= frequency_high_hz:
             raise ValueError("frequency_low_hz must be less than frequency_high_hz")
+        if origin not in {"manual", "detector_proposal", "user_added_missed_detection"}:
+            raise ValueError("unknown region origin")
         chosen_label = label or SignalLabel()
-        self._validate_label(chosen_label)
+        self._validate_label(chosen_label, self.accepted_mode_definitions())
 
         region_id = str(uuid4())
         with self._connect() as db:
@@ -242,7 +328,7 @@ class CaptureStore:
             if sample_start + sample_count > capture["sample_count"]:
                 raise ValueError("region exceeds the parent capture sample range")
             db.execute(
-                "INSERT INTO regions VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO regions (id, capture_id, sample_start, sample_count, frequency_low_hz, frequency_high_hz, origin, created_utc) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     region_id,
                     capture_id,
@@ -250,26 +336,375 @@ class CaptureStore:
                     sample_count,
                     frequency_low_hz,
                     frequency_high_hz,
+                    origin,
                     datetime.now(timezone.utc).isoformat(),
                 ),
+            )
+            db.execute(
+                """INSERT INTO region_geometry_revisions
+                   (region_id, revision, sample_start, sample_count, frequency_low_hz, frequency_high_hz, created_utc)
+                   VALUES (?, 1, ?, ?, ?, ?, ?)""",
+                (region_id, sample_start, sample_count, frequency_low_hz, frequency_high_hz, datetime.now(timezone.utc).isoformat()),
             )
             self._insert_label(db, region_id, 1, chosen_label)
         return region_id
 
+    def revise_region_geometry(
+        self, region_id: str, *, expected_revision: int, sample_start: int, sample_count: int,
+        frequency_low_hz: float | None = None, frequency_high_hz: float | None = None,
+    ) -> dict[str, Any]:
+        if sample_start < 0 or sample_count <= 0:
+            raise ValueError("geometry sample_start must be non-negative and sample_count positive")
+        if (frequency_low_hz is None) != (frequency_high_hz is None):
+            raise ValueError("both frequency bounds must be provided together")
+        if frequency_low_hz is not None and (
+            not math.isfinite(frequency_low_hz) or not math.isfinite(frequency_high_hz)
+            or frequency_low_hz < 0 or frequency_low_hz >= frequency_high_hz
+        ):
+            raise ValueError("frequency bounds must be finite, non-negative and increasing")
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            region = db.execute(
+                """SELECT c.sample_count AS capture_samples, c.sample_rate
+                   FROM regions r JOIN captures c ON c.id=r.capture_id WHERE r.id=?""", (region_id,)
+            ).fetchone()
+            if region is None:
+                raise KeyError(f"unknown region: {region_id}")
+            if sample_start + sample_count > region["capture_samples"]:
+                raise ValueError("region exceeds the parent capture sample range")
+            if frequency_high_hz is not None and frequency_high_hz > region["sample_rate"] / 2:
+                raise ValueError("frequency bounds exceed the capture Nyquist frequency")
+            latest = db.execute("SELECT MAX(revision) FROM region_geometry_revisions WHERE region_id=?", (region_id,)).fetchone()[0]
+            if latest is None:
+                raise KeyError(f"unknown region: {region_id}")
+            if latest != expected_revision:
+                raise LabelRevisionConflict("geometry changed since it was opened; reopen the region before saving bounds")
+            revision = latest + 1
+            created = datetime.now(timezone.utc).isoformat()
+            db.execute(
+                """INSERT INTO region_geometry_revisions
+                   (region_id, revision, sample_start, sample_count, frequency_low_hz, frequency_high_hz, created_utc)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (region_id, revision, sample_start, sample_count, frequency_low_hz, frequency_high_hz, created),
+            )
+            return {"region_id": region_id, "revision": revision, "sample_start": sample_start,
+                    "sample_count": sample_count, "frequency_low_hz": frequency_low_hz,
+                    "frequency_high_hz": frequency_high_hz, "created_utc": created}
+
+    def geometry_history(self, region_id: str) -> list[dict[str, Any]]:
+        with self._connect() as db:
+            exists = db.execute("SELECT 1 FROM regions WHERE id=?", (region_id,)).fetchone()
+            if exists is None:
+                raise KeyError(f"unknown region: {region_id}")
+            rows = db.execute("SELECT * FROM region_geometry_revisions WHERE region_id=? ORDER BY revision", (region_id,)).fetchall()
+        return [dict(row) for row in rows]
+
     @staticmethod
-    def _validate_label(label: SignalLabel) -> None:
+    def _mode_entries(db: sqlite3.Connection) -> list[dict[str, Any]]:
+        rows = db.execute(
+            """SELECT e.*,
+                      (SELECT decision FROM mode_registry_decisions d WHERE d.mode_id=e.id ORDER BY d.id DESC LIMIT 1) AS decision,
+                      (SELECT note FROM mode_registry_decisions d WHERE d.mode_id=e.id ORDER BY d.id DESC LIMIT 1) AS decision_note
+               FROM mode_registry_entries e ORDER BY e.created_utc,e.id"""
+        ).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["aliases"] = json.loads(item.pop("aliases_json"))
+            item["evidence_regions"] = json.loads(item.pop("evidence_json"))
+            item["status"] = "pending" if item["decision"] is None else f"locally_{item['decision']}"
+            item["registry_version"] = f"local:{item['id']}:1"
+            result.append(item)
+        return result
+
+    def mode_proposals(self) -> list[dict[str, Any]]:
+        with self._connect() as db:
+            return self._mode_entries(db)
+
+    def accepted_mode_definitions(self) -> list[dict[str, Any]]:
+        return [item for item in self.mode_proposals() if item["decision"] == "accepted"]
+
+    def add_mode_proposal(self, definition: dict[str, Any]) -> dict[str, Any]:
+        mode_id = definition.get("id")
+        if not isinstance(mode_id, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", mode_id):
+            raise ValueError("mode id must be lowercase words separated by hyphens")
+        text_fields = ("display_name", "family", "method", "protocol", "variant")
+        for key in text_fields:
+            value = definition.get(key)
+            if not isinstance(value, str) or not value.strip() or len(value) > 120:
+                raise ValueError(f"{key} must contain 1 to 120 characters")
+        aliases = definition.get("aliases")
+        if not isinstance(aliases, list) or not 1 <= len(aliases) <= 10 or any(not isinstance(alias, str) or not alias.strip() or len(alias) > 120 for alias in aliases):
+            raise ValueError("provide between one and ten non-empty aliases")
+        if len({alias.casefold() for alias in aliases}) != len(aliases):
+            raise ValueError("aliases must be unique")
+        normalized_names = [re.sub(r"[^a-z0-9]+", "", value.casefold()) for value in (definition["display_name"], *aliases)]
+        if len(set(normalized_names)) != len(normalized_names):
+            raise ValueError("display name and aliases must not duplicate each other")
+        for key in ("rationale", "distinguishing_evidence"):
+            value = definition.get(key)
+            if not isinstance(value, str) or len(value.strip()) < 80 or len(value) > 5000:
+                raise ValueError(f"{key} must contain 80 to 5000 characters")
+        evidence = definition.get("evidence_regions")
+        if not isinstance(evidence, list) or not 2 <= len(evidence) <= 8:
+            raise ValueError("attach two to eight supporting regions from independent recordings")
+
+        sources = []
+        source_hashes = set()
+        for item in evidence:
+            if not isinstance(item, dict):
+                raise ValueError("each evidence region must be an object")
+            capture_id, region_id = item.get("capture_id"), item.get("region_id")
+            observations = item.get("observations")
+            evidence_type = item.get("evidence_type", "on_air")
+            if not isinstance(observations, str) or len(observations.strip()) < 40 or len(observations) > 2000:
+                raise ValueError("each evidence region needs at least 40 characters of observations")
+            if evidence_type not in {"on_air", "controlled_fixture", "independent_decoder"}:
+                raise ValueError("unsupported evidence type")
+            capture = self.capture(capture_id) if isinstance(capture_id, str) else None
+            if capture is None:
+                raise ValueError("evidence region references an unknown capture")
+            region = next((entry for entry in self.regions(capture_id) if entry["id"] == region_id), None)
+            if region is None:
+                raise ValueError("evidence region does not belong to its capture")
+            source_hash = capture["sha256"]
+            source_hashes.add(source_hash)
+            sources.append({
+                "capture_id": capture_id, "capture_sha256": source_hash,
+                "source_kind": capture["source_kind"], "sample_rate": capture["sample_rate"],
+                "region_id": region_id, "geometry_revision": region["geometry_revision"],
+                "sample_start": region["sample_start"], "sample_count": region["sample_count"],
+                "frequency_low_hz": region["frequency_low_hz"], "frequency_high_hz": region["frequency_high_hz"],
+                "evidence_type": evidence_type, "observations": observations.strip(),
+            })
+        if len(source_hashes) < 2:
+            raise ValueError("supporting evidence must come from two different audio recordings")
+
+        mode = {key: definition[key].strip() for key in text_fields}
+        mode.update(id=mode_id, aliases=[alias.strip() for alias in aliases], registry_version=f"local:{mode_id}:1", status="pending")
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            existing = self._mode_entries(db)
+            if mode_name_conflicts(mode_id, additional_modes=existing):
+                raise ValueError("mode id conflicts with an existing registry name or alias")
+            for value in (mode["display_name"], *mode["aliases"]):
+                if mode_name_conflicts(value, additional_modes=existing):
+                    raise ValueError(f"mode name or alias conflicts with an existing registry entry: {value}")
+            db.execute(
+                """INSERT INTO mode_registry_entries
+                   (id,display_name,family,method,protocol,variant,aliases_json,rationale,distinguishing_evidence,evidence_json,created_utc)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                (mode_id, mode["display_name"], mode["family"], mode["method"], mode["protocol"], mode["variant"],
+                 json.dumps(mode["aliases"], sort_keys=True), definition["rationale"].strip(),
+                 definition["distinguishing_evidence"].strip(), json.dumps(sources, sort_keys=True), datetime.now(timezone.utc).isoformat()),
+            )
+        return next(item for item in self.mode_proposals() if item["id"] == mode_id)
+
+    def decide_mode_proposal(self, mode_id: str, *, decision: str, note: str) -> dict[str, Any]:
+        if decision not in {"accepted", "rejected"}:
+            raise ValueError("decision must be accepted or rejected")
+        if len(note.strip()) < 40 or len(note) > 2000:
+            raise ValueError("review note must contain 40 to 2000 characters")
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            entries = {item["id"]: item for item in self._mode_entries(db)}
+            if mode_id not in entries:
+                raise KeyError(f"unknown mode proposal: {mode_id}")
+            if decision == "accepted":
+                candidate = entries[mode_id]
+                others = [item for key, item in entries.items() if key != mode_id and item["decision"] == "accepted"]
+                for value in (candidate["id"], candidate["display_name"], *candidate["aliases"]):
+                    if mode_name_conflicts(value, additional_modes=others):
+                        raise ValueError(f"mode name or alias now conflicts with another accepted definition: {value}")
+            db.execute(
+                "INSERT INTO mode_registry_decisions(mode_id,decision,note,created_utc) VALUES(?,?,?,?)",
+                (mode_id, decision, note.strip(), datetime.now(timezone.utc).isoformat()),
+            )
+        return next(item for item in self.mode_proposals() if item["id"] == mode_id)
+
+    @staticmethod
+    def _validate_lineage_geometry(
+        bounds: dict[str, Any], *, capture_samples: int, sample_rate: int,
+        parent: dict[str, Any] | None = None,
+    ) -> tuple[int, int, float | None, float | None]:
+        sample_start = bounds.get("sample_start")
+        sample_count = bounds.get("sample_count")
+        low = bounds.get("frequency_low_hz")
+        high = bounds.get("frequency_high_hz")
+        if not isinstance(sample_start, int) or sample_start < 0 or not isinstance(sample_count, int) or sample_count <= 0:
+            raise ValueError("geometry sample_start must be non-negative and sample_count positive")
+        if sample_start + sample_count > capture_samples:
+            raise ValueError("region exceeds the parent capture sample range")
+        if (low is None) != (high is None):
+            raise ValueError("both frequency bounds must be provided together")
+        if low is not None and (
+            not isinstance(low, (int, float)) or not isinstance(high, (int, float))
+            or not math.isfinite(low) or not math.isfinite(high)
+            or low < 0 or low >= high or high > sample_rate / 2
+        ):
+            raise ValueError("frequency bounds must be finite, non-negative, increasing and below Nyquist")
+        if parent is not None:
+            if sample_start < parent["sample_start"] or sample_start + sample_count > parent["sample_start"] + parent["sample_count"]:
+                raise ValueError("split child time bounds must be contained by the parent region")
+            if parent["frequency_low_hz"] is not None and (
+                low is None or low < parent["frequency_low_hz"] or high > parent["frequency_high_hz"]
+            ):
+                raise ValueError("split child frequency bounds must be contained by the parent region")
+        return sample_start, sample_count, low, high
+
+    def _insert_lineage_region(
+        self, db: sqlite3.Connection, capture_id: str,
+        bounds: tuple[int, int, float | None, float | None],
+    ) -> str:
+        region_id = str(uuid4())
+        sample_start, sample_count, low, high = bounds
+        created = datetime.now(timezone.utc).isoformat()
+        db.execute(
+            """INSERT INTO regions
+               (id,capture_id,sample_start,sample_count,frequency_low_hz,frequency_high_hz,origin,created_utc)
+               VALUES(?,?,?,?,?,?,?,?)""",
+            (region_id, capture_id, sample_start, sample_count, low, high, "manual", created),
+        )
+        db.execute(
+            """INSERT INTO region_geometry_revisions
+               (region_id,revision,sample_start,sample_count,frequency_low_hz,frequency_high_hz,created_utc)
+               VALUES(?,1,?,?,?,?,?)""",
+            (region_id, sample_start, sample_count, low, high, created),
+        )
+        self._insert_label(db, region_id, 1, SignalLabel(source="unknown", review_state="pending"))
+        return region_id
+
+    @staticmethod
+    def _insert_lineage_edges(
+        db: sqlite3.Connection, *, relation_id: str, relation: str,
+        source_ids: list[str], result_ids: list[str], created: str,
+    ) -> None:
+        db.executemany(
+            """INSERT INTO region_lineage
+               (relation_id,relation,source_region_id,result_region_id,source_index,result_index,created_utc)
+               VALUES(?,?,?,?,?,?,?)""",
+            [
+                (relation_id, relation, source_id, result_id, source_index, result_index, created)
+                for source_index, source_id in enumerate(source_ids)
+                for result_index, result_id in enumerate(result_ids)
+            ],
+        )
+
+    def split_region(
+        self, capture_id: str, region_id: str, *, expected_geometry_revision: int,
+        children: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        if not 2 <= len(children) <= 8:
+            raise ValueError("a split must create between two and eight child regions")
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            parent_row = db.execute(
+                """SELECT c.sample_count AS capture_samples,c.sample_rate,
+                          g.revision,g.sample_start,g.sample_count,g.frequency_low_hz,g.frequency_high_hz
+                   FROM regions r JOIN captures c ON c.id=r.capture_id
+                   JOIN region_geometry_revisions g ON g.region_id=r.id AND g.revision=(
+                       SELECT MAX(revision) FROM region_geometry_revisions WHERE region_id=r.id
+                   ) WHERE r.id=? AND r.capture_id=?""", (region_id, capture_id)
+            ).fetchone()
+            if parent_row is None:
+                raise KeyError(f"unknown region in capture: {region_id}")
+            if int(parent_row["revision"]) != expected_geometry_revision:
+                raise LabelRevisionConflict("geometry changed since it was opened; reopen the region before splitting")
+            if db.execute("SELECT 1 FROM region_lineage WHERE source_region_id=? LIMIT 1", (region_id,)).fetchone():
+                raise LabelRevisionConflict("region is already superseded by a lineage operation")
+            parent = dict(parent_row)
+            normalized = [self._validate_lineage_geometry(
+                child, capture_samples=parent["capture_samples"], sample_rate=parent["sample_rate"], parent=parent,
+            ) for child in children]
+            result_ids = [self._insert_lineage_region(db, capture_id, child) for child in normalized]
+            relation_id = str(uuid4())
+            created = datetime.now(timezone.utc).isoformat()
+            self._insert_lineage_edges(db, relation_id=relation_id, relation="split", source_ids=[region_id], result_ids=result_ids, created=created)
+        return {"relation_id": relation_id, "relation": "split", "source_region_ids": [region_id], "result_region_ids": result_ids, "created_utc": created}
+
+    def merge_regions(
+        self, capture_id: str, *, source_region_ids: list[str],
+        expected_geometry_revisions: dict[str, int],
+    ) -> dict[str, Any]:
+        if not 2 <= len(source_region_ids) <= 8 or len(set(source_region_ids)) != len(source_region_ids):
+            raise ValueError("a merge needs two to eight distinct source regions")
+        if set(expected_geometry_revisions) != set(source_region_ids):
+            raise ValueError("expected geometry revisions must identify every source region exactly once")
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            source_rows = []
+            for region_id in source_region_ids:
+                row = db.execute(
+                    """SELECT r.capture_id,c.sample_count AS capture_samples,c.sample_rate,
+                              g.revision,g.sample_start,g.sample_count,g.frequency_low_hz,g.frequency_high_hz
+                       FROM regions r JOIN captures c ON c.id=r.capture_id
+                       JOIN region_geometry_revisions g ON g.region_id=r.id AND g.revision=(
+                           SELECT MAX(revision) FROM region_geometry_revisions WHERE region_id=r.id
+                       ) WHERE r.id=?""", (region_id,)
+                ).fetchone()
+                if row is None:
+                    raise KeyError(f"unknown region: {region_id}")
+                if row["capture_id"] != capture_id:
+                    raise ValueError("merged regions must belong to the requested capture")
+                if int(row["revision"]) != expected_geometry_revisions[region_id]:
+                    raise LabelRevisionConflict("geometry changed since merge selection; reopen the regions")
+                if db.execute("SELECT 1 FROM region_lineage WHERE source_region_id=? LIMIT 1", (region_id,)).fetchone():
+                    raise LabelRevisionConflict("a selected region is already superseded by a lineage operation")
+                source_rows.append(dict(row))
+            sample_start = min(row["sample_start"] for row in source_rows)
+            sample_end = max(row["sample_start"] + row["sample_count"] for row in source_rows)
+            has_frequency_bounds = all(row["frequency_low_hz"] is not None for row in source_rows)
+            low = min(row["frequency_low_hz"] for row in source_rows) if has_frequency_bounds else None
+            high = max(row["frequency_high_hz"] for row in source_rows) if has_frequency_bounds else None
+            result_id = self._insert_lineage_region(db, capture_id, (sample_start, sample_end - sample_start, low, high))
+            relation_id = str(uuid4())
+            created = datetime.now(timezone.utc).isoformat()
+            self._insert_lineage_edges(db, relation_id=relation_id, relation="merge", source_ids=source_region_ids, result_ids=[result_id], created=created)
+        return {"relation_id": relation_id, "relation": "merge", "source_region_ids": source_region_ids, "result_region_id": result_id, "created_utc": created}
+
+    def region_lineage(self, region_id: str) -> list[dict[str, Any]]:
+        with self._connect() as db:
+            if db.execute("SELECT 1 FROM regions WHERE id=?", (region_id,)).fetchone() is None:
+                raise KeyError(f"unknown region: {region_id}")
+            rows = db.execute(
+                """SELECT * FROM region_lineage WHERE source_region_id=? OR result_region_id=?
+                   ORDER BY created_utc,relation_id,source_index,result_index""", (region_id, region_id)
+            ).fetchall()
+        operations: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            operation = operations.setdefault(row["relation_id"], {
+                "relation_id": row["relation_id"], "relation": row["relation"], "created_utc": row["created_utc"],
+                "source_region_ids": {}, "result_region_ids": {},
+            })
+            operation["source_region_ids"][row["source_index"]] = row["source_region_id"]
+            operation["result_region_ids"][row["result_index"]] = row["result_region_id"]
+        return [{
+            **operation,
+            "source_region_ids": [operation["source_region_ids"][index] for index in sorted(operation["source_region_ids"])],
+            "result_region_ids": [operation["result_region_ids"][index] for index in sorted(operation["result_region_ids"])],
+        } for operation in operations.values()]
+
+    @staticmethod
+    def _validate_label(label: SignalLabel, additional_modes: list[dict[str, Any]] | None = None) -> None:
         if label.source not in LABEL_SOURCES:
             raise ValueError(f"unknown label source: {label.source}")
         if label.review_state not in REVIEW_STATES:
             raise ValueError(f"unknown review state: {label.review_state}")
+        if label.mode_id is not None:
+            resolved = resolve_mode_label(label.mode_id, {
+                "family": label.family, "method": label.method,
+                "protocol": label.protocol, "variant": label.variant,
+            }, additional_modes=additional_modes)
+            if any(getattr(label, key) != resolved[key] for key in ("family", "method", "protocol", "variant")):
+                raise ValueError("canonical mode labels must include the resolved taxonomy fields")
 
     @staticmethod
     def _insert_label(db: sqlite3.Connection, region_id: str, revision: int, label: SignalLabel) -> None:
         db.execute(
             """INSERT INTO label_revisions
-               (region_id, revision, created_utc, family, method, protocol, variant,
+               (region_id, revision, created_utc, family, method, protocol, variant, mode_id,
                 source, review_state, evidence_json, notes)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 region_id,
                 revision,
@@ -278,6 +713,7 @@ class CaptureStore:
                 label.method,
                 label.protocol,
                 label.variant,
+                label.mode_id,
                 label.source,
                 label.review_state,
                 json.dumps(label.evidence or {}, sort_keys=True),
@@ -286,7 +722,7 @@ class CaptureStore:
         )
 
     def revise_label(self, region_id: str, label: SignalLabel, *, expected_revision: int | None = None) -> int:
-        self._validate_label(label)
+        self._validate_label(label, self.accepted_mode_definitions())
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             latest = db.execute(
@@ -300,6 +736,72 @@ class CaptureStore:
             revision = latest + 1
             self._insert_label(db, region_id, revision, label)
             return revision
+
+    def record_feedback(
+        self, region_id: str, *, expected_revision: int, action: str,
+        expected_geometry_revision: int, correction: dict[str, Any] | None = None, note: str = "",
+    ) -> dict[str, Any]:
+        if action not in {"correct", "incorrect_identity", "not_signal"}:
+            raise ValueError("unsupported feedback action")
+        if len(note) > 2000:
+            raise ValueError("feedback note is too long")
+        correction = correction or {}
+        if action == "incorrect_identity" and not any(correction.get(key) for key in ("family", "method", "protocol", "variant")):
+            raise ValueError("incorrect_identity feedback needs a corrected identity")
+        if action != "incorrect_identity" and correction:
+            raise ValueError("correction is only valid for incorrect_identity feedback")
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            current = db.execute("SELECT * FROM label_revisions WHERE region_id=? ORDER BY revision DESC LIMIT 1", (region_id,)).fetchone()
+            if current is None:
+                raise KeyError(f"unknown region: {region_id}")
+            latest = int(current["revision"])
+            if latest != expected_revision:
+                raise LabelRevisionConflict("label changed since feedback was opened; reopen the region")
+            geometry_revision = db.execute("SELECT MAX(revision) FROM region_geometry_revisions WHERE region_id=?", (region_id,)).fetchone()[0]
+            if geometry_revision != expected_geometry_revision:
+                raise LabelRevisionConflict("bounds changed since feedback was opened; reopen the region")
+            if action == "incorrect_identity":
+                next_label = SignalLabel(
+                    family=correction.get("family"), method=correction.get("method"),
+                    protocol=correction.get("protocol"), variant=correction.get("variant"),
+                    mode_id=correction.get("mode_id"), source="human", review_state="accepted",
+                    evidence={"feedback_action": action, "corrected_from_revision": latest, **({"mode_registry_version": correction["registry_version"]} if correction.get("registry_version") else {})},
+                    notes=note,
+                )
+            else:
+                next_label = SignalLabel(
+                    family=current["family"], method=current["method"], protocol=current["protocol"],
+                    variant=current["variant"], mode_id=current["mode_id"], source="human",
+                    review_state="accepted" if action == "correct" else "rejected",
+                    evidence={**json.loads(current["evidence_json"]), "feedback_action": action, "reviewed_from_revision": latest},
+                    notes=note or current["notes"],
+                )
+            accepted_modes = [item for item in self._mode_entries(db) if item["decision"] == "accepted"]
+            self._validate_label(next_label, accepted_modes)
+            resulting_revision = latest + 1
+            self._insert_label(db, region_id, resulting_revision, next_label)
+            cursor = db.execute(
+                "INSERT INTO annotation_feedback(region_id,label_revision,geometry_revision,resulting_revision,action,correction_json,note,created_utc) VALUES(?,?,?,?,?,?,?,?)",
+                (region_id, expected_revision, expected_geometry_revision, resulting_revision, action, json.dumps(correction, sort_keys=True), note, datetime.now(timezone.utc).isoformat()),
+            )
+            row = db.execute("SELECT * FROM annotation_feedback WHERE id=?", (cursor.lastrowid,)).fetchone()
+        item = dict(row)
+        item["correction"] = json.loads(item.pop("correction_json"))
+        return item
+
+    def feedback_history(self, region_id: str) -> list[dict[str, Any]]:
+        with self._connect() as db:
+            exists = db.execute("SELECT 1 FROM regions WHERE id=?", (region_id,)).fetchone()
+            if exists is None:
+                raise KeyError(f"unknown region: {region_id}")
+            rows = db.execute("SELECT * FROM annotation_feedback WHERE region_id=? ORDER BY id", (region_id,)).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["correction"] = json.loads(item.pop("correction_json"))
+            result.append(item)
+        return result
 
     def add_bit_annotation(
         self, capture_id: str, *, mode: str, sample_start: int, sample_count: int,
@@ -559,17 +1061,30 @@ class CaptureStore:
             if exists is None:
                 raise KeyError(f"unknown capture: {capture_id}")
             rows = db.execute(
-                """SELECT r.*, l.revision, l.family, l.method, l.protocol, l.variant,
+                """SELECT r.*, g.revision AS geometry_revision,
+                          g.sample_start AS current_sample_start, g.sample_count AS current_sample_count,
+                          g.frequency_low_hz AS current_frequency_low_hz, g.frequency_high_hz AS current_frequency_high_hz,
+                          CASE WHEN EXISTS(SELECT 1 FROM region_lineage rl WHERE rl.source_region_id=r.id)
+                               THEN 'superseded' ELSE 'active' END AS lineage_state,
+                          l.revision, l.family, l.method, l.protocol, l.variant, l.mode_id,
                           l.source, l.review_state, l.evidence_json, l.notes
-                   FROM regions r JOIN label_revisions l ON l.region_id = r.id
+                   FROM regions r
+                   JOIN region_geometry_revisions g ON g.region_id=r.id AND g.revision=(
+                       SELECT MAX(revision) FROM region_geometry_revisions WHERE region_id=r.id
+                   )
+                   JOIN label_revisions l ON l.region_id = r.id
                    WHERE r.capture_id = ? AND l.revision = (
                        SELECT MAX(revision) FROM label_revisions WHERE region_id = r.id
-                   ) ORDER BY r.sample_start""",
+                   ) ORDER BY g.sample_start""",
                 (capture_id,),
             ).fetchall()
         result = []
         for row in rows:
             item = dict(row)
+            item["sample_start"] = item.pop("current_sample_start")
+            item["sample_count"] = item.pop("current_sample_count")
+            item["frequency_low_hz"] = item.pop("current_frequency_low_hz")
+            item["frequency_high_hz"] = item.pop("current_frequency_high_hz")
             item["evidence"] = json.loads(item.pop("evidence_json"))
             result.append(item)
         return result
@@ -596,20 +1111,30 @@ class CaptureStore:
         """Export each region's current label with source identity and sample bounds."""
         with self._connect() as db:
             rows = db.execute(
-                """SELECT r.*, c.sha256, c.source_kind, c.sample_rate, c.audio_path,
-                          l.family, l.method, l.protocol, l.variant, l.source,
+                """SELECT r.*, g.revision AS geometry_revision,
+                          g.sample_start AS current_sample_start, g.sample_count AS current_sample_count,
+                          g.frequency_low_hz AS current_frequency_low_hz, g.frequency_high_hz AS current_frequency_high_hz,
+                          c.sha256, c.source_kind, c.sample_rate, c.audio_path,
+                          l.family, l.method, l.protocol, l.variant, l.mode_id, l.source,
                           l.review_state, l.evidence_json, l.revision
                    FROM regions r
+                   JOIN region_geometry_revisions g ON g.region_id=r.id AND g.revision=(
+                       SELECT MAX(revision) FROM region_geometry_revisions WHERE region_id=r.id
+                   )
                    JOIN captures c ON c.id = r.capture_id
                    JOIN label_revisions l ON l.region_id = r.id
                    WHERE l.revision = (SELECT MAX(revision) FROM label_revisions WHERE region_id = r.id)
-                   ORDER BY c.created_utc, r.sample_start"""
+                   ORDER BY c.created_utc, g.sample_start"""
             ).fetchall()
         output = Path(output)
         output.parent.mkdir(parents=True, exist_ok=True)
         with output.open("w", encoding="utf-8") as stream:
             for row in rows:
                 record = dict(row)
+                record["sample_start"] = record.pop("current_sample_start")
+                record["sample_count"] = record.pop("current_sample_count")
+                record["frequency_low_hz"] = record.pop("current_frequency_low_hz")
+                record["frequency_high_hz"] = record.pop("current_frequency_high_hz")
                 record["evidence"] = json.loads(record.pop("evidence_json"))
                 stream.write(json.dumps(record, sort_keys=True) + "\n")
         return len(rows)

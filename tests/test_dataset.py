@@ -57,7 +57,24 @@ def test_legacy_decoder_runs_schema_migrates_carrier_frequency(tmp_path):
         columns = {row[1] for row in db.execute("PRAGMA table_info(decoder_runs)")}
         version = db.execute("PRAGMA user_version").fetchone()[0]
     assert "carrier_hz" in columns
-    assert version == 6
+    assert version == 15
+
+
+def test_geometry_migration_backfills_existing_region_bounds(indexed_capture):
+    store, capture_id, _ = indexed_capture
+    region_id = store.add_region(
+        capture_id, sample_start=20, sample_count=180,
+        frequency_low_hz=500, frequency_high_hz=1500,
+    )
+    with sqlite3.connect(store.database) as db:
+        db.execute("DROP TABLE region_geometry_revisions")
+        db.execute("PRAGMA user_version=10")
+
+    migrated = CaptureStore(store.database)
+    region = next(item for item in migrated.regions(capture_id) if item["id"] == region_id)
+    assert region["geometry_revision"] == 1
+    assert (region["sample_start"], region["sample_count"]) == (20, 180)
+    assert migrated.geometry_history(region_id)[0]["frequency_high_hz"] == 1500
 
 
 def test_regions_keep_partial_labels_and_revision_history(indexed_capture, tmp_path):

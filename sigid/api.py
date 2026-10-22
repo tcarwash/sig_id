@@ -13,11 +13,11 @@ import tempfile
 import time
 import wave
 from threading import Lock
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 import numpy as np
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
@@ -29,6 +29,7 @@ from .fldigi import FldigiClient
 from .fldigi_replay import IsolatedFldigiReplay
 from .live_audio import LiveCaptureManager
 from .live_spectrum import spectrum_packet
+from .modes import MODE_REGISTRY_VERSION, find_modes, resolve_mode_label
 from .receive_products import ReceiveProductStore
 from .spectrum import waterfall, waterfall_samples
 from .synthetic_dataset import MAX_MANIFEST_BYTES, import_synthetic_wav
@@ -58,6 +59,8 @@ class RegionCreate(BaseModel):
     protocol: str | None = None
     variant: str | None = None
     notes: str = ""
+    mode_id: str | None = Field(default=None, max_length=80)
+    origin: Literal["manual", "detector_proposal", "user_added_missed_detection"] = "manual"
 
 
 class LabelRevisionCreate(BaseModel):
@@ -66,7 +69,70 @@ class LabelRevisionCreate(BaseModel):
     method: str | None = Field(default=None, max_length=200)
     protocol: str | None = Field(default=None, max_length=200)
     variant: str | None = Field(default=None, max_length=200)
+    mode_id: str | None = Field(default=None, max_length=80)
     notes: str = Field(default="", max_length=20000)
+
+
+class AnnotationFeedbackCreate(BaseModel):
+    expected_revision: int = Field(ge=1)
+    expected_geometry_revision: int = Field(ge=1)
+    action: Literal["correct", "incorrect_identity", "not_signal"]
+    corrected_mode_id: str | None = Field(default=None, max_length=80)
+    corrected_family: str | None = Field(default=None, max_length=200)
+    corrected_method: str | None = Field(default=None, max_length=200)
+    corrected_protocol: str | None = Field(default=None, max_length=200)
+    corrected_variant: str | None = Field(default=None, max_length=200)
+    note: str = Field(default="", max_length=2000)
+
+
+class GeometryRevisionCreate(BaseModel):
+    expected_revision: int = Field(ge=1)
+    sample_start: int = Field(ge=0)
+    sample_count: int = Field(gt=0)
+    frequency_low_hz: float | None = Field(default=None, ge=0)
+    frequency_high_hz: float | None = Field(default=None, ge=0)
+
+
+class RegionBounds(BaseModel):
+    sample_start: int = Field(ge=0)
+    sample_count: int = Field(gt=0)
+    frequency_low_hz: float | None = Field(default=None, ge=0)
+    frequency_high_hz: float | None = Field(default=None, ge=0)
+
+
+class RegionSplitCreate(BaseModel):
+    expected_geometry_revision: int = Field(ge=1)
+    children: list[RegionBounds] = Field(min_length=2, max_length=8)
+
+
+class RegionMergeCreate(BaseModel):
+    source_region_ids: list[str] = Field(min_length=2, max_length=8)
+    expected_geometry_revisions: dict[str, int]
+
+
+class ModeEvidenceRegion(BaseModel):
+    capture_id: str = Field(min_length=1, max_length=80)
+    region_id: str = Field(min_length=1, max_length=80)
+    evidence_type: Literal["on_air", "controlled_fixture", "independent_decoder"] = "on_air"
+    observations: str = Field(min_length=40, max_length=2000)
+
+
+class ModeProposalCreate(BaseModel):
+    id: str = Field(pattern="^[a-z0-9]+(?:-[a-z0-9]+)*$", min_length=2, max_length=80)
+    display_name: str = Field(min_length=1, max_length=120)
+    family: str = Field(min_length=1, max_length=120)
+    method: str = Field(min_length=1, max_length=120)
+    protocol: str = Field(min_length=1, max_length=120)
+    variant: str = Field(min_length=1, max_length=120)
+    aliases: list[str] = Field(min_length=1, max_length=10)
+    rationale: str = Field(min_length=80, max_length=5000)
+    distinguishing_evidence: str = Field(min_length=80, max_length=5000)
+    evidence_regions: list[ModeEvidenceRegion] = Field(min_length=2, max_length=8)
+
+
+class ModeProposalDecision(BaseModel):
+    decision: Literal["accepted", "rejected"]
+    note: str = Field(min_length=40, max_length=2000)
 
 
 class BitAnnotationCreate(BaseModel):
@@ -997,13 +1063,55 @@ def create_app(
             raise HTTPException(status_code=404, detail="capture not found") from exc
 
     @app.get("/api/captures/{capture_id}/audio")
-    def audio(capture_id: str) -> FileResponse:
+    def audio(capture_id: str, request: Request) -> Response:
         try:
             capture = store.capture(capture_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="capture not found") from exc
         path = Path(capture["audio_path"])
-        return FileResponse(path, media_type="audio/wav", filename=f"{capture_id}.wav")
+        file_size = path.stat().st_size
+        range_header = request.headers.get("range")
+        if range_header is None:
+            return FileResponse(
+                path, media_type="audio/wav", filename=f"{capture_id}.wav",
+                headers={"Accept-Ranges": "bytes"},
+            )
+        unit, separator, requested = range_header.partition("=")
+        start_text, dash, end_text = requested.partition("-")
+        invalid = unit.strip().lower() != "bytes" or not separator or not dash or "," in requested
+        try:
+            if invalid or (not start_text and not end_text):
+                raise ValueError("malformed range")
+            if not start_text:
+                suffix_length = int(end_text)
+                if suffix_length <= 0:
+                    raise ValueError("empty suffix range")
+                start = max(0, file_size - suffix_length)
+                end = file_size - 1
+            else:
+                start = int(start_text)
+                end = int(end_text) if end_text else file_size - 1
+                if start < 0 or end < start:
+                    raise ValueError("invalid byte range")
+                end = min(end, file_size - 1)
+            if start >= file_size:
+                raise ValueError("range begins after end of file")
+        except ValueError:
+            return Response(status_code=416, headers={"Content-Range": f"bytes */{file_size}", "Accept-Ranges": "bytes"})
+        length = end - start + 1
+        with path.open("rb") as stream:
+            stream.seek(start)
+            content = stream.read(length)
+        return Response(
+            content=content,
+            status_code=206,
+            media_type="audio/wav",
+            headers={
+                "Accept-Ranges": "bytes",
+                "Content-Range": f"bytes {start}-{end}/{file_size}",
+                "Content-Length": str(len(content)),
+            },
+        )
 
     @app.get("/api/captures/{capture_id}/manifest")
     def synthetic_manifest(capture_id: str) -> FileResponse:
@@ -1381,27 +1489,167 @@ def create_app(
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="capture or region not found") from exc
 
+    @app.get("/api/modes")
+    def search_modes(q: str = Query(min_length=1, max_length=80), limit: int = Query(default=20, ge=1, le=50)) -> dict[str, Any]:
+        return {"registry_version": MODE_REGISTRY_VERSION, "modes": find_modes(q, limit=limit, additional_modes=store.accepted_mode_definitions())}
+
+    @app.get("/api/mode-proposals")
+    def list_mode_proposals() -> list[dict[str, Any]]:
+        return store.mode_proposals()
+
+    @app.post("/api/mode-proposals", status_code=201)
+    def create_mode_proposal(data: ModeProposalCreate) -> dict[str, Any]:
+        try:
+            return store.add_mode_proposal(data.model_dump())
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/mode-proposals/{mode_id}/decision", status_code=201)
+    def decide_mode_proposal(mode_id: str, data: ModeProposalDecision) -> dict[str, Any]:
+        try:
+            return store.decide_mode_proposal(mode_id, decision=data.decision, note=data.note)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="mode proposal not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     @app.post("/api/captures/{capture_id}/regions/{region_id}/labels", status_code=201)
     def revise_region_label(capture_id: str, region_id: str, data: LabelRevisionCreate) -> dict[str, Any]:
         try:
             if not any(region["id"] == region_id for region in store.regions(capture_id)):
                 raise KeyError("region not in this capture")
-            has_label = any((data.family, data.method, data.protocol, data.variant))
+            resolved = resolve_mode_label(data.mode_id, {
+                "family": data.family, "method": data.method,
+                "protocol": data.protocol, "variant": data.variant,
+            }, additional_modes=store.accepted_mode_definitions())
+            has_label = any((resolved["family"], resolved["method"], resolved["protocol"], resolved["variant"]))
             store.revise_label(region_id, SignalLabel(
-                family=data.family, method=data.method, protocol=data.protocol, variant=data.variant,
-                notes=data.notes, source="human" if has_label else "unknown",
+                family=resolved["family"], method=resolved["method"], protocol=resolved["protocol"], variant=resolved["variant"],
+                mode_id=resolved["mode_id"], notes=data.notes,
+                source="human" if has_label else "unknown",
                 review_state="accepted" if has_label else "pending",
-                evidence={"reviewed_from_revision": data.expected_revision},
+                evidence={"reviewed_from_revision": data.expected_revision} | ({"mode_registry_version": resolved["registry_version"]} if resolved["mode_id"] else {}),
             ), expected_revision=data.expected_revision)
             return next(region for region in store.regions(capture_id) if region["id"] == region_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="capture or region not found") from exc
         except LabelRevisionConflict as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/api/captures/{capture_id}/regions/{region_id}/feedback")
+    def region_feedback_history(capture_id: str, region_id: str) -> list[dict[str, Any]]:
+        try:
+            if not any(region["id"] == region_id for region in store.regions(capture_id)):
+                raise KeyError("region not in this capture")
+            return store.feedback_history(region_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="capture or region not found") from exc
+
+    @app.get("/api/captures/{capture_id}/regions/{region_id}/geometry")
+    def region_geometry_history(capture_id: str, region_id: str) -> list[dict[str, Any]]:
+        try:
+            if not any(region["id"] == region_id for region in store.regions(capture_id)):
+                raise KeyError("region not in this capture")
+            return store.geometry_history(region_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="capture or region not found") from exc
+
+    @app.post("/api/captures/{capture_id}/regions/{region_id}/geometry", status_code=201)
+    def revise_region_geometry(capture_id: str, region_id: str, data: GeometryRevisionCreate) -> dict[str, Any]:
+        try:
+            if not any(region["id"] == region_id for region in store.regions(capture_id)):
+                raise KeyError("region not in this capture")
+            revision = store.revise_region_geometry(
+                region_id, expected_revision=data.expected_revision,
+                sample_start=data.sample_start, sample_count=data.sample_count,
+                frequency_low_hz=data.frequency_low_hz, frequency_high_hz=data.frequency_high_hz,
+            )
+            revision["geometry_revision"] = revision.pop("revision")
+            return revision
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="capture or region not found") from exc
+        except LabelRevisionConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/api/captures/{capture_id}/regions/{region_id}/lineage")
+    def region_lineage_history(capture_id: str, region_id: str) -> list[dict[str, Any]]:
+        try:
+            if not any(region["id"] == region_id for region in store.regions(capture_id)):
+                raise KeyError("region not in this capture")
+            return store.region_lineage(region_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="capture or region not found") from exc
+
+    @app.post("/api/captures/{capture_id}/regions/{region_id}/split", status_code=201)
+    def split_region(capture_id: str, region_id: str, data: RegionSplitCreate) -> dict[str, Any]:
+        try:
+            return store.split_region(
+                capture_id, region_id,
+                expected_geometry_revision=data.expected_geometry_revision,
+                children=[{
+                    "sample_start": child.sample_start,
+                    "sample_count": child.sample_count,
+                    "frequency_low_hz": child.frequency_low_hz,
+                    "frequency_high_hz": child.frequency_high_hz,
+                } for child in data.children],
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="capture or region not found") from exc
+        except LabelRevisionConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/captures/{capture_id}/regions/merge", status_code=201)
+    def merge_regions(capture_id: str, data: RegionMergeCreate) -> dict[str, Any]:
+        try:
+            return store.merge_regions(
+                capture_id, source_region_ids=data.source_region_ids,
+                expected_geometry_revisions=data.expected_geometry_revisions,
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="capture or region not found") from exc
+        except LabelRevisionConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/captures/{capture_id}/regions/{region_id}/feedback", status_code=201)
+    def create_region_feedback(capture_id: str, region_id: str, data: AnnotationFeedbackCreate) -> dict[str, Any]:
+        try:
+            if not any(region["id"] == region_id for region in store.regions(capture_id)):
+                raise KeyError("region not in this capture")
+            resolved = resolve_mode_label(data.corrected_mode_id, {
+                "family": data.corrected_family, "method": data.corrected_method,
+                "protocol": data.corrected_protocol, "variant": data.corrected_variant,
+            }, additional_modes=store.accepted_mode_definitions())
+            correction = {key: resolved[key] for key in ("mode_id", "family", "method", "protocol", "variant") if resolved[key] is not None}
+            if resolved["mode_id"]:
+                correction["registry_version"] = resolved["registry_version"]
+            return store.record_feedback(
+                region_id, expected_revision=data.expected_revision, action=data.action,
+                expected_geometry_revision=data.expected_geometry_revision,
+                correction=correction, note=data.note,
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="capture or region not found") from exc
+        except LabelRevisionConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.post("/api/captures/{capture_id}/regions", status_code=201)
     def create_region(capture_id: str, data: RegionCreate) -> dict[str, Any]:
         try:
+            resolved = resolve_mode_label(data.mode_id, {
+                "family": data.family, "method": data.method,
+                "protocol": data.protocol, "variant": data.variant,
+            }, additional_modes=store.accepted_mode_definitions())
+            has_label = any((resolved["family"], resolved["method"], resolved["protocol"], resolved["variant"]))
             region_id = store.add_region(
                 capture_id,
                 sample_start=data.sample_start,
@@ -1409,14 +1657,17 @@ def create_app(
                 frequency_low_hz=data.frequency_low_hz,
                 frequency_high_hz=data.frequency_high_hz,
                 label=SignalLabel(
-                    family=data.family,
-                    method=data.method,
-                    protocol=data.protocol,
-                    variant=data.variant,
-                    source="human" if any((data.family, data.method, data.protocol, data.variant)) else "unknown",
-                    review_state="accepted" if any((data.family, data.method, data.protocol, data.variant)) else "pending",
+                    family=resolved["family"],
+                    method=resolved["method"],
+                    protocol=resolved["protocol"],
+                    variant=resolved["variant"],
+                    mode_id=resolved["mode_id"],
+                    source="human" if has_label else "unknown",
+                    review_state="accepted" if has_label else "pending",
+                    evidence={"mode_registry_version": resolved["registry_version"]} if resolved["mode_id"] else None,
                     notes=data.notes,
                 ),
+                origin=data.origin,
             )
             return next(region for region in store.regions(capture_id) if region["id"] == region_id)
         except KeyError as exc:

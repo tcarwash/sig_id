@@ -31,6 +31,7 @@ let modeChanges = 0;
 let cleanupLive = false;
 let lastCaptureId = null;
 let taggedCaptureId = null;
+let useSavedRunFixture = false;
 // Exercise controls without changing the operator's Fldigi instance.
 await page.route("**/api/fldigi/**", async (route) => {
   const path = new URL(route.request().url()).pathname;
@@ -55,6 +56,16 @@ await page.route("**/api/fldigi/**", async (route) => {
 });
 try {
   await page.goto(process.env.SIGID_UI_URL || "http://127.0.0.1:8011");
+  await page.locator("#show-signals").click();
+  await page.locator('[data-inspector-tab="label"]').click();
+  await page.locator("#mode-search").fill("PSK31");
+  await page.waitForFunction(() => document.querySelector('#mode-results option[value="BPSK31"]') && document.querySelector('#mode-results option[value="QPSK31"]'));
+  await page.locator("#mode-search").evaluate((input) => {
+    input.value = "BPSK31";
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await page.waitForFunction(() => document.getElementById("variant").value === "BPSK31");
+  assert.deepEqual(await Promise.all(["family", "method", "protocol", "variant"].map((id) => page.locator(`#${id}`).inputValue())), ["PSK", "BPSK", "PSK31", "BPSK31"]);
   const outputDock = page.locator("#output-dock");
   const initialDockHeight = await outputDock.evaluate((dock) => dock.getBoundingClientRect().height);
   const resizeHandle = await page.locator("#output-resize").boundingBox();
@@ -225,22 +236,31 @@ try {
   });
   await page.route("**/api/captures/*/decode-runs", async (route) => {
     const captureId = new URL(route.request().url()).pathname.split("/")[3];
-    await route.fulfill({ json: [{
+    const run = useSavedRunFixture ? {
+      id: "saved-run-01", capture_id: captureId, track_id: "synthetic:track-1",
+      sample_start: 1200, sample_count: 4800, sample_rate: 12000,
+      current_mode: "RTTY", status: "tentative_output", note: "Review this shared-input output.",
+      output_text: "TEST SAVED TRACK RUN", output_scope: "shared_live_input",
+      association: "track_window_tentative",
+    } : {
       id: "region-run-01", capture_id: captureId, track_id: "saved-region",
       sample_start: 1, sample_count: 100, sample_rate: 12000,
       current_mode: "RTTY", status: "completed", note: "Isolated replay finished.",
       output_text: "REGION DECODED", output_scope: "isolated_region_replay",
       association: "exact_capture_window", carrier_hz: 1808,
-    }] });
+    };
+    await route.fulfill({ json: [run] });
   });
   assert.equal(await page.locator("#decode-selection").textContent(), "Decode selected region");
   const carrierInput = page.locator("#fldigi-carrier-hz");
   assert.ok(Number(await carrierInput.inputValue()) > 0, "the selected band center initializes the audio carrier field");
   await carrierInput.fill("1808");
+  const expectedPlaybackStart = labels[0].sample_start / 12000;
   await page.locator("#play-selection").click();
   await page.waitForFunction(() => document.getElementById("audio-region-status").textContent.startsWith("Playing selected audio"));
+  await page.waitForFunction((expectedStart) => document.getElementById("audio-player").currentTime >= expectedStart, expectedPlaybackStart, { timeout: 3000 });
   const playedStart = await page.locator("#audio-player").evaluate((audio) => audio.currentTime);
-  assert.ok(playedStart > 0, "selected-region replay seeks to the selected start time");
+  assert.ok(playedStart >= expectedPlaybackStart, "selected-region replay seeks to its sample-indexed start");
   await page.locator("#play-selection").click();
   assert.equal(await page.locator("#play-selection").textContent(), "Replay selected region");
   assert.match(await page.locator("#audio-region-status").textContent(), /stopped/i);
@@ -289,18 +309,12 @@ try {
     await page.locator("#qpsk-output").textContent(),
     "Select a saved capture or region to analyze.",
   );
-  await page.route("**/api/captures/*/decode-runs", async route => {
-    const captureId=new URL(route.request().url()).pathname.split("/")[3];
-    await route.fulfill({json:[{
-      id:"saved-run-01", capture_id:captureId, track_id:"synthetic:track-1",
-      sample_start:1200, sample_count:4800, sample_rate:12000,
-      current_mode:"RTTY", status:"tentative_output", note:"Review this shared-input output.",
-      output_text:"TEST SAVED TRACK RUN", output_scope:"shared_live_input",
-      association:"track_window_tentative"
-    }]});
-  });
+  useSavedRunFixture = true;
   await page.locator("#show-library").click();
-  await page.locator("#capture-list .capture-row button").first().click();
+  await page.locator("#capture-list .capture-row").filter({ hasText: "qpsk.wav" }).first().getByRole("button", { name: "Open" }).click();
+  await page.locator("#library-dialog").waitFor({state:"hidden"});
+  await page.locator("#show-library").click();
+  await page.locator("#capture-list .capture-row").filter({ hasText: "2fsk.wav" }).first().getByRole("button", { name: "Open" }).click();
   await page.locator("#library-dialog").waitFor({state:"hidden"});
   await page.locator("#show-signals").click();
   await page.locator('[data-inspector-tab="decode"]').click();
@@ -308,6 +322,98 @@ try {
   await page.locator("#decode-runs .decode-run").click();
   assert.match(await page.locator("#decoded-text").textContent(), /TEST SAVED TRACK RUN/);
   assert.match(await page.locator("#output-context").textContent(), /shared_live_input/);
+  const proposalResponse = await page.request.post(
+    new URL(`/api/captures/${taggedCaptureId}/regions`, page.url()).href,
+    { data: { sample_start: 2000, sample_count: 2000, frequency_low_hz: 800, frequency_high_hz: 1400, mode_id: "bpsk31", origin: "detector_proposal" } },
+  );
+  assert.equal(proposalResponse.status(), 201);
+  const proposal = await proposalResponse.json();
+  await page.locator("#show-library").click();
+  await page.locator("#capture-list .capture-row").filter({ hasText: "2fsk.wav" }).first().getByRole("button", { name: "Open" }).click();
+  await page.locator("#library-dialog").waitFor({ state: "hidden" });
+  await page.locator("#show-signals").click();
+  await page.locator(".region-shortcut").filter({ hasText: "BPSK31" }).click();
+  assert.ok(await page.locator("#feedback-panel").isVisible());
+  await page.locator("#mode-search").fill("RTTY");
+  await page.waitForFunction(() => document.querySelector('#mode-results option[value="RTTY"]'));
+  await page.locator("#mode-search").evaluate((input) => {
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  assert.match(await page.locator("#mode-resolution").textContent(), /RTTY.*FSK.*2-FSK/);
+  await page.locator("#feedback-wrong").click();
+  await page.waitForFunction(() => document.getElementById("feedback-status").textContent.includes("incorrect identity recorded"));
+  assert.equal((await (await page.request.get(new URL(`/api/captures/${taggedCaptureId}/regions`, page.url()).href)).json()).find((region) => region.id === proposal.id).variant, "RTTY");
+  await page.locator("#edit-region-bounds").click();
+  const geometryBox = await page.locator("#overlay").boundingBox();
+  await page.mouse.move(geometryBox.x + geometryBox.width * 0.35, geometryBox.y + geometryBox.height * 0.3);
+  await page.mouse.down();
+  await page.mouse.move(geometryBox.x + geometryBox.width * 0.55, geometryBox.y + geometryBox.height * 0.55, { steps: 4 });
+  await page.mouse.up();
+  await page.locator("#save-region-bounds").click();
+  await page.waitForFunction(() => document.getElementById("geometry-status").textContent.includes("geometry revision 2"));
+  const geometryHistory = await (await page.request.get(new URL(`/api/captures/${taggedCaptureId}/regions/${proposal.id}/geometry`, page.url()).href)).json();
+  assert.equal(geometryHistory.length, 2);
+  assert.notEqual(geometryHistory[0].sample_start, geometryHistory[1].sample_start);
+  const captureInfo = await (await page.request.get(new URL(`/api/captures/${taggedCaptureId}`, page.url()).href)).json();
+  const splitParentResponse = await page.request.post(
+    new URL(`/api/captures/${taggedCaptureId}/regions`, page.url()).href,
+    { data: { sample_start: 0, sample_count: captureInfo.sample_count, frequency_low_hz: 100, frequency_high_hz: 2900, mode_id: "bpsk31", origin: "detector_proposal" } },
+  );
+  assert.equal(splitParentResponse.status(), 201);
+  const splitParent = await splitParentResponse.json();
+  await page.locator("#show-library").click();
+  await page.locator(`[data-capture-id="${taggedCaptureId}"] button`).click();
+  await page.locator("#library-dialog").waitFor({ state: "hidden" });
+  await page.locator("#show-library").click();
+  await page.locator(`#region-list [data-region-id="${splitParent.id}"] button`).click();
+  await page.locator("#library-dialog").waitFor({ state: "hidden" });
+  await page.locator("#start-split").click();
+  const splitBox = await page.locator("#overlay").boundingBox();
+  for (const [x0, x1, y0, y1] of [[0.20, 0.32, 0.40, 0.47], [0.62, 0.75, 0.55, 0.62]]) {
+    await page.mouse.move(splitBox.x + splitBox.width * x0, splitBox.y + splitBox.height * y0);
+    await page.mouse.down();
+    await page.mouse.move(splitBox.x + splitBox.width * x1, splitBox.y + splitBox.height * y1, { steps: 4 });
+    await page.mouse.up();
+  }
+  await page.locator("#save-split").click();
+  await page.waitForFunction(() => document.getElementById("split-status").textContent.includes("Split recorded"));
+  const lineage = await (await page.request.get(new URL(`/api/captures/${taggedCaptureId}/regions/${splitParent.id}/lineage`, page.url()).href)).json();
+  const splitChildren = lineage[0].result_region_ids;
+  const afterSplit = await (await page.request.get(new URL(`/api/captures/${taggedCaptureId}/regions`, page.url()).href)).json();
+  assert.equal(afterSplit.find((region) => region.id === splitParent.id).lineage_state, "superseded");
+  await page.locator("#show-library").click();
+  for (const childId of splitChildren) await page.locator(`[data-region-merge-id="${childId}"]`).check();
+  await page.locator('#library-dialog [data-close-dialog]').click();
+  await page.locator("#merge-regions").click();
+  await page.waitForFunction(() => document.getElementById("merge-status").textContent.includes("Merge recorded"));
+  const capturesForRegistry = await (await page.request.get(new URL("/api/captures", page.url()).href)).json();
+  const independentCapture = capturesForRegistry.find((capture) => capture.id !== taggedCaptureId && capture.sha256 !== captureInfo.sha256);
+  assert.ok(independentCapture, "mode proposals need a second independent audio recording");
+  await page.request.post(new URL(`/api/captures/${independentCapture.id}/regions`, page.url()).href, {
+    data: { sample_start: 0, sample_count: Math.min(2000, independentCapture.sample_count) },
+  });
+  await page.locator("#mode-proposal-details > summary").click();
+  await page.locator("#mode-proposal-capture-2").selectOption(independentCapture.id);
+  await page.waitForFunction(() => document.querySelectorAll("#mode-proposal-region-2 option").length > 1);
+  await page.locator("#mode-proposal-region-2").selectOption({ index: 1 });
+  for (const [id, value] of [
+    ["mode-proposal-id", "smoke-custom-multitone"], ["mode-proposal-name", "Smoke Custom Multitone"],
+    ["mode-proposal-family", "MFSK"], ["mode-proposal-method", "multi-tone FSK"],
+    ["mode-proposal-protocol", "Smoke Protocol"], ["mode-proposal-variant", "X1"],
+    ["mode-proposal-aliases", "SCM1, smoke multitone"],
+  ]) await page.locator(`#${id}`).fill(value);
+  await page.locator("#mode-proposal-rationale").fill("This is a repeatable user-observed mode with a stable waveform and independently collected evidence from two different audio recordings for initial local registry review.");
+  await page.locator("#mode-proposal-distinguishing").fill("Its observed multi-tone spacing and transition sequence distinguish it from the existing supported MFSK catalog entries in both attached independent source recordings.");
+  await page.locator("#mode-proposal-observations-1").fill("The selected source has regular multi-tone transitions over this exact sample range; these are not explained by the neighboring known modes.");
+  await page.locator("#mode-proposal-observations-2").fill("The independent recording reproduces the tone spacing and cadence while using a different source waveform hash and capture lineage.");
+  await page.locator("#mode-proposal-form button[type=submit]").click();
+  await page.waitForFunction(() => document.getElementById("mode-proposal-status").textContent.includes("pending proposal"));
+  await page.locator("#mode-proposal-review-note").fill("Reviewed the two independent source regions and the stated distinguishing tone evidence; local confirmation only, pending independent community review.");
+  const proposalCard = page.locator("#mode-proposal-list article").filter({ hasText: "Smoke Custom Multitone" });
+  await proposalCard.getByRole("button", { name: "Accept locally" }).click();
+  await page.waitForFunction(() => document.getElementById("mode-proposal-status").textContent.includes("not peer verification"));
+  const customSearch = await (await page.request.get(new URL("/api/modes?q=SCM1", page.url()).href)).json();
+  assert.equal(customSearch.modes[0].id, "smoke-custom-multitone");
   if (process.env.SIGID_UI_LIVE === "1") {
     const devices = await (
       await page.request.get(

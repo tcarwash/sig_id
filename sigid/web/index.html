@@ -113,6 +113,40 @@
                 <p id="selection-details" class="subhead">
                   Drag over the waterfall to mark a signal.
                 </p>
+                <label class="notes-label">Known mode (search by name or alias)<input id="mode-search" list="mode-results" autocomplete="off" placeholder="Type e.g. PSK31, BPSK31, RTTY"><datalist id="mode-results"></datalist></label>
+                <p id="mode-resolution" class="subhead">Choose a known mode to fill its family and protocol, or leave blank for an unknown/partial label.</p>
+                <details id="mode-proposal-details">
+                  <summary>Propose a new mode for the registry</summary>
+                  <p class="subhead">A proposal stays out of mode search until locally reviewed. Attach two independent recordings and specific distinguishing evidence; local acceptance is not peer verification.</p>
+                  <p id="mode-proposal-source-one" class="muted">Select a saved region first to attach it as the first evidence source.</p>
+                  <form id="mode-proposal-form">
+                    <div class="form-grid">
+                      <label>Canonical ID<input id="mode-proposal-id" required pattern="[a-z0-9]+(-[a-z0-9]+)*" placeholder="example-mode-1"></label>
+                      <label>Display name<input id="mode-proposal-name" required maxlength="120"></label>
+                      <label>Family<input id="mode-proposal-family" required maxlength="120"></label>
+                      <label>Method<input id="mode-proposal-method" required maxlength="120"></label>
+                      <label>Protocol<input id="mode-proposal-protocol" required maxlength="120"></label>
+                      <label>Variant<input id="mode-proposal-variant" required maxlength="120"></label>
+                    </div>
+                    <label class="notes-label">Aliases (comma-separated)<input id="mode-proposal-aliases" required placeholder="short name, common spelling"></label>
+                    <label class="notes-label">What signal/protocol is this and how was it identified?<textarea id="mode-proposal-rationale" minlength="80" maxlength="5000" rows="3" required></textarea></label>
+                    <label class="notes-label">What distinguishes it from the nearest existing modes?<textarea id="mode-proposal-distinguishing" minlength="80" maxlength="5000" rows="3" required></textarea></label>
+                    <fieldset class="form-grid"><legend>Evidence source 1 · selected saved region</legend>
+                      <label>Evidence type<select id="mode-proposal-type-1"><option value="on_air">On-air capture</option><option value="controlled_fixture">Controlled fixture</option><option value="independent_decoder">Independent decoder</option></select></label>
+                      <label class="notes-label">Observations<textarea id="mode-proposal-observations-1" minlength="40" maxlength="2000" rows="2" required></textarea></label>
+                    </fieldset>
+                    <fieldset class="form-grid"><legend>Evidence source 2 · different recording</legend>
+                      <label>Recording<select id="mode-proposal-capture-2" required><option value="">Choose a recording</option></select></label>
+                      <label>Saved region<select id="mode-proposal-region-2" required><option value="">Choose a region</option></select></label>
+                      <label>Evidence type<select id="mode-proposal-type-2"><option value="on_air">On-air capture</option><option value="controlled_fixture">Controlled fixture</option><option value="independent_decoder">Independent decoder</option></select></label>
+                      <label class="notes-label">Observations<textarea id="mode-proposal-observations-2" minlength="40" maxlength="2000" rows="2" required></textarea></label>
+                    </fieldset>
+                    <button id="mode-proposal-submit" class="primary" type="submit" disabled>Submit evidence-backed proposal</button>
+                  </form>
+                  <p id="mode-proposal-status" class="muted" aria-live="polite"></p>
+                  <label class="notes-label">Local review rationale<textarea id="mode-proposal-review-note" minlength="40" maxlength="2000" rows="2" placeholder="Required to accept/reject a proposal; this decision is local, not peer review."></textarea></label>
+                  <div id="mode-proposal-list"></div>
+                </details>
                 <div class="form-grid">
                   <label
                     >Modulation family<input
@@ -133,6 +167,7 @@
                     >Variant<input id="variant" placeholder="e.g. THOR16"
                   /></label>
                 </div>
+                <label class="demod-check"><input id="missed-signal" type="checkbox"> I added this signal because the detector missed it</label>
                 <label class="notes-label"
                   >Notes<textarea
                     id="notes"
@@ -158,6 +193,45 @@
                     Save region label
                   </button>
                 </div>
+                <section id="bounds-panel" class="panel" hidden>
+                  <p class="eyebrow">SIGNAL EXTENT</p>
+                  <div class="save-row">
+                    <button id="edit-region-bounds" type="button">Adjust bounds</button>
+                    <button id="save-region-bounds" class="primary" type="button" hidden>Save corrected bounds</button>
+                    <button id="cancel-region-bounds" type="button" hidden>Discard bounds edit</button>
+                  </div>
+                  <p id="geometry-status" class="muted" aria-live="polite"></p>
+                  <div class="save-row">
+                    <button id="start-split" type="button">Split into separate signals</button>
+                    <button id="save-split" class="primary" type="button" hidden disabled>Save split</button>
+                    <button id="cancel-split" type="button" hidden>Cancel split</button>
+                  </div>
+                  <p id="split-status" class="muted" aria-live="polite"></p>
+                  <details id="geometry-history">
+                    <summary>Bounds history</summary>
+                    <div id="geometry-history-list"></div>
+                  </details>
+                  <details id="lineage-history">
+                    <summary>Split/merge history</summary>
+                    <div id="lineage-history-list"></div>
+                  </details>
+                </section>
+                <section id="merge-panel" class="panel">
+                  <p class="eyebrow">REGION LINEAGE</p>
+                  <p class="subhead">Select two or more active regions in the signal list to link them as one merged observation. Their labels are retained separately; the new region starts unknown.</p>
+                  <button id="merge-regions" type="button" disabled>Merge selected regions</button>
+                  <p id="merge-status" class="muted" aria-live="polite"></p>
+                </section>
+                <section id="feedback-panel" class="panel" hidden>
+                  <p class="eyebrow">DETECTION FEEDBACK</p>
+                  <p class="subhead">Feedback applies to this exact label revision. Identity corrections create a new revision.</p>
+                  <div class="save-row">
+                    <button id="feedback-correct" type="button">Yes, correct</button>
+                    <button id="feedback-wrong" type="button">Wrong identity</button>
+                    <button id="feedback-not-signal" type="button">Not a signal</button>
+                  </div>
+                  <p id="feedback-status" class="muted" aria-live="polite"></p>
+                </section>
               </section>
             </div>
             <div data-inspector-view="decode" hidden>
