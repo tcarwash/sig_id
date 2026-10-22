@@ -32,7 +32,7 @@ capture/label dataset; and a receive-only Fldigi XML-RPC probe. Local device cap
 and the Fldigi path from audio input to recovered text are represented in the
 workbench: when a running Fldigi XML-RPC service is available, users can select a
 catalog mode and view its receive-text output. RF-free loopback tests decode BPSK31,
-BPSK63/125/250, QPSK31/63/125/250/500, 8PSK125/250/500, RTTY, THOR8, THOR16, MFSK16, MFSK32,
+BPSK63/125/250/500/1000, QPSK31/63/125/250/500, 8PSK125/250/500, RTTY, THOR8, THOR16, MFSK16, MFSK32,
 MT63-500S and MT63-1KS payloads through
 temporary virtual audio into the workbench API and isolated saved-region replay.
 Routing actual radio input
@@ -115,7 +115,7 @@ sig-id-serve
 Local audio capture also needs the platform PortAudio runtime (`libportaudio2` on
 Debian/Ubuntu). Select the radio input in Settings before starting live capture.
 
-The opt-in, RF-free Fldigi audio loopback tests exercise BPSK31/63/125/250, QPSK31/63/125/250/500,
+The opt-in, RF-free Fldigi audio loopback tests exercise BPSK31/63/125/250/500/1000, QPSK31/63/125/250/500,
 8PSK125/250/500, RTTY, THOR8, THOR16, MFSK16, MFSK32, MT63-500S and MT63-1KS using isolated profiles and a temporary
 PulseAudio/PipeWire null sink.
 They require a configured `~/.fldigi`, `xvfb-run`, and `pactl`:
@@ -126,7 +126,7 @@ SIGID_TEST_FLDIGI_AUDIO=1 pytest tests/test_fldigi_audio_integration.py
 
 The saved-region replay worker has a separate end-to-end check. It captures a known
 transmission from a temporary null sink, then decodes that WAV through the same
-isolated replay path used by the inspector. BPSK31/63/125/250, QPSK31/63/125/250/500,
+isolated replay path used by the inspector. BPSK31/63/125/250/500/1000, QPSK31/63/125/250/500,
 8PSK125/250/500, RTTY, THOR8, THOR16, MFSK16, MFSK32, MT63-500S and MT63-1KS are covered:
 
 ```sh

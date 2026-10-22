@@ -20,7 +20,7 @@ test("QPSK shortlist exposes the validated mode without implying complete catalo
   );
   assert.deepEqual(
     narrowKnownModes({ modulation: "BPSK" }).map((candidate) => candidate.mode),
-    ["BPSK31", "BPSK63", "BPSK125", "BPSK250"],
+    ["BPSK31", "BPSK63", "BPSK125", "BPSK250", "BPSK500", "BPSK1000"],
   );
-  assert.equal(REVIEWED_MODE_CANDIDATES.length, 19);
+  assert.equal(REVIEWED_MODE_CANDIDATES.length, 21);
 });
