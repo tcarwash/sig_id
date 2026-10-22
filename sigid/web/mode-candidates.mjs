@@ -10,6 +10,7 @@ export const REVIEWED_MODE_CANDIDATES = Object.freeze([
   { mode: "QPSK500", modulation: "QPSK", evidence: "Fldigi loopback validated" },
   { mode: "8PSK125", modulation: "8PSK", evidence: "Fldigi loopback validated" },
   { mode: "8PSK250", modulation: "8PSK", evidence: "Fldigi loopback validated" },
+  { mode: "8PSK500", modulation: "8PSK", evidence: "Fldigi loopback validated" },
   { mode: "RTTY", modulation: "2-FSK", evidence: "Fldigi loopback validated" },
   { mode: "THOR8", modulation: "MFSK", evidence: "Fldigi loopback validated" },
   { mode: "THOR16", modulation: "MFSK", evidence: "Fldigi loopback validated" },

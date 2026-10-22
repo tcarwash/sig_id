@@ -137,7 +137,7 @@ def _stop_process(process: subprocess.Popen[bytes]) -> None:
 @pytest.mark.parametrize(
     "mode",
     ["BPSK31", "BPSK63", "QPSK31", "QPSK63", "QPSK125", "QPSK250", "QPSK500",
-     "8PSK125", "8PSK250", "RTTY", "THOR8", "THOR16", "MFSK16", "MFSK32",
+     "8PSK125", "8PSK250", "8PSK500", "RTTY", "THOR8", "THOR16", "MFSK16", "MFSK32",
      "MT63-500S", "MT63-1KS"],
 )
 @pytest.mark.skipif(
@@ -227,7 +227,7 @@ def test_fldigi_payload_reaches_workbench_api_through_virtual_audio(tmp_path, mo
 @pytest.mark.parametrize(
     "mode",
     ["BPSK31", "BPSK63", "QPSK31", "QPSK63", "QPSK125", "QPSK250", "QPSK500",
-     "8PSK125", "8PSK250", "RTTY", "THOR8", "THOR16", "MFSK16", "MFSK32",
+     "8PSK125", "8PSK250", "8PSK500", "RTTY", "THOR8", "THOR16", "MFSK16", "MFSK32",
      "MT63-500S", "MT63-1KS"],
 )
 def test_isolated_region_replay_decodes_a_known_fldigi_transmission(tmp_path, mode):

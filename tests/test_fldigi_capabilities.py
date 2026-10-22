@@ -20,12 +20,12 @@ def test_reference_registry_covers_catalog_without_overclaiming_decode_support()
 
     assert report["catalog_count"] == 169 == len(modes)
     assert report["selectable_count"] == 165
-    assert report["decode_validated_count"] == 16
+    assert report["decode_validated_count"] == 17
     assert all(mode["catalog_present"] for mode in modes.values())
     assert {name for name, mode in modes.items() if mode["decode_validated"]} == {
         "BPSK31", "BPSK63", "RTTY", "THOR8", "THOR16", "MFSK16",
         "MFSK32", "MT63-500S", "MT63-1KS", "QPSK31", "QPSK63",
-        "QPSK125", "QPSK250", "QPSK500", "8PSK125", "8PSK250",
+        "QPSK125", "QPSK250", "QPSK500", "8PSK125", "8PSK250", "8PSK500",
     }
     for name, mode in modes.items():
         assert mode["output_handled"] == mode["decode_validated"]
@@ -43,7 +43,7 @@ def test_reference_registry_covers_catalog_without_overclaiming_decode_support()
     validated_modes = (
         "BPSK31", "BPSK63", "RTTY", "THOR8", "THOR16", "MFSK16", "MFSK32",
         "MT63-500S", "MT63-1KS", "QPSK31", "QPSK63", "QPSK125", "QPSK250",
-        "QPSK500", "8PSK125", "8PSK250",
+        "QPSK500", "8PSK125", "8PSK250", "8PSK500",
     )
     for name in validated_modes:
         assert len(modes[name]["evidence_tests"]) == 2
