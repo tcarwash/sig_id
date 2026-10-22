@@ -45,8 +45,10 @@ trying up to three tested modes. Recovered text stays tentative until reviewed. 
 inspector, a selected live track can also be replayed in one chosen mode from its exact
 sample window in the bounded live buffer; stale windows are rejected and output is
 attached to the live session, then linked to the saved capture when recording stops.
-Saved recordings let you select a region and replay it through the same
-temporary PulseAudio/PipeWire loopback. The selected mode's output is stored with the exact
+Saved recordings let you play the selected time range in the browser with “Replay
+selected region.” “Decode selected region” sends that same exact sample window to an
+isolated Fldigi instance through a temporary PulseAudio/PipeWire loopback; the running
+Fldigi receiver is left alone. The selected mode's output is stored with the exact
 capture window. “Tag region as selected mode” saves a human-reviewed label as a
 separate explicit action. This native-host feature requires Fldigi, its configured
 profile, `xvfb-run`, `pactl`, and `paplay`; it does not change the running receiver or

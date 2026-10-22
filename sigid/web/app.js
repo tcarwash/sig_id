@@ -17,6 +17,7 @@ let fldigiPoll = null;
 let fldigiOffset = null;
 let watchedTrialTrack = null;
 let isolatedTrialActive = false;
+let selectedAudioPlayback = null;
 
 const DEMOD_EXPORT_BUTTONS = {
   "2fsk": "demod-export-2fsk",
@@ -326,6 +327,77 @@ async function startDecoderTrial(track) {
   } catch (error) { showError(error.message); }
 }
 
+function stopSelectedAudioPlayback(status = "Selected-region playback stopped.") {
+  if (!selectedAudioPlayback) return;
+  selectedAudioPlayback = null;
+  const audio = el("audio-player");
+  audio.pause();
+  el("play-selection").textContent = "Replay selected region";
+  el("play-selection").setAttribute("aria-pressed", "false");
+  if (status) el("audio-region-status").textContent = status;
+  updateDecoderSelectionControls();
+}
+
+el("play-selection").addEventListener("click", async () => {
+  if (selectedAudioPlayback) {
+    stopSelectedAudioPlayback();
+    return;
+  }
+  const selection = state.selection;
+  const capture = state.capture;
+  if (!capture || state.liveView || !selection || !state.waterfall) return;
+  const sampleRate = capture.sample_rate;
+  const startSeconds = selection.sample_start / sampleRate;
+  const requestedEndSeconds = (selection.sample_start + selection.sample_count) / sampleRate;
+  const playback = { captureId: capture.id, selection, startSeconds, requestedEndSeconds, endSeconds: null, started: false };
+  selectedAudioPlayback = playback;
+  el("play-selection").textContent = "Stop region playback";
+  el("play-selection").setAttribute("aria-pressed", "true");
+  updateDecoderSelectionControls();
+  const audio = el("audio-player");
+  el("audio-region-status").textContent = `Loading selected audio · ${startSeconds.toFixed(2)}–${requestedEndSeconds.toFixed(2)} s`;
+  const fail = (message) => {
+    if (selectedAudioPlayback === playback) stopSelectedAudioPlayback(message);
+  };
+  const begin = async () => {
+    if (selectedAudioPlayback !== playback || state.capture?.id !== playback.captureId || state.selection !== playback.selection) return;
+    const endSeconds = Math.min(playback.requestedEndSeconds, audio.duration);
+    if (!Number.isFinite(audio.duration) || endSeconds <= playback.startSeconds) {
+      fail("The selected audio range is outside this recording.");
+      return;
+    }
+    playback.endSeconds = endSeconds;
+    playback.started = true;
+    audio.currentTime = playback.startSeconds;
+    try {
+      await audio.play();
+      if (selectedAudioPlayback === playback) el("audio-region-status").textContent = `Playing selected audio · ${playback.startSeconds.toFixed(2)}–${endSeconds.toFixed(2)} s`;
+    } catch (error) {
+      fail(`Audio playback could not start · ${error.message}`);
+    }
+  };
+  if (audio.readyState >= 1 && Number.isFinite(audio.duration)) await begin();
+  else {
+    audio.addEventListener("loadedmetadata", begin, { once: true });
+    audio.addEventListener("error", () => fail("The recording audio could not be loaded."), { once: true });
+    audio.load();
+  }
+});
+
+el("audio-player").addEventListener("timeupdate", () => {
+  if (selectedAudioPlayback?.started && el("audio-player").currentTime >= selectedAudioPlayback.endSeconds) {
+    stopSelectedAudioPlayback("Selected-region playback finished.");
+  }
+});
+el("audio-player").addEventListener("ended", () => {
+  if (selectedAudioPlayback) stopSelectedAudioPlayback("Selected-region playback finished.");
+});
+el("audio-player").addEventListener("pause", () => {
+  if (selectedAudioPlayback?.started && el("audio-player").currentTime < selectedAudioPlayback.endSeconds) {
+    stopSelectedAudioPlayback();
+  }
+});
+
 el("decode-selection").addEventListener("click", async () => {
   const selection = state.selection;
   const captureId = state.capture?.id;
@@ -334,7 +406,7 @@ el("decode-selection").addEventListener("click", async () => {
   if (!selection || (!captureId && !liveSessionId) || !mode) return;
   const button = el("decode-selection");
   button.disabled = true;
-  el("replay-status").textContent = `Queuing ${mode} replay for ${(selection.sample_start / state.waterfall.sample_rate).toFixed(2)}–${((selection.sample_start + selection.sample_count) / state.waterfall.sample_rate).toFixed(2)} s…`;
+  el("replay-status").textContent = `Queuing ${mode} decode for ${(selection.sample_start / state.waterfall.sample_rate).toFixed(2)}–${((selection.sample_start + selection.sample_count) / state.waterfall.sample_rate).toFixed(2)} s…`;
   try {
     const endpoint = liveSessionId
       ? `/api/live/sessions/${encodeURIComponent(liveSessionId)}/decode`
@@ -350,11 +422,11 @@ el("decode-selection").addEventListener("click", async () => {
           ? (selection.frequency_low_hz + selection.frequency_high_hz) / 2 : null,
       }),
     });
-    el("replay-status").textContent = `Replay ${result.status} · ${mode} · isolated ${liveSessionId ? "live track" : "region"} input`;
+    el("replay-status").textContent = `Decode ${result.status} · ${mode} · isolated ${liveSessionId ? "live track" : "selected region"} input`;
     if (liveSessionId) pollLiveDecodeRun(liveSessionId, result.run_id);
     else pollSavedDecodeRun(captureId, result.run_id);
   } catch (error) {
-    el("replay-status").textContent = `Replay could not start · ${error.message}`;
+    el("replay-status").textContent = `Decode could not start · ${error.message}`;
   } finally {
     updateDecoderSelectionControls();
   }
@@ -389,12 +461,12 @@ async function pollLiveDecodeRun(sessionId, runId) {
         return;
       }
     } catch (error) {
-      el("replay-status").textContent = `Replay status unavailable · ${error.message}`;
+      el("replay-status").textContent = `Decode status unavailable · ${error.message}`;
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
-  el("replay-status").textContent = "Replay is still running. Stop and reopen the capture later to review its saved result.";
+  el("replay-status").textContent = "Decode is still running. Stop and reopen the capture later to review its saved result.";
 }
 
 async function pollSavedDecodeRun(captureId, runId) {
@@ -418,12 +490,12 @@ async function pollSavedDecodeRun(captureId, runId) {
         return;
       }
     } catch (error) {
-      el("replay-status").textContent = `Replay status unavailable · ${error.message}`;
+      el("replay-status").textContent = `Decode status unavailable · ${error.message}`;
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
-  el("replay-status").textContent = "Replay is still running. Reopen this capture later to review its saved result.";
+  el("replay-status").textContent = "Decode is still running. Reopen this capture later to review its saved result.";
 }
 
 el("tag-as-mode").addEventListener("click", () => {
@@ -536,6 +608,7 @@ async function refreshAudioDevices() {
 }
 
 el("live-start").addEventListener("click", async () => {
+  stopSelectedAudioPlayback(null);
   clearError();
   try {
     const device = el("audio-device").value;
@@ -746,6 +819,7 @@ el("synthetic-form").addEventListener("submit", async (event) => {
 });
 
 async function loadCapture() {
+  stopSelectedAudioPlayback();
   const generation = state.captureGeneration = (state.captureGeneration || 0) + 1;
   clearDemodExports();
   state.liveView = false;
@@ -1020,6 +1094,7 @@ function drawOverlays() {
 }
 
 function selectTrack(track) {
+  stopSelectedAudioPlayback(null);
   const data = state.waterfall;
   if (!data) return;
   if (!state.view) resetWaterfallView(false);
@@ -1133,6 +1208,7 @@ function canvasPoint(event) {
 
 overlayCanvas.addEventListener("pointerdown", (event) => {
   if (!state.waterfall) return;
+  stopSelectedAudioPlayback(null);
   overlayCanvas.setPointerCapture(event.pointerId);
   const point = canvasPoint(event);
   state.drag = { ...point, x2: point.x, y2: point.y };
@@ -1547,7 +1623,11 @@ function updateDecoderSelectionControls() {
   const validMode = Boolean(el("fldigi-mode")?.value && !el("fldigi-mode").disabled);
   if (el("decode-selection")) {
     el("decode-selection").disabled = !(validSavedSelection || validLiveSelection) || !validMode;
-    el("decode-selection").textContent = validLiveSelection ? "Decode live track window" : "Replay selected region";
+    el("decode-selection").textContent = validLiveSelection ? "Decode live track window" : "Decode selected region";
+  }
+  if (el("play-selection")) {
+    el("play-selection").disabled = !selectedAudioPlayback && !validSavedSelection;
+    if (!selectedAudioPlayback) el("play-selection").textContent = "Replay selected region";
   }
   if (el("tag-as-mode")) el("tag-as-mode").disabled = !validSavedSelection || !validMode;
 }
@@ -1690,6 +1770,7 @@ function renderSignalLabels() {
   }
 }
 function selectSavedRegion(region) {
+  stopSelectedAudioPlayback(null);
   const data = state.waterfall;
   if (!data) return;
   clearError();

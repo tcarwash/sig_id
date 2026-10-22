@@ -176,15 +176,17 @@
                   Select receive mode
                 </button>
                 <div class="decode-actions">
-                  <button id="decode-selection" type="button" disabled>Replay selected region</button>
+                  <button id="play-selection" type="button" disabled>Replay selected region</button>
+                  <button id="decode-selection" type="button" disabled>Decode selected region</button>
                   <button id="tag-as-mode" type="button" disabled>Tag region as selected mode</button>
                 </div>
-                <p id="replay-status" class="subhead">Select a saved-capture region to replay it through an isolated Fldigi instance.</p>
+                <p id="audio-region-status" class="subhead">Replay plays the selected time window through this browser's audio output.</p>
+                <p id="replay-status" class="subhead">Decode sends the selected audio window through an isolated Fldigi receiver.</p>
 
                 <div class="decoder-evidence">
                   <span class="status-dot amber"></span
                   ><span
-                    >Replay uses a temporary PulseAudio/PipeWire loopback and isolated Fldigi profile. It does not change the running receiver or transmit.</span
+                    >Decode uses a temporary PulseAudio/PipeWire loopback and isolated Fldigi profile. It does not change the running receiver or transmit.</span
                   >
                 </div>
                 <h3>Saved receive runs</h3>

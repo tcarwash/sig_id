@@ -75,6 +75,10 @@ is resizable by pointer or keyboard, remembers its height, and stays within the 
   saves the selected mode as the region variant. RF-free tests verify known-message
   round-trips in BPSK31/BPSK63, QPSK31/63/125/250/500, 8PSK125/250, RTTY, THOR8/16,
   MFSK16/32 and MT63-500S/1KS. Longer test captures are used for interleaved THOR and MT63.
+- The capture inspector now separates browser audio playback (“Replay selected region”)
+  from isolated Fldigi decoding (“Decode selected region”). Playback seeks to and stops
+  at the selected sample interval; decode retains its mode choice and persisted run.
+  Headless-browser checks cover saved and live selection affordances.
 - A reproducible Fldigi 4.2.13 capability registry covers all 169 audited catalog
   entries. It distinguishes 165 selection successes from the sixteen modes with
   known-message audio and isolated-region round-trip evidence; other selectable modes

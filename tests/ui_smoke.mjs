@@ -215,6 +215,14 @@ try {
       association: "exact_capture_window",
     }] });
   });
+  assert.equal(await page.locator("#decode-selection").textContent(), "Decode selected region");
+  await page.locator("#play-selection").click();
+  await page.waitForFunction(() => document.getElementById("audio-region-status").textContent.startsWith("Playing selected audio"));
+  const playedStart = await page.locator("#audio-player").evaluate((audio) => audio.currentTime);
+  assert.ok(playedStart > 0, "selected-region replay seeks to the selected start time");
+  await page.locator("#play-selection").click();
+  assert.equal(await page.locator("#play-selection").textContent(), "Replay selected region");
+  assert.match(await page.locator("#audio-region-status").textContent(), /stopped/i);
   await page.locator("#decode-selection").click();
   await page.waitForFunction(() => document.getElementById("replay-status").textContent.includes("COMPLETED"));
   assert.ok(replayRequest.sample_start >= 0 && replayRequest.sample_count > 0);
@@ -360,6 +368,8 @@ try {
         await page.locator("#track-list").getByRole("button", { name: "Review region" }).first().click();
         await page.locator('[data-inspector-tab="decode"]').click();
         await page.locator("#fldigi-mode").selectOption("RTTY");
+        assert.equal(await page.locator("#play-selection").isDisabled(), true);
+        assert.equal(await page.locator("#decode-selection").textContent(), "Decode live track window");
         await page.locator("#decode-selection").click();
         await page.waitForFunction(() => document.getElementById("replay-status").textContent.includes("COMPLETED"));
         assert.equal(liveReplayRequest.mode, "RTTY");
