@@ -1,8 +1,9 @@
-// Reviewed initial shortlist drawn from the nine Fldigi modes with end-to-end
+// Reviewed initial shortlist drawn from the ten Fldigi modes with end-to-end
 // loopback evidence. This intentionally does not imply full catalog coverage.
 export const REVIEWED_MODE_CANDIDATES = Object.freeze([
   { mode: "BPSK31", modulation: "BPSK", evidence: "Fldigi loopback validated" },
   { mode: "BPSK63", modulation: "BPSK", evidence: "Fldigi loopback validated" },
+  { mode: "QPSK31", modulation: "QPSK", evidence: "Fldigi loopback validated" },
   { mode: "RTTY", modulation: "2-FSK", evidence: "Fldigi loopback validated" },
   { mode: "THOR8", modulation: "MFSK", evidence: "Fldigi loopback validated" },
   { mode: "THOR16", modulation: "MFSK", evidence: "Fldigi loopback validated" },

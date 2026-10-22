@@ -137,7 +137,7 @@ def _stop_process(process: subprocess.Popen[bytes]) -> None:
 @pytest.mark.parametrize(
     "mode",
     ["BPSK31", "BPSK63", "RTTY", "THOR8", "THOR16",
-     "MFSK16", "MFSK32", "MT63-500S", "MT63-1KS"],
+     "MFSK16", "MFSK32", "MT63-500S", "MT63-1KS", "QPSK31"],
 )
 @pytest.mark.skipif(
     os.environ.get("SIGID_TEST_FLDIGI_AUDIO") != "1",
@@ -173,6 +173,7 @@ def test_fldigi_payload_reaches_workbench_api_through_virtual_audio(tmp_path, mo
         sender, sender_rpc = _connect(f"http://127.0.0.1:{sender_port}/RPC2", sender_process)
         app = create_app(tmp_path / "app-data", fldigi_client=receiver)
         payload = "SIGID LOOPBACK COMPLETE 123"
+        wire_text = f"{payload} {payload}" if mode == "QPSK31" else payload
 
         async def verify_workbench_decode() -> None:
             async with httpx.AsyncClient(
@@ -191,7 +192,7 @@ def test_fldigi_payload_reaches_workbench_api_through_virtual_audio(tmp_path, mo
                     sender.select_modem(mode)
                     sender_rpc.modem.set_carrier(1000)
                     receiver_rpc.modem.set_carrier(1000)
-                    sender_rpc.text.add_tx(payload)
+                    sender_rpc.text.add_tx(wire_text)
                     sender_rpc.main.tx()
 
                 await asyncio.to_thread(generate_rf_free_audio)
@@ -225,7 +226,7 @@ def test_fldigi_payload_reaches_workbench_api_through_virtual_audio(tmp_path, mo
 @pytest.mark.parametrize(
     "mode",
     ["BPSK31", "BPSK63", "RTTY", "THOR8", "THOR16",
-     "MFSK16", "MFSK32", "MT63-500S", "MT63-1KS"],
+     "MFSK16", "MFSK32", "MT63-500S", "MT63-1KS", "QPSK31"],
 )
 def test_isolated_region_replay_decodes_a_known_fldigi_transmission(tmp_path, mode):
     """Transmit inside a null sink, save that audio, then decode it via the production replay worker."""
@@ -253,6 +254,7 @@ def test_isolated_region_replay_decodes_a_known_fldigi_transmission(tmp_path, mo
             pytest.skip(str(exc))
         sender, sender_rpc = _connect(f"http://127.0.0.1:{port}/RPC2", transmitter)
         payload = "SIGID LOOPBACK COMPLETE 123"
+        wire_text = f"{payload} {payload}" if mode == "QPSK31" else payload
         sender.select_modem(mode)
         sender.set_carrier(1000)
         audio_path = tmp_path / "known-transmission.wav"
@@ -263,9 +265,9 @@ def test_isolated_region_replay_decodes_a_known_fldigi_transmission(tmp_path, mo
         )
         time.sleep(0.5)
         sender_rpc.text.clear_tx()
-        sender_rpc.text.add_tx(payload)
+        sender_rpc.text.add_tx(wire_text)
         sender_rpc.main.tx()
-        dwell = 40 if mode.startswith(("MT63", "THOR")) else 20 if mode.startswith("MFSK") else 14
+        dwell = 40 if mode.startswith(("MT63", "THOR")) else 24 if mode == "QPSK31" else 20 if mode.startswith("MFSK") else 14
         time.sleep(dwell)
         sender_rpc.main.rx()
         time.sleep(0.3)

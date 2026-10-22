@@ -9,7 +9,7 @@ test("observed modulation narrows the reviewed Fldigi mode subset with reasons",
   assert.ok(candidates.every((candidate) => candidate.evidence === "Fldigi loopback validated"));
 });
 
-test("empty shortlist does not imply absence from the complete Fldigi catalog", () => {
-  assert.deepEqual(narrowKnownModes({ modulation: "QPSK" }), []);
-  assert.equal(REVIEWED_MODE_CANDIDATES.length, 9);
+test("QPSK shortlist exposes the validated mode without implying complete catalog coverage", () => {
+  assert.deepEqual(narrowKnownModes({ modulation: "QPSK" }).map((candidate) => candidate.mode), ["QPSK31"]);
+  assert.equal(REVIEWED_MODE_CANDIDATES.length, 10);
 });

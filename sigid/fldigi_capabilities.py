@@ -14,7 +14,7 @@ REFERENCE_VERSION = "4.2.13"
 NON_MODE_ENTRIES = {"RSID_EOT"}
 KNOWN_AUDIO_ROUND_TRIPS = {
     "BPSK31", "BPSK63", "RTTY", "THOR8", "THOR16", "MFSK16", "MFSK32",
-    "MT63-500S", "MT63-1KS",
+    "MT63-500S", "MT63-1KS", "QPSK31",
 }
 KNOWN_UNAVAILABLE = {
     "OFDM500F": "The reference backend lists this name but returns to BPSK31 when selection is requested.",
@@ -22,7 +22,6 @@ KNOWN_UNAVAILABLE = {
     "OFDM3500": "The reference backend lists this name but returns to BPSK31 when selection is requested.",
 }
 DECODE_LIMITATIONS = {
-    "QPSK31": "A reference workbench loopback attempt did not recover the full known payload.",
     "OLIVIA-8/500": "A reference workbench loopback attempt returned only the trailing text 'K COMPLETE 123'; full-message decode remains unresolved.",
 }
 
@@ -58,7 +57,7 @@ def build_registry(audit: dict[str, Any], audit_bytes: bytes) -> dict[str, Any]:
         elif failure:
             state = "selection_unavailable"
             issue = KNOWN_UNAVAILABLE.get(name, str(failure.get("reason", "Selection failed in the reference audit.")))
-        elif name in round_trip_tests:
+        elif round_trip_tests:
             state = "text_decode_validated"
             issue = None
         else:

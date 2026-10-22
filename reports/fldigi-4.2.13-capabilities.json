@@ -6,7 +6,7 @@
   "source_audit_sha256": "03f17b851e468553db532063b3b413a1b33be7f6038a16d64488746d292bd3db",
   "catalog_count": 169,
   "selectable_count": 165,
-  "decode_validated_count": 9,
+  "decode_validated_count": 10,
   "modes": [
     {
       "backend_name": "NULL",
@@ -564,12 +564,12 @@
       "output_handled": true,
       "generation_validated": false,
       "automatic_id_validated": false,
-      "validation_state": "selection_validated_decode_unverified",
+      "validation_state": "text_decode_validated",
       "evidence_tests": [
         "tests/test_fldigi_audio_integration.py::test_fldigi_payload_reaches_workbench_api_through_virtual_audio[MFSK16]",
         "tests/test_fldigi_audio_integration.py::test_isolated_region_replay_decodes_a_known_fldigi_transmission[MFSK16]"
       ],
-      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for MFSK16 on Fldigi 4.2.13."
+      "unresolved_issue": null
     },
     {
       "backend_name": "MFSK32",
@@ -581,12 +581,12 @@
       "output_handled": true,
       "generation_validated": false,
       "automatic_id_validated": false,
-      "validation_state": "selection_validated_decode_unverified",
+      "validation_state": "text_decode_validated",
       "evidence_tests": [
         "tests/test_fldigi_audio_integration.py::test_fldigi_payload_reaches_workbench_api_through_virtual_audio[MFSK32]",
         "tests/test_fldigi_audio_integration.py::test_isolated_region_replay_decodes_a_known_fldigi_transmission[MFSK32]"
       ],
-      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for MFSK32 on Fldigi 4.2.13."
+      "unresolved_issue": null
     },
     {
       "backend_name": "MFSK4",
@@ -766,12 +766,12 @@
       "output_handled": true,
       "generation_validated": false,
       "automatic_id_validated": false,
-      "validation_state": "selection_validated_decode_unverified",
+      "validation_state": "text_decode_validated",
       "evidence_tests": [
         "tests/test_fldigi_audio_integration.py::test_fldigi_payload_reaches_workbench_api_through_virtual_audio[MT63-500S]",
         "tests/test_fldigi_audio_integration.py::test_isolated_region_replay_decodes_a_known_fldigi_transmission[MT63-500S]"
       ],
-      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for MT63-500S on Fldigi 4.2.13."
+      "unresolved_issue": null
     },
     {
       "backend_name": "MT63-500L",
@@ -797,12 +797,12 @@
       "output_handled": true,
       "generation_validated": false,
       "automatic_id_validated": false,
-      "validation_state": "selection_validated_decode_unverified",
+      "validation_state": "text_decode_validated",
       "evidence_tests": [
         "tests/test_fldigi_audio_integration.py::test_fldigi_payload_reaches_workbench_api_through_virtual_audio[MT63-1KS]",
         "tests/test_fldigi_audio_integration.py::test_isolated_region_replay_decodes_a_known_fldigi_transmission[MT63-1KS]"
       ],
-      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for MT63-1KS on Fldigi 4.2.13."
+      "unresolved_issue": null
     },
     {
       "backend_name": "MT63-1KL",
@@ -856,12 +856,12 @@
       "output_handled": true,
       "generation_validated": false,
       "automatic_id_validated": false,
-      "validation_state": "selection_validated_decode_unverified",
+      "validation_state": "text_decode_validated",
       "evidence_tests": [
         "tests/test_fldigi_audio_integration.py::test_fldigi_payload_reaches_workbench_api_through_virtual_audio[BPSK31]",
         "tests/test_fldigi_audio_integration.py::test_isolated_region_replay_decodes_a_known_fldigi_transmission[BPSK31]"
       ],
-      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for BPSK31 on Fldigi 4.2.13."
+      "unresolved_issue": null
     },
     {
       "backend_name": "BPSK63",
@@ -873,12 +873,12 @@
       "output_handled": true,
       "generation_validated": false,
       "automatic_id_validated": false,
-      "validation_state": "selection_validated_decode_unverified",
+      "validation_state": "text_decode_validated",
       "evidence_tests": [
         "tests/test_fldigi_audio_integration.py::test_fldigi_payload_reaches_workbench_api_through_virtual_audio[BPSK63]",
         "tests/test_fldigi_audio_integration.py::test_isolated_region_replay_decodes_a_known_fldigi_transmission[BPSK63]"
       ],
-      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for BPSK63 on Fldigi 4.2.13."
+      "unresolved_issue": null
     },
     {
       "backend_name": "BPSK63F",
@@ -1039,14 +1039,17 @@
       "catalog_present": true,
       "selectable": true,
       "selection_latency_ms": 0,
-      "decode_validated": false,
-      "audio_routed": false,
-      "output_handled": false,
+      "decode_validated": true,
+      "audio_routed": true,
+      "output_handled": true,
       "generation_validated": false,
       "automatic_id_validated": false,
-      "validation_state": "selection_validated_decode_unverified",
-      "evidence_tests": [],
-      "unresolved_issue": "A reference workbench loopback attempt did not recover the full known payload."
+      "validation_state": "text_decode_validated",
+      "evidence_tests": [
+        "tests/test_fldigi_audio_integration.py::test_fldigi_payload_reaches_workbench_api_through_virtual_audio[QPSK31]",
+        "tests/test_fldigi_audio_integration.py::test_isolated_region_replay_decodes_a_known_fldigi_transmission[QPSK31]"
+      ],
+      "unresolved_issue": null
     },
     {
       "backend_name": "QPSK63",
@@ -1576,12 +1579,12 @@
       "output_handled": true,
       "generation_validated": false,
       "automatic_id_validated": false,
-      "validation_state": "selection_validated_decode_unverified",
+      "validation_state": "text_decode_validated",
       "evidence_tests": [
         "tests/test_fldigi_audio_integration.py::test_fldigi_payload_reaches_workbench_api_through_virtual_audio[RTTY]",
         "tests/test_fldigi_audio_integration.py::test_isolated_region_replay_decodes_a_known_fldigi_transmission[RTTY]"
       ],
-      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for RTTY on Fldigi 4.2.13."
+      "unresolved_issue": null
     },
     {
       "backend_name": "SCAMPFSK",
@@ -1719,12 +1722,12 @@
       "output_handled": true,
       "generation_validated": false,
       "automatic_id_validated": false,
-      "validation_state": "selection_validated_decode_unverified",
+      "validation_state": "text_decode_validated",
       "evidence_tests": [
         "tests/test_fldigi_audio_integration.py::test_fldigi_payload_reaches_workbench_api_through_virtual_audio[THOR8]",
         "tests/test_fldigi_audio_integration.py::test_isolated_region_replay_decodes_a_known_fldigi_transmission[THOR8]"
       ],
-      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for THOR8 on Fldigi 4.2.13."
+      "unresolved_issue": null
     },
     {
       "backend_name": "THOR11",
@@ -1750,12 +1753,12 @@
       "output_handled": true,
       "generation_validated": false,
       "automatic_id_validated": false,
-      "validation_state": "selection_validated_decode_unverified",
+      "validation_state": "text_decode_validated",
       "evidence_tests": [
         "tests/test_fldigi_audio_integration.py::test_fldigi_payload_reaches_workbench_api_through_virtual_audio[THOR16]",
         "tests/test_fldigi_audio_integration.py::test_isolated_region_replay_decodes_a_known_fldigi_transmission[THOR16]"
       ],
-      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for THOR16 on Fldigi 4.2.13."
+      "unresolved_issue": null
     },
     {
       "backend_name": "THOR22",
