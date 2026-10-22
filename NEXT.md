@@ -3,14 +3,14 @@
 Status: local WAV upload/replay workbench, spectrogram, manual region labels,
 sample-indexed replay, live audio capture, FSK fixtures and SQLite dataset index
 are implemented. Receive-only Fldigi catalog selection and decoded-text display are
-implemented. Isolated BPSK31/63/125/250/500/1000, QPSK31/63/125/250/500, 8PSK125/250/500, RTTY,
+implemented. Isolated BPSK31/63/F/125/250/500/1000, QPSK31/63/125/250/500, 8PSK125/250/500, RTTY,
 THOR8/16, MFSK16/32 and MT63-500S/1KS audio loopbacks pass through Fldigi into the workbench API;
 radio-input routing and independent-signal validation remain open. Saved-capture
 regions can be replayed in the selected mode through a separate Fldigi process and a
 private PulseAudio/PipeWire sink; output is
 persisted against the exact capture window. The inspector can also explicitly save
 that region with the selected mode as its variant label. This replay path is native
-Linux only. Known-message audio round-trips now pass for BPSK31/63/125/250/500/1000,
+Linux only. Known-message audio round-trips now pass for BPSK31/63/F/125/250/500/1000,
 QPSK31/63/125/250/500, 8PSK125/250/500, RTTY, THOR8/16, MFSK16/32 and MT63-500S/1KS.
 
 Latest raw-analysis checkpoint: 2-FSK, OOK, M-FSK, BPSK and QPSK bit hypotheses now
@@ -73,14 +73,14 @@ is resizable by pointer or keyboard, remembers its height, and stays within the 
   profile with audio set to PulseAudio and all known PTT paths forced off; it never
   changes the operator's running Fldigi instance. The label action remains explicit and
   saves the selected mode as the region variant. RF-free tests verify known-message
-  round-trips in BPSK31/63/125/250/500/1000, QPSK31/63/125/250/500, 8PSK125/250/500, RTTY, THOR8/16,
+  round-trips in BPSK31/63/F/125/250/500/1000, QPSK31/63/125/250/500, 8PSK125/250/500, RTTY, THOR8/16,
   MFSK16/32 and MT63-500S/1KS. Longer test captures are used for interleaved THOR and MT63.
 - The capture inspector now separates browser audio playback (“Replay selected region”)
   from isolated Fldigi decoding (“Decode selected region”). Playback seeks to and stops
   at the selected sample interval; decode retains its mode choice and persisted run.
   Headless-browser checks cover saved and live selection affordances.
 - A reproducible Fldigi 4.2.13 capability registry covers all 169 audited catalog
-  entries. It distinguishes 165 selection successes from the twenty-one modes with
+  entries. It distinguishes 165 selection successes from the twenty-two modes with
   known-message audio and isolated-region round-trip evidence; other selectable modes
   remain explicitly decode-unverified, and three unselectable OFDM entries plus the
   RSID end marker retain their documented states. See
@@ -323,7 +323,7 @@ positions match completed-WAV waterfall calculations.
 An isolated live Fldigi 4.2.13 process served the API with the documented receive-only
 allow-list: 169 modes, THOR16 selection, and receive-buffer queries all worked. A
 separate, opt-in integration test passes: it creates two copied profiles with all
-rig/PTT paths disabled, routes BPSK31/63/125/250/500/1000, QPSK31/63/125/250/500, 8PSK125/250/500, RTTY,
+rig/PTT paths disabled, routes BPSK31/63/F/125/250/500/1000, QPSK31/63/125/250/500, 8PSK125/250/500, RTTY,
 THOR8/16, MFSK16/32 and MT63-500S/1KS transmit audio through a temporary PulseAudio null sink, and
 verifies each complete payload arrives through
 the workbench API. Run it with
