@@ -27,6 +27,8 @@ settings and recovered bits in SQLite and export as JSONL with capture and strea
 hashes. Operators can also save reusable exact or wildcard bit stencils from a
 selected range, name the field and possible protocol families, and have those
 patterns checked against later bitstreams. These remain tentative pattern evidence.
+The byte view labels offset, binary, hex and ASCII columns. The receiver output pane
+is resizable by pointer or keyboard, remembers its height, and stays within the viewport.
 
 ## Agreed scope
 

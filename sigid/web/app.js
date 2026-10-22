@@ -7,6 +7,7 @@ import { layoutSignalLabels, signalCaption, hitSignal } from "/signal-overlays.m
 
 const el = (id) => document.getElementById(id);
 const state = { capture: null, waterfall: null, drag: null, selection: null, regions: [], tracks: [], bitAnnotations: [], protocolStencils: [], liveView: false, liveSessionId: null, modelAvailable: false, view: null, demodExports: {}, selectedTrack: null, frozen: false };
+let lastExpandedOutputHeight = 180;
 const baseCanvas = el("waterfall");
 const overlayCanvas = el("overlay");
 let livePoll = null;
@@ -24,6 +25,29 @@ const DEMOD_EXPORT_BUTTONS = {
   bpsk: "demod-export-bpsk",
   qpsk: "demod-export-qpsk",
 };
+
+function setOutputDockHeight(height, persist = false) {
+  const dock = el("output-dock");
+  const resizeHandle = el("output-resize");
+  const minimum = 90;
+  const maximum = Math.max(minimum, Math.floor(window.innerHeight * 0.72));
+  const next = Math.max(minimum, Math.min(maximum, Math.round(height)));
+  lastExpandedOutputHeight = next;
+  dock.style.height = `${next}px`;
+  document.documentElement.style.setProperty("--output-dock-height", `${next}px`);
+  resizeHandle.setAttribute("aria-valuemax", String(maximum));
+  resizeHandle.setAttribute("aria-valuenow", String(next));
+  if (persist) {
+    try { localStorage.setItem("sig-id.output-dock-height", String(next)); }
+    catch { /* The pane still resizes when storage is unavailable. */ }
+  }
+  return next;
+}
+
+try {
+  const savedHeight = Number(localStorage.getItem("sig-id.output-dock-height"));
+  if (Number.isFinite(savedHeight) && savedHeight >= 90) setOutputDockHeight(savedHeight);
+} catch { /* The default pane height remains usable when storage is unavailable. */ }
 
 function clearDemodExports() {
   state.demodExports = {};
@@ -69,6 +93,14 @@ function renderRawBitInspector(mode, result) {
       section.append(clues);
     }
     const table = document.createElement("div"); table.className = "bit-byte-grid";
+    table.setAttribute("role", "table");
+    table.setAttribute("aria-label", "Recovered bits aligned as binary, hexadecimal, and ASCII");
+    const header = document.createElement("div"); header.className = "bit-byte bit-byte-header"; header.setAttribute("role", "row");
+    for (const label of ["Offset", "Binary", "Hex", "ASCII"]) {
+      const role = "columnheader";
+      const cell = document.createElement("span"); cell.textContent = label; cell.setAttribute("role", role); header.append(cell);
+    }
+    table.append(header);
     const cells = bytesForBits(hypothesis.bits);
     let anchor = null, selected = null;
     const paint = () => {
@@ -79,12 +111,14 @@ function renderRawBitInspector(mode, result) {
       }
     };
     for (const cell of cells) {
-      const row = document.createElement("div"); row.className = "bit-byte";
+      const row = document.createElement("div"); row.className = "bit-byte"; row.setAttribute("role", "row");
       row.dataset.bitStart = cell.bit_start; row.dataset.bitCount = cell.bit_count;
       const offset = document.createElement("span"); offset.className = "bit-offset"; offset.textContent = String(cell.bit_start).padStart(6, "0");
       const binary = document.createElement("button"); binary.type = "button"; binary.className = "bit-value"; binary.textContent = cell.binary.padEnd(8, "·"); binary.title = `Bits ${cell.bit_start}–${cell.bit_start + cell.bit_count - 1}; click two bytes to select a range`;
       const hex = document.createElement("span"); hex.className = "bit-hex"; hex.textContent = cell.hex;
       const ascii = document.createElement("span"); ascii.className = "bit-ascii"; ascii.textContent = cell.ascii;
+      offset.setAttribute("role", "rowheader");
+      for (const node of [binary, hex, ascii]) node.setAttribute("role", "cell");
       binary.addEventListener("click", () => { if (anchor === null) { anchor = cell.bit_start; selected = { start: anchor, end: anchor + cell.bit_count }; } else { selected = { start: Math.min(anchor, cell.bit_start), end: Math.max(anchor, cell.bit_start) + cell.bit_count }; anchor = null; } paint(); tagButton.disabled = !selected; stencilButton.disabled = !selected; if (selected) stencilPattern.value = hypothesis.bits.slice(selected.start, selected.end); });
       row.append(offset, binary, hex, ascii); table.append(row);
     }
@@ -1710,7 +1744,49 @@ el("toggle-output").addEventListener("click", () => {
   const collapsed = el("output-dock").classList.toggle("collapsed");
   el("toggle-output").textContent = collapsed ? "Expand" : "Collapse";
   el("toggle-output").setAttribute("aria-expanded", String(!collapsed));
+  if (collapsed) {
+    lastExpandedOutputHeight = el("output-dock").getBoundingClientRect().height;
+    el("output-dock").style.height = "40px";
+    document.documentElement.style.setProperty("--output-dock-height", "40px");
+  } else {
+    setOutputDockHeight(lastExpandedOutputHeight);
+  }
 });
+{
+  const handle = el("output-resize");
+  let dragStart = null;
+  handle.addEventListener("pointerdown", (event) => {
+    if (el("output-dock").classList.contains("collapsed")) return;
+    dragStart = { y: event.clientY, height: el("output-dock").getBoundingClientRect().height };
+    handle.classList.add("dragging");
+    handle.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  });
+  handle.addEventListener("pointermove", (event) => {
+    if (dragStart) setOutputDockHeight(dragStart.height + dragStart.y - event.clientY);
+  });
+  const finishResize = () => {
+    if (!dragStart) return;
+    dragStart = null;
+    handle.classList.remove("dragging");
+    setOutputDockHeight(el("output-dock").getBoundingClientRect().height, true);
+  };
+  handle.addEventListener("pointerup", finishResize);
+  handle.addEventListener("pointercancel", finishResize);
+  handle.addEventListener("keydown", (event) => {
+    const current = el("output-dock").getBoundingClientRect().height;
+    const step = event.shiftKey ? 64 : 24;
+    if (event.key === "ArrowUp") setOutputDockHeight(current + step, true);
+    else if (event.key === "ArrowDown") setOutputDockHeight(current - step, true);
+    else if (event.key === "Home") setOutputDockHeight(90, true);
+    else if (event.key === "End") setOutputDockHeight(window.innerHeight * 0.72, true);
+    else return;
+    event.preventDefault();
+  });
+  window.addEventListener("resize", () => {
+    if (!el("output-dock").classList.contains("collapsed")) setOutputDockHeight(el("output-dock").getBoundingClientRect().height);
+  });
+}
 el("freeze-view").addEventListener("click", () => {
   state.frozen = !state.frozen;
   el("freeze-view").textContent = state.frozen ? "Resume view" : "Freeze view";

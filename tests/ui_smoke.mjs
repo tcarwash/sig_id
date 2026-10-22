@@ -55,6 +55,27 @@ await page.route("**/api/fldigi/**", async (route) => {
 });
 try {
   await page.goto(process.env.SIGID_UI_URL || "http://127.0.0.1:8011");
+  const outputDock = page.locator("#output-dock");
+  const initialDockHeight = await outputDock.evaluate((dock) => dock.getBoundingClientRect().height);
+  const resizeHandle = await page.locator("#output-resize").boundingBox();
+  await page.mouse.move(resizeHandle.x + resizeHandle.width / 2, resizeHandle.y + resizeHandle.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(resizeHandle.x + resizeHandle.width / 2, resizeHandle.y - 70, { steps: 4 });
+  await page.mouse.up();
+  const enlargedDockHeight = await outputDock.evaluate((dock) => dock.getBoundingClientRect().height);
+  assert.ok(enlargedDockHeight >= initialDockHeight + 60, "dragging the divider enlarges the output pane");
+  assert.equal(await page.evaluate(() => Number(localStorage.getItem("sig-id.output-dock-height"))), Math.round(enlargedDockHeight));
+  await page.locator("#output-resize").focus();
+  await page.keyboard.press("Home");
+  for (let step = 0; step < 4; step += 1) await page.keyboard.press("ArrowUp");
+  const keyboardDockHeight = await outputDock.evaluate((dock) => dock.getBoundingClientRect().height);
+  assert.ok(keyboardDockHeight > 160, "keyboard resizing restores a useful pane size");
+  await page.reload();
+  assert.equal(await outputDock.evaluate((dock) => Math.round(dock.getBoundingClientRect().height)), Math.round(keyboardDockHeight), "the pane height survives a reload");
+  await page.locator("#toggle-output").click();
+  assert.equal(await outputDock.evaluate((dock) => dock.getBoundingClientRect().height), 40, "the resized pane still collapses");
+  await page.locator("#toggle-output").click();
+  assert.equal(await outputDock.evaluate((dock) => Math.round(dock.getBoundingClientRect().height)), Math.round(keyboardDockHeight), "expanding restores the chosen size");
   for (const mode of ["2fsk", "mfsk", "ook", "bpsk", "qpsk"]) {
     await page.locator("#open-recording").click();
     await page.locator("#wav-file").setInputFiles(join(root, `${mode}.wav`));
@@ -80,6 +101,10 @@ try {
     if (mode === "bpsk") assert.match(await page.locator("[data-raw-result]:visible .mode-shortlist").first().textContent(), /BPSK31.*BPSK63/s);
     if (mode === "2fsk") {
       assert.ok(await page.locator(".bit-ascii").allTextContents().then((items) => items.includes("a")));
+      assert.match(await page.locator(".bit-byte-header").textContent(), /Offset.*Binary.*Hex.*ASCII/);
+      const asciiRows = await page.locator(".bit-ascii").allTextContents();
+      const asciiIndex = asciiRows.indexOf("a");
+      assert.equal(await page.locator(".bit-byte").nth(asciiIndex + 1).locator(".bit-hex").textContent(), "61");
       assert.match(await page.locator(".bit-clues").textContent(), /HDLC-like flag/);
       assert.match(await page.locator("[data-raw-result]:visible .mode-shortlist").first().textContent(), /RTTY/);
       await page.locator(".bit-value").nth(0).click();
@@ -420,6 +445,10 @@ try {
     ),
   );
   await page.locator("#show-signals").click();
+  const mobileDockHeight = await outputDock.evaluate((dock) => dock.getBoundingClientRect().height);
+  await page.locator("#output-resize").focus();
+  await page.keyboard.press("ArrowUp");
+  assert.ok(await outputDock.evaluate((dock) => dock.getBoundingClientRect().height) > mobileDockHeight, "the output pane is keyboard-resizable on mobile widths");
   await page.screenshot({ path: join(root, "mobile.png") });
   assert.deepEqual(errors, []);
   console.log(

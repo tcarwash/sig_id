@@ -482,6 +482,7 @@ textarea {
 .bit-inspector h4 { margin: 0 0 8px; color: #a7c6dd; font-size: 11px; }
 .bit-byte-grid { max-height: 280px; overflow: auto; padding: 4px; background: #09121a; border: 1px solid #203140; }
 .bit-byte { display: grid; grid-template-columns: 54px minmax(72px, 1fr) 24px 24px; gap: 8px; align-items: center; width: max-content; min-width: 205px; padding: 1px 4px; border: 1px solid transparent; border-radius: 3px; font: 11px/1.7 ui-monospace, monospace; }
+.bit-byte-header { position: sticky; top: -4px; z-index: 2; border-bottom: 1px solid #314454; background: #0d1923; color: #91a9bb; font-weight: 700; }
 .bit-offset, .bit-hex { color: #70879b; }
 .bit-value { padding: 0; border: 0; background: transparent; color: #c3edda; text-align: left; font: inherit; cursor: pointer; }
 .bit-ascii { color: #f0d48a; }
@@ -505,13 +506,32 @@ textarea {
 .bit-save-error { display: block; margin-top: 6px; color: #ff9e9e; font-size: 11px; }
 .output-dock {
   height: 180px;
-  min-height: 40px;
-  border-top: 1px solid var(--line);
+  min-height: 90px;
   background: #0d1620;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
 }
+.output-resize {
+  height: 8px;
+  flex: 0 0 8px;
+  cursor: ns-resize;
+  touch-action: none;
+  display: grid;
+  place-items: center;
+  background: #101923;
+}
+.output-resize::after {
+  content: "";
+  width: 42px;
+  height: 2px;
+  border-radius: 2px;
+  background: #506477;
+}
+.output-resize:hover::after,
+.output-resize:focus-visible::after,
+.output-resize.dragging::after { background: var(--accent); }
+.output-resize:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
 .dock-heading {
   display: flex;
   align-items: center;
@@ -549,7 +569,9 @@ textarea {
 }
 .output-dock.collapsed {
   height: 40px;
+  min-height: 40px;
 }
+.output-dock.collapsed .output-resize { display: none; }
 .output-dock.collapsed .dock-content {
   display: none;
 }
@@ -866,7 +888,7 @@ textarea {
   }
   .inspector {
     position: absolute;
-    bottom: 206px;
+    bottom: calc(var(--output-dock-height, 180px) + 26px);
     left: 0;
     right: 0;
     width: 100%;

@@ -66,7 +66,9 @@ phase reference. These are protocol-independent symbol/bit observations, not com
 protocol decoders. Each demodulator can export a JSON artifact containing the capture
 hash, sample bounds, settings, raw decisions, ambiguity/soft metrics and protocol-unknown
 status so a manual analysis can be reproduced or used as training evidence. The raw-bit
-view aligns recovered bytes with printable ASCII. Operators can select byte ranges,
+view aligns recovered bytes in labeled binary, hexadecimal and printable-ASCII columns.
+The receiver output pane can be dragged taller or shorter, resized from the keyboard,
+and remembers its chosen height. Operators can select byte ranges,
 add colored interpretation tags and include them in the JSON export. A bit-stencil
 matcher can check exact or masked patterns and report the possible field, candidate
 protocol families and offset as tentative evidence. Its initial `01111110` stencil
