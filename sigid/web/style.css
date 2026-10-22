@@ -499,6 +499,10 @@ textarea {
 .bit-tag-form input, .bit-tag-form button { font-size: 10px; }
 .bit-tag-form input[type="color"] { width: 34px; padding: 2px; }
 .bit-annotation { display: inline-block; margin: 7px 5px 0 0; border-color: var(--tag-color); color: var(--tag-color); }
+.saved-bit-annotations { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 7px; margin: 5px 0 10px; padding: 7px; border-bottom: 1px solid #263746; color: #8297a9; font-size: 10px; }
+.saved-bit-annotations strong { width: 100%; color: #a9c5da; }
+.saved-bit-annotations .bit-annotation { margin: 0; }
+.bit-save-error { display: block; margin-top: 6px; color: #ff9e9e; font-size: 11px; }
 .output-dock {
   height: 180px;
   min-height: 40px;

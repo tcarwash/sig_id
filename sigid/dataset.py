@@ -52,7 +52,7 @@ class CaptureStore:
     def _initialize(self) -> None:
         with self._connect() as db:
             version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1, 2, 3):
+            if version not in (0, 1, 2, 3, 4):
                 raise RuntimeError(f"unsupported dataset schema version: {version}")
             db.executescript(
                 """
@@ -126,6 +126,30 @@ class CaptureStore:
                 );
                 CREATE INDEX IF NOT EXISTS decoder_runs_by_capture ON decoder_runs(capture_id, created_utc DESC);
                 CREATE INDEX IF NOT EXISTS decoder_runs_by_session ON decoder_runs(session_id, created_utc DESC);
+                CREATE TABLE IF NOT EXISTS demod_bitstreams (
+                    id TEXT PRIMARY KEY,
+                    capture_id TEXT NOT NULL REFERENCES captures(id) ON DELETE CASCADE,
+                    stream_sha256 TEXT NOT NULL,
+                    mode TEXT NOT NULL,
+                    sample_start INTEGER NOT NULL CHECK(sample_start >= 0),
+                    sample_count INTEGER NOT NULL CHECK(sample_count > 0),
+                    settings_json TEXT NOT NULL,
+                    hypothesis TEXT NOT NULL,
+                    bits TEXT NOT NULL,
+                    created_utc TEXT NOT NULL,
+                    UNIQUE(capture_id, stream_sha256)
+                );
+                CREATE INDEX IF NOT EXISTS bitstreams_by_capture ON demod_bitstreams(capture_id, created_utc);
+                CREATE TABLE IF NOT EXISTS bit_annotations (
+                    id TEXT PRIMARY KEY,
+                    bitstream_id TEXT NOT NULL REFERENCES demod_bitstreams(id) ON DELETE CASCADE,
+                    bit_start INTEGER NOT NULL CHECK(bit_start >= 0),
+                    bit_count INTEGER NOT NULL CHECK(bit_count > 0),
+                    label TEXT NOT NULL,
+                    color TEXT NOT NULL,
+                    created_utc TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS bit_annotations_by_stream ON bit_annotations(bitstream_id, created_utc);
                 """
             )
             columns = {row[1] for row in db.execute("PRAGMA table_info(decoder_runs)")}
@@ -133,7 +157,7 @@ class CaptureStore:
                 db.execute("ALTER TABLE decoder_runs ADD COLUMN output_scope TEXT NOT NULL DEFAULT 'shared_live_input'")
             if "association" not in columns:
                 db.execute("ALTER TABLE decoder_runs ADD COLUMN association TEXT NOT NULL DEFAULT 'track_window_tentative'")
-            db.execute("PRAGMA user_version = 3")
+            db.execute("PRAGMA user_version = 4")
 
     @staticmethod
     def _sha256(path: Path) -> str:
@@ -263,6 +287,99 @@ class CaptureStore:
             revision = latest + 1
             self._insert_label(db, region_id, revision, label)
             return revision
+
+    def add_bit_annotation(
+        self, capture_id: str, *, mode: str, sample_start: int, sample_count: int,
+        settings: dict[str, Any], hypothesis: str, bits: str, bit_start: int,
+        bit_count: int, label: str, color: str,
+    ) -> dict[str, Any]:
+        if not mode or len(mode) > 40 or not hypothesis or len(hypothesis) > 80:
+            raise ValueError("mode and bit hypothesis are required")
+        if sample_start < 0 or sample_count <= 0 or bit_start < 0 or bit_count <= 0:
+            raise ValueError("sample and bit ranges must be positive")
+        if (sample_start != settings.get("sample_start") or not isinstance(settings.get("sample_count"), int)
+                or sample_count > settings.get("sample_count")):
+            raise ValueError("actual sample range must fit the demodulator settings")
+        if not bits or len(bits) > 1_000_000 or any(bit not in "01" for bit in bits):
+            raise ValueError("recovered bits must be a non-empty binary string of at most one million bits")
+        if bit_start + bit_count > len(bits):
+            raise ValueError("annotation range exceeds the recovered bitstream")
+        if not label.strip() or len(label) > 200:
+            raise ValueError("operator interpretation must contain 1 to 200 characters")
+        if len(color) != 7 or color[0] != "#" or any(ch not in "0123456789abcdefABCDEF" for ch in color[1:]):
+            raise ValueError("annotation color must be a six-digit hex color")
+        canonical_settings = json.dumps(settings, sort_keys=True, separators=(",", ":"))
+        digest_input = "\0".join((mode, canonical_settings, hypothesis, bits)).encode("utf-8")
+        stream_sha256 = hashlib.sha256(digest_input).hexdigest()
+        with self._connect() as db:
+            capture = db.execute("SELECT sample_count FROM captures WHERE id = ?", (capture_id,)).fetchone()
+            if capture is None:
+                raise KeyError(f"unknown capture: {capture_id}")
+            if sample_start + sample_count > capture["sample_count"]:
+                raise ValueError("demodulation sample range exceeds the parent capture")
+            stream = db.execute(
+                "SELECT id FROM demod_bitstreams WHERE capture_id = ? AND stream_sha256 = ?",
+                (capture_id, stream_sha256),
+            ).fetchone()
+            if stream is None:
+                stream_id = str(uuid4())
+                db.execute(
+                    """INSERT INTO demod_bitstreams
+                       (id,capture_id,stream_sha256,mode,sample_start,sample_count,settings_json,hypothesis,bits,created_utc)
+                       VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                    (stream_id, capture_id, stream_sha256, mode, sample_start, sample_count,
+                     canonical_settings, hypothesis, bits, datetime.now(timezone.utc).isoformat()),
+                )
+            else:
+                stream_id = stream["id"]
+            annotation_id = str(uuid4())
+            created = datetime.now(timezone.utc).isoformat()
+            db.execute(
+                """INSERT INTO bit_annotations (id,bitstream_id,bit_start,bit_count,label,color,created_utc)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (annotation_id, stream_id, bit_start, bit_count, label.strip(), color.upper(), created),
+            )
+        return {"id": annotation_id, "bitstream_id": stream_id, "stream_sha256": stream_sha256, "created_utc": created}
+
+    def bit_annotations(self, capture_id: str, *, include_bits: bool = False) -> list[dict[str, Any]]:
+        with self._connect() as db:
+            if db.execute("SELECT 1 FROM captures WHERE id = ?", (capture_id,)).fetchone() is None:
+                raise KeyError(f"unknown capture: {capture_id}")
+            rows = db.execute(
+                """SELECT a.id,a.bit_start,a.bit_count,a.label,a.color,a.created_utc,
+                          s.id AS bitstream_id,s.stream_sha256,s.mode,s.sample_start,s.sample_count,
+                          s.settings_json,s.hypothesis,s.bits
+                   FROM bit_annotations a JOIN demod_bitstreams s ON s.id = a.bitstream_id
+                   WHERE s.capture_id = ? ORDER BY a.created_utc,a.id""",
+                (capture_id,),
+            ).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["settings"] = json.loads(item.pop("settings_json"))
+            if not include_bits:
+                item.pop("bits")
+            result.append(item)
+        return result
+
+    def export_bit_annotations_jsonl(self, output: str | Path) -> int:
+        with self._connect() as db:
+            rows = db.execute(
+                """SELECT a.id,a.bit_start,a.bit_count,a.label,a.color,a.created_utc,
+                          s.id AS bitstream_id,s.stream_sha256,s.mode,s.sample_start,s.sample_count,
+                          s.settings_json,s.hypothesis,s.bits,c.sha256 AS capture_sha256,
+                          c.sample_rate,c.source_kind
+                   FROM bit_annotations a JOIN demod_bitstreams s ON s.id=a.bitstream_id
+                   JOIN captures c ON c.id=s.capture_id ORDER BY a.created_utc,a.id"""
+            ).fetchall()
+        destination = Path(output)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with destination.open("w", encoding="utf-8") as stream:
+            for row in rows:
+                record = dict(row)
+                record["settings"] = json.loads(record.pop("settings_json"))
+                stream.write(json.dumps(record, sort_keys=True) + "\n")
+        return len(rows)
 
     def capture(self, capture_id: str) -> dict[str, Any]:
         with self._connect() as db:

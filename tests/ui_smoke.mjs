@@ -30,6 +30,7 @@ page.on("pageerror", (error) => errors.push(error.message));
 let modeChanges = 0;
 let cleanupLive = false;
 let lastCaptureId = null;
+let taggedCaptureId = null;
 // Exercise controls without changing the operator's Fldigi instance.
 await page.route("**/api/fldigi/**", async (route) => {
   const path = new URL(route.request().url()).pathname;
@@ -85,7 +86,7 @@ try {
       await page.locator(".bit-value").nth(1).click();
       await page.locator(".bit-tag-form input[aria-label='Operator interpretation']").fill("likely header");
       await page.locator(".bit-tag-form button").click();
-      assert.match(await page.locator(".bit-annotation").textContent(), /likely header/);
+      assert.match(await page.locator(".bit-annotation").first().textContent(), /likely header/);
     }
     const pending = page.waitForEvent("download");
     await page.locator(`#${exportId}`).click();
@@ -94,14 +95,23 @@ try {
     await download.saveAs(destination);
     const result = JSON.parse(await readFile(destination, "utf8"));
     assert.equal(result.protocol, null);
-    if (mode === "2fsk") assert.equal(result.bit_annotations[0].label, "likely header");
+    if (mode === "2fsk") {
+      taggedCaptureId = result.source_capture.capture_id;
+      assert.equal(result.bit_annotations[0].label, "likely header");
+    }
     assert.equal(result.modulation_hypothesis, mode);
     lastCaptureId = result.source_capture.capture_id;
     assert.ok(result.result.symbol_count > 0);
     assert.equal(await page.locator(".raw-tool:visible").count(), 1);
     assert.equal(await page.locator("[data-raw-result]:visible").count(), 1);
   }
+  await page.locator("#show-library").click();
+  await page.locator(".capture-row").filter({ hasText: "2fsk.wav" }).first().getByRole("button", { name: "Open" }).click();
+  await page.locator("#library-dialog").waitFor({ state: "hidden" });
+  await page.waitForFunction(() => document.getElementById("saved-bit-annotations").textContent.includes("likely header"));
+  lastCaptureId = taggedCaptureId;
   // Manual labeling and direct saved-annotation selection.
+  await page.locator("#show-signals").click();
   await page.locator("#close-inspector").click();
   const box = await page.locator("#overlay").boundingBox();
   await page.mouse.move(box.x + box.width * 0.25, box.y + box.height * 0.2);

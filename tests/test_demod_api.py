@@ -47,6 +47,25 @@ def test_api_demodulates_saved_region_to_raw_bits_without_protocol_label(tmp_pat
             assert result["sample_start"] == 0
             assert result["symbol_sample_bounds"][0] == [0, 120]
 
+            annotation = await client.post(
+                f"/api/captures/{capture_id}/bit-annotations",
+                json={
+                    "mode": "2fsk", "sample_start": 0, "sample_count": len(bits) * 120,
+                    "settings": {"sample_start": 0, "sample_count": len(bits) * 120, "symbol_rate": 100},
+                    "hypothesis": "bits", "bits": result["bits"], "bit_start": 0,
+                    "bit_count": 8, "label": "preamble candidate", "color": "#f4bf75",
+                },
+            )
+            assert annotation.status_code == 201, annotation.text
+            persisted = await client.get(f"/api/captures/{capture_id}/bit-annotations")
+            assert persisted.status_code == 200
+            assert persisted.json()[0]["label"] == "preamble candidate"
+            assert "bits" not in persisted.json()[0]
+            assert persisted.json()[0]["stream_sha256"] == annotation.json()["stream_sha256"]
+            exported = await client.get("/api/exports/bit-annotations.jsonl")
+            assert exported.status_code == 200
+            assert '"bits"' in exported.text and '"label": "preamble candidate"' in exported.text
+
             acquired = await client.post(
                 f"/api/captures/{capture_id}/demod/2fsk",
                 json={

@@ -74,6 +74,9 @@ marks a common HDLC-like flag; this is only a framing clue, not a mode or protoc
 The raw view also filters a small, loopback-reviewed Fldigi mode shortlist by the
 selected modulation hypothesis and shows why each mode remains a candidate. The list
 is intentionally labeled partial; it is not the full decoder catalog.
+Operator bit-range tags are saved immediately with their capture, demodulator settings,
+bit hypothesis and recovered stream. They remain available when the capture is reopened
+and can be exported as JSONL from `/api/exports/bit-annotations.jsonl` for dataset work.
 
 ## Run with Docker Compose on Linux
 

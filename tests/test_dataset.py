@@ -97,3 +97,42 @@ def test_rejects_unknown_capture_and_unpaired_frequency_bounds(indexed_capture):
         store.add_region("missing", sample_start=0, sample_count=1)
     with pytest.raises(ValueError, match="both frequency bounds"):
         store.add_region("some-id", sample_start=0, sample_count=1, frequency_low_hz=100)
+
+
+def test_bit_annotations_keep_demod_provenance_deduplicate_stream_and_export(indexed_capture, tmp_path):
+    store, capture_id, _ = indexed_capture
+    settings = {"sample_start": 0, "sample_count": 480, "symbol_rate": 100}
+    saved = store.add_bit_annotation(
+        capture_id, mode="2fsk", sample_start=0, sample_count=480,
+        settings=settings, hypothesis="bits", bits="01100001", bit_start=0,
+        bit_count=8, label="ASCII a", color="#f4bf75",
+    )
+    repeated = store.add_bit_annotation(
+        capture_id, mode="2fsk", sample_start=0, sample_count=480,
+        settings=settings, hypothesis="bits", bits="01100001", bit_start=0,
+        bit_count=8, label="first byte", color="#80c0ff",
+    )
+    assert saved["bitstream_id"] == repeated["bitstream_id"]
+    annotations = store.bit_annotations(capture_id)
+    assert [item["label"] for item in annotations] == ["ASCII a", "first byte"]
+    assert annotations[0]["stream_sha256"] == saved["stream_sha256"]
+    assert annotations[0]["settings"] == settings
+    assert "bits" not in annotations[0]
+    output = tmp_path / "exports" / "bit-annotations.jsonl"
+    assert store.export_bit_annotations_jsonl(output) == 2
+    exported = [json.loads(line) for line in output.read_text().splitlines()]
+    assert exported[0]["bits"] == "01100001"
+    assert exported[0]["capture_sha256"] == store.capture(capture_id)["sha256"]
+
+
+def test_bit_annotations_reject_ranges_outside_bits_or_capture(indexed_capture):
+    store, capture_id, _ = indexed_capture
+    arguments = dict(
+        mode="2fsk", sample_start=0, sample_count=480,
+        settings={"sample_start": 0, "sample_count": 480}, hypothesis="bits",
+        bits="0101", bit_start=0, bit_count=1, label="marker", color="#aabbcc",
+    )
+    with pytest.raises(ValueError, match="exceeds the recovered"):
+        store.add_bit_annotation(capture_id, **{**arguments, "bit_start": 4})
+    with pytest.raises(ValueError, match="sample range"):
+        store.add_bit_annotation(capture_id, **{**arguments, "sample_count": 481, "settings": {"sample_start": 0, "sample_count": 481}})

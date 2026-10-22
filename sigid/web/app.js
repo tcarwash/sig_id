@@ -6,7 +6,7 @@ import { narrowKnownModes } from "/mode-candidates.mjs";
 import { layoutSignalLabels, signalCaption, hitSignal } from "/signal-overlays.mjs";
 
 const el = (id) => document.getElementById(id);
-const state = { capture: null, waterfall: null, drag: null, selection: null, regions: [], tracks: [], liveView: false, liveSessionId: null, modelAvailable: false, view: null, demodExports: {}, selectedTrack: null, frozen: false };
+const state = { capture: null, waterfall: null, drag: null, selection: null, regions: [], tracks: [], bitAnnotations: [], liveView: false, liveSessionId: null, modelAvailable: false, view: null, demodExports: {}, selectedTrack: null, frozen: false };
 const baseCanvas = el("waterfall");
 const overlayCanvas = el("overlay");
 let livePoll = null;
@@ -93,13 +93,31 @@ function renderRawBitInspector(mode, result) {
     const color = document.createElement("input"); color.type = "color"; color.value = "#f4bf75"; color.setAttribute("aria-label", "Tag color");
     const tagButton = document.createElement("button"); tagButton.type = "submit"; tagButton.textContent = "Tag selected bits"; tagButton.disabled = true;
     tagForm.append(label, color, tagButton);
-    tagForm.addEventListener("submit", (event) => {
+    tagForm.addEventListener("submit", async (event) => {
       event.preventDefault(); if (!selected || !label.value.trim()) return;
       const artifact = state.demodExports[mode];
-      artifact.bit_annotations.push(createBitAnnotation({ bit_start: selected.start, bit_count: selected.end - selected.start, label: label.value, color: color.value, hypothesis: hypothesis.name }));
-      const chip = document.createElement("span"); chip.className = "bit-annotation"; chip.style.setProperty("--tag-color", color.value); chip.textContent = `${label.value.trim()} · bits ${selected.start}–${selected.end - 1}`; section.append(chip);
-      for (const row of table.querySelectorAll(".bit-byte")) { const start = Number(row.dataset.bitStart); if (start < selected.end && start + Number(row.dataset.bitCount) > selected.start) row.style.setProperty("--tag-color", color.value); }
-      label.value = "";
+      const bitStart = selected.start, bitCount = selected.end - selected.start;
+      const annotation = createBitAnnotation({ bit_start: bitStart, bit_count: bitCount, label: label.value, color: color.value, hypothesis: hypothesis.name });
+      tagButton.disabled = true; tagButton.textContent = "Saving…";
+      try {
+        const source = artifact.source_capture;
+        const persisted = await request(`/api/captures/${source.capture_id}/bit-annotations`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mode, sample_start: artifact.result.sample_start ?? artifact.settings.sample_start,
+            sample_count: artifact.result.sample_count ?? artifact.settings.sample_count,
+            settings: artifact.settings, hypothesis: hypothesis.name, bits: hypothesis.bits,
+            bit_start: bitStart, bit_count: bitCount, label: annotation.label, color: annotation.color,
+          }),
+        });
+        Object.assign(annotation, persisted); artifact.bit_annotations.push(annotation);
+        const chip = document.createElement("span"); chip.className = "bit-annotation"; chip.style.setProperty("--tag-color", color.value); chip.textContent = `${label.value.trim()} · bits ${bitStart}–${bitStart + bitCount - 1}`; section.append(chip);
+        for (const row of table.querySelectorAll(".bit-byte")) { const start = Number(row.dataset.bitStart); if (start < bitStart + bitCount && start + Number(row.dataset.bitCount) > bitStart) row.style.setProperty("--tag-color", color.value); }
+        label.value = "";
+        await refreshBitAnnotations(source.capture_id);
+      } catch (error) {
+        const failure = document.createElement("span"); failure.className = "bit-save-error"; failure.textContent = `Tag not saved: ${error.message}`; section.append(failure);
+      } finally { tagButton.disabled = !selected; tagButton.textContent = "Tag selected bits"; }
     });
     section.append(table, tagForm); output.append(section);
   }
@@ -601,6 +619,28 @@ async function request(url, options) {
   return response.json();
 }
 
+async function refreshBitAnnotations(captureId = state.capture?.id) {
+  const container = el("saved-bit-annotations");
+  if (!container || !captureId) return;
+  const annotations = await request(`/api/captures/${captureId}/bit-annotations`);
+  if (state.capture?.id !== captureId) return;
+  state.bitAnnotations = annotations;
+  container.replaceChildren();
+  const heading = document.createElement("strong");
+  heading.textContent = `Saved operator bit tags · ${annotations.length}`;
+  container.append(heading);
+  if (!annotations.length) {
+    const empty = document.createElement("span"); empty.textContent = "No saved bit tags for this capture."; container.append(empty); return;
+  }
+  for (const annotation of annotations) {
+    const chip = document.createElement("span"); chip.className = "bit-annotation";
+    chip.style.setProperty("--tag-color", annotation.color);
+    chip.textContent = `${annotation.label} · ${annotation.mode}/${annotation.hypothesis} · bits ${annotation.bit_start}–${annotation.bit_start + annotation.bit_count - 1}`;
+    chip.title = `Capture samples ${annotation.sample_start}–${annotation.sample_start + annotation.sample_count - 1} · ${annotation.stream_sha256}`;
+    container.append(chip);
+  }
+}
+
 el("upload-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   if (state.liveView) { showError("Stop live capture before opening another source."); return; }
@@ -694,6 +734,8 @@ async function loadCapture() {
   if (generation !== state.captureGeneration || state.liveView) return;
   state.regions = regions;
   renderRegions();
+  try { await refreshBitAnnotations(c.id); }
+  catch (error) { el("saved-bit-annotations").textContent = `Saved bit tags unavailable · ${error.message}`; }
   try {
     state.decodeRuns = await request(`/api/captures/${c.id}/decode-runs`);
   } catch (error) {
@@ -1481,6 +1523,7 @@ function resetOutputSession() {
   state.frozen = false;
   state.decoderTrial = null;
   el("signal-region-shortcuts").replaceChildren();
+  el("saved-bit-annotations").replaceChildren();
   beginNewRegion();
   el("inspector-context").textContent = "Select a signal on the waterfall to inspect it.";
   el("manifest-download").classList.add("hidden");

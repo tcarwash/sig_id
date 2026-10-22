@@ -69,6 +69,19 @@ class LabelRevisionCreate(BaseModel):
     notes: str = Field(default="", max_length=20000)
 
 
+class BitAnnotationCreate(BaseModel):
+    mode: str = Field(min_length=1, max_length=40)
+    sample_start: int = Field(ge=0)
+    sample_count: int = Field(gt=0)
+    settings: dict[str, Any]
+    hypothesis: str = Field(min_length=1, max_length=80)
+    bits: str = Field(min_length=1, max_length=1_000_000, pattern="^[01]+$")
+    bit_start: int = Field(ge=0)
+    bit_count: int = Field(gt=0)
+    label: str = Field(min_length=1, max_length=200)
+    color: str = Field(pattern="^#[0-9A-Fa-f]{6}$")
+
+
 class LiveCaptureStart(BaseModel):
     device_id: int | None = None
     sample_rate: int = Field(default=48_000, ge=4000, le=192000)
@@ -1307,6 +1320,30 @@ def create_app(
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="capture not found") from exc
 
+    @app.get("/api/captures/{capture_id}/bit-annotations")
+    def get_bit_annotations(capture_id: str) -> list[dict[str, Any]]:
+        try:
+            return store.bit_annotations(capture_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="capture not found") from exc
+
+    @app.post("/api/captures/{capture_id}/bit-annotations", status_code=201)
+    def create_bit_annotation(capture_id: str, data: BitAnnotationCreate) -> dict[str, Any]:
+        try:
+            capture = store.capture(capture_id)
+            if data.sample_start + data.sample_count > int(capture["sample_count"]):
+                raise ValueError("demodulation sample range exceeds the parent capture")
+            return store.add_bit_annotation(
+                capture_id, mode=data.mode, sample_start=data.sample_start,
+                sample_count=data.sample_count, settings=data.settings,
+                hypothesis=data.hypothesis, bits=data.bits, bit_start=data.bit_start,
+                bit_count=data.bit_count, label=data.label, color=data.color,
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="capture not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     @app.get("/api/captures/{capture_id}/regions/{region_id}/history")
     def region_history(capture_id: str, region_id: str) -> list[dict[str, Any]]:
         try:
@@ -1367,6 +1404,16 @@ def create_app(
             destination,
             media_type="application/x-ndjson",
             filename="signal-regions.jsonl",
+        )
+
+    @app.get("/api/exports/bit-annotations.jsonl")
+    def export_bit_annotations() -> FileResponse:
+        destination = root / "exports" / "bit-annotations.jsonl"
+        store.export_bit_annotations_jsonl(destination)
+        return FileResponse(
+            destination,
+            media_type="application/x-ndjson",
+            filename="signal-bit-annotations.jsonl",
         )
 
     @app.get("/", include_in_schema=False)

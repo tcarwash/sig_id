@@ -19,13 +19,12 @@ ranges, add colored interpretation tags, and retain those tags in the demodulati
 JSON export. An extensible stencil matcher scans masked bit patterns and shows the
 matching field, possible protocol family and bit offset as tentative evidence. The
 initial stencil is the common HDLC-like `01111110` frame flag; it does not identify a
-protocol or mode. Browser smoke
-validation covers the view, clue, range tag and exported annotation. A nearby mode
-shortlist filters the nine loopback-reviewed Fldigi modes by the selected raw
-demodulator's modulation family and explains the match; it is explicitly a partial
-catalog. A stencil can narrow this list further when a reviewed mode profile declares
-that protocol family. Tags currently live in the export artifact and are not yet
-persisted as database records.
+protocol or mode. Browser smoke validation covers the view, clue, range tag, saved
+annotation reload and export. A nearby mode shortlist filters the nine loopback-reviewed
+Fldigi modes by the selected raw demodulator's modulation family and explains the
+match; it is explicitly a partial catalog. Bit tags now persist with their demod
+settings and recovered bits in SQLite and export as JSONL with capture and stream
+hashes.
 
 ## Agreed scope
 
