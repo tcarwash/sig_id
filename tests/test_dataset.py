@@ -55,9 +55,11 @@ def test_legacy_decoder_runs_schema_migrates_carrier_frequency(tmp_path):
 
     with sqlite3.connect(database) as db:
         columns = {row[1] for row in db.execute("PRAGMA table_info(decoder_runs)")}
+        tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         version = db.execute("PRAGMA user_version").fetchone()[0]
     assert "carrier_hz" in columns
-    assert version == 15
+    assert "scene_coverage_revisions" in tables
+    assert version == 16
 
 
 def test_geometry_migration_backfills_existing_region_bounds(indexed_capture):

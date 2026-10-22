@@ -863,7 +863,7 @@ function applyModeSelection(mode) {
   state.labelModeId = mode.id;
   el("mode-search").value = mode.display_name;
   for (const field of ["family", "method", "protocol", "variant"]) el(field).value = mode[field] || "";
-  el("mode-resolution").textContent = `${mode.display_name} → ${mode.family} / ${mode.method} / ${mode.protocol} / ${mode.variant} · registry ${mode.registry_version}`;
+  el("mode-resolution").textContent = `${mode.display_name} → ${mode.family} / ${mode.method} / ${mode.protocol} / ${mode.variant} · ${mode.status || "curated"} · registry ${mode.registry_version}`;
   state.applyingMode = false;
 }
 
@@ -881,7 +881,7 @@ el("mode-search").addEventListener("input", async () => {
     for (const mode of result.modes) {
       const option = document.createElement("option");
       option.value = mode.display_name;
-      option.label = `${mode.family} · ${mode.method} · ${mode.protocol}`;
+      option.label = `${mode.family} · ${mode.method} · ${mode.protocol}${mode.status ? ` · ${mode.status}` : ""}`;
       options.append(option);
     }
     el("mode-resolution").textContent = result.modes.length

@@ -56,7 +56,7 @@ class CaptureStore:
     def _initialize(self) -> None:
         with self._connect() as db:
             version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15):
+            if version not in (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16):
                 raise RuntimeError(f"unsupported dataset schema version: {version}")
             db.executescript(
                 """
@@ -143,6 +143,27 @@ class CaptureStore:
                 );
                 CREATE INDEX IF NOT EXISTS lineage_by_source ON region_lineage(source_region_id, created_utc);
                 CREATE INDEX IF NOT EXISTS lineage_by_result ON region_lineage(result_region_id, created_utc);
+                CREATE TABLE IF NOT EXISTS scene_coverage_revisions (
+                    coverage_id TEXT NOT NULL,
+                    capture_id TEXT NOT NULL REFERENCES captures(id) ON DELETE CASCADE,
+                    revision INTEGER NOT NULL CHECK(revision > 0),
+                    sample_start INTEGER NOT NULL CHECK(sample_start >= 0),
+                    sample_count INTEGER NOT NULL CHECK(sample_count > 0),
+                    frequency_low_hz REAL,
+                    frequency_high_hz REAL,
+                    task TEXT NOT NULL CHECK(task IN ('detection','modulation','protocol','decoder')),
+                    taxonomy_scope_json TEXT NOT NULL,
+                    state TEXT NOT NULL CHECK(state IN ('complete','partial')),
+                    annotation_set_digest TEXT NOT NULL CHECK(length(annotation_set_digest)=64),
+                    ignore_regions_json TEXT NOT NULL,
+                    uncertain_regions_json TEXT NOT NULL,
+                    notes TEXT NOT NULL,
+                    created_utc TEXT NOT NULL,
+                    PRIMARY KEY(coverage_id,revision),
+                    CHECK((frequency_low_hz IS NULL AND frequency_high_hz IS NULL) OR
+                          (frequency_low_hz IS NOT NULL AND frequency_high_hz IS NOT NULL AND frequency_low_hz < frequency_high_hz))
+                );
+                CREATE INDEX IF NOT EXISTS coverage_by_capture ON scene_coverage_revisions(capture_id, coverage_id, revision DESC);
                 CREATE TABLE IF NOT EXISTS mode_registry_entries (
                     id TEXT PRIMARY KEY,
                     display_name TEXT NOT NULL,
@@ -253,7 +274,7 @@ class CaptureStore:
                 ) WHERE geometry_revision IS NULL""")
             if "resulting_revision" not in feedback_columns:
                 db.execute("ALTER TABLE annotation_feedback ADD COLUMN resulting_revision INTEGER")
-            db.execute("PRAGMA user_version = 15")
+            db.execute("PRAGMA user_version = 16")
 
     @staticmethod
     def _sha256(path: Path) -> str:
@@ -472,7 +493,8 @@ class CaptureStore:
             sources.append({
                 "capture_id": capture_id, "capture_sha256": source_hash,
                 "source_kind": capture["source_kind"], "sample_rate": capture["sample_rate"],
-                "region_id": region_id, "geometry_revision": region["geometry_revision"],
+                "region_id": region_id, "label_revision": region["revision"],
+                "geometry_revision": region["geometry_revision"],
                 "sample_start": region["sample_start"], "sample_count": region["sample_count"],
                 "frequency_low_hz": region["frequency_low_hz"], "frequency_high_hz": region["frequency_high_hz"],
                 "evidence_type": evidence_type, "observations": observations.strip(),
@@ -683,6 +705,226 @@ class CaptureStore:
             "source_region_ids": [operation["source_region_ids"][index] for index in sorted(operation["source_region_ids"])],
             "result_region_ids": [operation["result_region_ids"][index] for index in sorted(operation["result_region_ids"])],
         } for operation in operations.values()]
+
+    @staticmethod
+    def _coverage_masks(
+        masks: list[dict[str, Any]], *, coverage_bounds: dict[str, Any],
+        capture_samples: int, sample_rate: int, field_name: str,
+    ) -> list[dict[str, Any]]:
+        if len(masks) > 64:
+            raise ValueError(f"{field_name} cannot contain more than 64 regions")
+        normalized = []
+        for item in masks:
+            bounds = {key: item.get(key) for key in (
+                "sample_start", "sample_count", "frequency_low_hz", "frequency_high_hz",
+            )}
+            if bounds["frequency_low_hz"] is None and bounds["frequency_high_hz"] is None:
+                bounds["frequency_low_hz"] = coverage_bounds["frequency_low_hz"]
+                bounds["frequency_high_hz"] = coverage_bounds["frequency_high_hz"]
+            checked = CaptureStore._validate_lineage_geometry(
+                bounds, capture_samples=capture_samples, sample_rate=sample_rate, parent=coverage_bounds,
+            )
+            reason = item.get("reason", "")
+            if not isinstance(reason, str) or len(reason) > 200:
+                raise ValueError(f"{field_name} reasons must be strings of at most 200 characters")
+            normalized.append({
+                "sample_start": checked[0], "sample_count": checked[1],
+                "frequency_low_hz": checked[2], "frequency_high_hz": checked[3], "reason": reason,
+            })
+        return normalized
+
+    @staticmethod
+    def _validate_coverage_fields(
+        *, taxonomy_scope: list[str], task: str, state: str, notes: str,
+    ) -> None:
+        if task not in {"detection", "modulation", "protocol", "decoder"}:
+            raise ValueError("unsupported scene coverage task")
+        if state not in {"complete", "partial"}:
+            raise ValueError("scene coverage state must be complete or partial")
+        if len(taxonomy_scope) > 32 or any(not isinstance(item, str) or not item.strip() or len(item) > 80 for item in taxonomy_scope):
+            raise ValueError("taxonomy_scope must contain at most 32 non-empty strings of at most 80 characters")
+        if len(notes) > 2000:
+            raise ValueError("scene coverage notes are too long")
+
+    @staticmethod
+    def _annotation_set_digest(
+        db: sqlite3.Connection, capture_id: str, bounds: dict[str, Any],
+    ) -> str:
+        rows = db.execute(
+            """SELECT r.id,l.revision AS label_revision,
+                      g.revision AS geometry_revision,g.sample_start,g.sample_count,
+                      g.frequency_low_hz,g.frequency_high_hz
+               FROM regions r
+               JOIN label_revisions l ON l.region_id=r.id AND l.revision=(
+                   SELECT MAX(revision) FROM label_revisions WHERE region_id=r.id
+               )
+               JOIN region_geometry_revisions g ON g.region_id=r.id AND g.revision=(
+                   SELECT MAX(revision) FROM region_geometry_revisions WHERE region_id=r.id
+               )
+               WHERE r.capture_id=? AND NOT EXISTS(
+                   SELECT 1 FROM region_lineage rl WHERE rl.source_region_id=r.id
+               ) ORDER BY r.id""", (capture_id,)
+        ).fetchall()
+        covered = []
+        coverage_start = bounds["sample_start"]
+        coverage_end = coverage_start + bounds["sample_count"]
+        for row in rows:
+            if row["sample_start"] >= coverage_end or row["sample_start"] + row["sample_count"] <= coverage_start:
+                continue
+            if (
+                bounds["frequency_low_hz"] is not None
+                and row["frequency_low_hz"] is not None
+                and (
+                    row["frequency_low_hz"] >= bounds["frequency_high_hz"]
+                    or row["frequency_high_hz"] <= bounds["frequency_low_hz"]
+                )
+            ):
+                continue
+            covered.append({
+                "region_id": row["id"], "label_revision": row["label_revision"],
+                "geometry_revision": row["geometry_revision"],
+            })
+        canonical = json.dumps(covered, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        return hashlib.sha256(canonical).hexdigest()
+
+    @staticmethod
+    def _coverage_record(row: sqlite3.Row, current_digest: str) -> dict[str, Any]:
+        item = dict(row)
+        item["id"] = item["coverage_id"]
+        item["taxonomy_scope"] = json.loads(item.pop("taxonomy_scope_json"))
+        item["ignore_regions"] = json.loads(item.pop("ignore_regions_json"))
+        item["uncertain_regions"] = json.loads(item.pop("uncertain_regions_json"))
+        item["current_annotation_set_digest"] = current_digest
+        item["is_stale"] = item["annotation_set_digest"] != current_digest
+        return item
+
+    def _insert_scene_coverage(
+        self, db: sqlite3.Connection, *, coverage_id: str, capture_id: str,
+        revision: int, bounds: tuple[int, int, float | None, float | None],
+        task: str, taxonomy_scope: list[str], state: str, annotation_set_digest: str,
+        ignore_regions: list[dict[str, Any]], uncertain_regions: list[dict[str, Any]], notes: str,
+    ) -> sqlite3.Row:
+        created = datetime.now(timezone.utc).isoformat()
+        db.execute(
+            """INSERT INTO scene_coverage_revisions
+               (coverage_id,capture_id,revision,sample_start,sample_count,frequency_low_hz,frequency_high_hz,
+                task,taxonomy_scope_json,state,annotation_set_digest,ignore_regions_json,uncertain_regions_json,notes,created_utc)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (coverage_id,capture_id,revision,*bounds,task,json.dumps(taxonomy_scope,sort_keys=True),state,
+             annotation_set_digest,json.dumps(ignore_regions,sort_keys=True),json.dumps(uncertain_regions,sort_keys=True),notes,created),
+        )
+        return db.execute(
+            "SELECT * FROM scene_coverage_revisions WHERE coverage_id=? AND revision=?", (coverage_id,revision)
+        ).fetchone()
+
+    def create_scene_coverage(
+        self, capture_id: str, *, sample_start: int, sample_count: int,
+        frequency_low_hz: float | None = None, frequency_high_hz: float | None = None,
+        task: str, taxonomy_scope: list[str], state: str,
+        ignore_regions: list[dict[str, Any]] | None = None,
+        uncertain_regions: list[dict[str, Any]] | None = None, notes: str = "",
+    ) -> dict[str, Any]:
+        ignore_regions = ignore_regions or []
+        uncertain_regions = uncertain_regions or []
+        self._validate_coverage_fields(taxonomy_scope=taxonomy_scope, task=task, state=state, notes=notes)
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            capture = db.execute("SELECT sample_count,sample_rate FROM captures WHERE id=?", (capture_id,)).fetchone()
+            if capture is None:
+                raise KeyError(f"unknown capture: {capture_id}")
+            bounds_tuple = self._validate_lineage_geometry(
+                {"sample_start": sample_start, "sample_count": sample_count,
+                 "frequency_low_hz": frequency_low_hz, "frequency_high_hz": frequency_high_hz},
+                capture_samples=capture["sample_count"], sample_rate=capture["sample_rate"],
+            )
+            bounds = dict(zip(("sample_start","sample_count","frequency_low_hz","frequency_high_hz"), bounds_tuple))
+            normalized_ignore = self._coverage_masks(ignore_regions, coverage_bounds=bounds,
+                capture_samples=capture["sample_count"], sample_rate=capture["sample_rate"], field_name="ignore_regions")
+            normalized_uncertain = self._coverage_masks(uncertain_regions, coverage_bounds=bounds,
+                capture_samples=capture["sample_count"], sample_rate=capture["sample_rate"], field_name="uncertain_regions")
+            digest = self._annotation_set_digest(db, capture_id, bounds)
+            coverage_id = str(uuid4())
+            row = self._insert_scene_coverage(db, coverage_id=coverage_id, capture_id=capture_id, revision=1,
+                bounds=bounds_tuple, task=task, taxonomy_scope=taxonomy_scope, state=state,
+                annotation_set_digest=digest, ignore_regions=normalized_ignore,
+                uncertain_regions=normalized_uncertain, notes=notes)
+            return self._coverage_record(row, digest)
+
+    def revise_scene_coverage(
+        self, capture_id: str, coverage_id: str, *, expected_revision: int,
+        sample_start: int, sample_count: int,
+        frequency_low_hz: float | None = None, frequency_high_hz: float | None = None,
+        task: str, taxonomy_scope: list[str], state: str,
+        ignore_regions: list[dict[str, Any]] | None = None,
+        uncertain_regions: list[dict[str, Any]] | None = None, notes: str = "",
+    ) -> dict[str, Any]:
+        ignore_regions = ignore_regions or []
+        uncertain_regions = uncertain_regions or []
+        self._validate_coverage_fields(taxonomy_scope=taxonomy_scope, task=task, state=state, notes=notes)
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            latest_row = db.execute(
+                "SELECT MAX(revision) AS revision FROM scene_coverage_revisions WHERE capture_id=? AND coverage_id=?",
+                (capture_id, coverage_id),
+            ).fetchone()
+            if latest_row is None or latest_row["revision"] is None:
+                raise KeyError(f"unknown scene coverage: {coverage_id}")
+            latest = int(latest_row["revision"])
+            if latest != expected_revision:
+                raise LabelRevisionConflict("scene coverage changed since it was opened; reopen it before editing")
+            capture = db.execute("SELECT sample_count,sample_rate FROM captures WHERE id=?", (capture_id,)).fetchone()
+            if capture is None:
+                raise KeyError(f"unknown capture: {capture_id}")
+            bounds_tuple = self._validate_lineage_geometry(
+                {"sample_start": sample_start, "sample_count": sample_count,
+                 "frequency_low_hz": frequency_low_hz, "frequency_high_hz": frequency_high_hz},
+                capture_samples=capture["sample_count"], sample_rate=capture["sample_rate"],
+            )
+            bounds = dict(zip(("sample_start","sample_count","frequency_low_hz","frequency_high_hz"), bounds_tuple))
+            normalized_ignore = self._coverage_masks(ignore_regions, coverage_bounds=bounds,
+                capture_samples=capture["sample_count"], sample_rate=capture["sample_rate"], field_name="ignore_regions")
+            normalized_uncertain = self._coverage_masks(uncertain_regions, coverage_bounds=bounds,
+                capture_samples=capture["sample_count"], sample_rate=capture["sample_rate"], field_name="uncertain_regions")
+            digest = self._annotation_set_digest(db, capture_id, bounds)
+            row = self._insert_scene_coverage(db, coverage_id=coverage_id, capture_id=capture_id, revision=latest+1,
+                bounds=bounds_tuple, task=task, taxonomy_scope=taxonomy_scope, state=state,
+                annotation_set_digest=digest, ignore_regions=normalized_ignore,
+                uncertain_regions=normalized_uncertain, notes=notes)
+            return self._coverage_record(row, digest)
+
+    def scene_coverages(self, capture_id: str) -> list[dict[str, Any]]:
+        with self._connect() as db:
+            if db.execute("SELECT 1 FROM captures WHERE id=?", (capture_id,)).fetchone() is None:
+                raise KeyError(f"unknown capture: {capture_id}")
+            rows = db.execute(
+                """SELECT * FROM scene_coverage_revisions c
+                   WHERE c.capture_id=? AND c.revision=(
+                       SELECT MAX(revision) FROM scene_coverage_revisions WHERE coverage_id=c.coverage_id
+                   ) ORDER BY c.created_utc,c.coverage_id""", (capture_id,)
+            ).fetchall()
+            result = []
+            for row in rows:
+                bounds = {key: row[key] for key in ("sample_start","sample_count","frequency_low_hz","frequency_high_hz")}
+                current_digest = self._annotation_set_digest(db, capture_id, bounds)
+                result.append(self._coverage_record(row, current_digest))
+        return result
+
+    def scene_coverage_history(self, capture_id: str, coverage_id: str) -> list[dict[str, Any]]:
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT * FROM scene_coverage_revisions WHERE capture_id=? AND coverage_id=? ORDER BY revision",
+                (capture_id, coverage_id),
+            ).fetchall()
+            if not rows:
+                if db.execute("SELECT 1 FROM captures WHERE id=?", (capture_id,)).fetchone() is None:
+                    raise KeyError(f"unknown capture: {capture_id}")
+                raise KeyError(f"unknown scene coverage: {coverage_id}")
+            result = []
+            for row in rows:
+                bounds = {key: row[key] for key in ("sample_start","sample_count","frequency_low_hz","frequency_high_hz")}
+                current_digest = self._annotation_set_digest(db, capture_id, bounds)
+                result.append(self._coverage_record(row, current_digest))
+        return result
 
     @staticmethod
     def _validate_label(label: SignalLabel, additional_modes: list[dict[str, Any]] | None = None) -> None:

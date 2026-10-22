@@ -35,6 +35,9 @@ def test_custom_mode_requires_independent_audio_evidence_and_only_enters_search_
             created = await client.post("/api/mode-proposals", json=proposal)
             assert created.status_code == 201, created.text
             assert created.json()["status"] == "pending"
+            evidence_snapshot = created.json()["evidence_regions"]
+            assert len({item["capture_sha256"] for item in evidence_snapshot}) == 2
+            assert all(item["label_revision"] == 1 and item["geometry_revision"] == 1 and item["sample_count"] > 0 for item in evidence_snapshot)
             assert not (await client.get("/api/modes", params={"q": "EMX1"})).json()["modes"]
             label = await client.post(f"/api/captures/{sources[0]['capture_id']}/regions", json={
                 "sample_start": 200, "sample_count": 500, "mode_id": proposal["id"],
@@ -52,6 +55,8 @@ def test_custom_mode_requires_independent_audio_evidence_and_only_enters_search_
             })
             assert label.status_code == 201, label.text
             assert label.json()["variant"] == "X1"
+            duplicate = await client.post("/api/mode-proposals", json=proposal)
+            assert duplicate.status_code == 422
 
     asyncio.run(run())
 

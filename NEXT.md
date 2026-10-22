@@ -72,7 +72,7 @@ is resizable by pointer or keyboard, remembers its height, and stays within the 
   identity and Not a signal actions. Feedback is append-only and bound to the exact
   label and geometry revisions; wrong identity saves the corrected canonical mode as a new revision,
   not-signal marks the hypothesis rejected, and stale feedback conflicts against both
-  label and geometry revisions. Schema 15 preserves existing labels and geometry;
+  label and geometry revisions. Schema 16 preserves existing labels and geometry;
   unmapped legacy labels are not rewritten.
   Geometry has separate append-only revisions. Selecting an annotation and choosing
   Adjust bounds enables a new waterfall drag; saving appends the new time/frequency
@@ -80,7 +80,16 @@ is resizable by pointer or keyboard, remembers its height, and stays within the 
   uses byte-range responses so browsers can seek to exact sample-indexed regions. Split creates
   child annotations with explicit source/result lineage; merge creates a new unknown
   observation without discarding source labels. Superseded regions remain inspectable
-  but are excluded from further split/merge actions.
+  but are excluded from further split/merge actions. Users can submit new mode proposals
+  from two distinct-hash recordings with exact saved-region citations, observations,
+  rationale, and distinguishing evidence. Proposals stay out of mode search until a
+  reasoned local accept; locally accepted entries use the same taxonomy resolver but
+  are not peer-verified. Scene coverage is append-only and stores an explicit
+  sample/frequency window, task/taxonomy scope, complete/partial state, and bounded
+  ignore/uncertain subregions. Each revision snapshots a digest of overlapping active
+  annotation revisions; GET reports when later label, geometry, split, or merge changes
+  have made that review stale. API and dataset tests cover revisions, stale conflicts,
+  scope bounds, and mask containment; waterfall review controls remain to be wired.
   Output context distinguishes shared Fldigi text, tentative track trials, raw-analysis
   capture/sample ranges and received-image library products. Delayed raw results are
   discarded after source changes. Hover/focus details and collision leader lines keep
@@ -295,10 +304,11 @@ is resizable by pointer or keyboard, remembers its height, and stays within the 
 The staged near-live product sequence is in
 [NEAR_LIVE_PRODUCT_PLAN.md](NEAR_LIVE_PRODUCT_PLAN.md). Canonical mode resolution,
 user-added-missed-signal provenance, revision-bound identity feedback, geometry
-correction and split/merge lineage are implemented locally. Next add scene-completeness
-review, then retained source history and track-aware decoding. Integrated hub validation
-and trusted dataset releases follow; streaming Fldigi catch-up needs a measured
-feasibility gate.
+correction, split/merge lineage, evidence-backed local mode proposals, and the scene
+coverage API are implemented. Next add waterfall scene-review controls and integrate
+coverage/mode/lineage decisions with hub peer review, then add retained source history
+and track-aware decoding. Trusted dataset releases follow; streaming Fldigi catch-up
+needs a measured feasibility gate.
 
 The core GUI overhaul, Linux Compose run path, exact-window replay for saved/live regions
 and isolated accepted-model trials are implemented. Continue with broader isolated Fldigi
@@ -335,12 +345,14 @@ captures.
 Verified: Fldigi 4.2.13 and its XML-RPC method catalog are installed; unit tests
 cover receive-only client semantics, PCM WAV block indexing/normalization and
 synthetic 2-FSK/MFSK metadata, exact symbols/bits and tone frequencies, SQLite
-capture hashes/regions/label history, JSONL export, spectrogram peak detection, upload/region APIs, and Fldigi
-status/catalog/mode/output APIs, WEFAX product import and image delivery. Current full suite: 209 passed, 52 skipped;
-five tests still report teardown errors because `sig-id-fldigi-replay_*` executor threads outlive their tests.
+capture hashes/regions/label history, evidence-backed mode proposals, scene-coverage
+revisions, JSONL export, spectrogram peak detection, upload/region APIs, Fldigi
+status/catalog/mode/output APIs, WEFAX product import and image delivery. Current full
+suite: 211 passed, 52 skipped; five teardown errors remain because `sig-id-fldigi-replay_*` executor threads outlive their tests.
 the opt-in isolated selection audit checks all 169 entries (165 selectable, four unresolved),
-and `node --test tests/test_waterfall_window.mjs`, module syntax validation, headless
-Chromium workflow (including correction, geometry, split and merge), and `git diff --check` pass.
+and `node --test tests/test_*.mjs` (25 passed), module syntax validation, headless
+Chromium workflow (including correction, geometry, split/merge, and submitting and
+locally accepting an evidence-backed mode proposal), and `git diff --check` pass.
 The generic text-backend
 contract is exercised by the Fldigi adapter and trial-runner tests. Deterministic fake-device tests
 exercise WAV writing, capture indexing, API start/status/stop and rolling live

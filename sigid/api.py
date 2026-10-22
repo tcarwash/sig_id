@@ -110,6 +110,35 @@ class RegionMergeCreate(BaseModel):
     expected_geometry_revisions: dict[str, int]
 
 
+class CoverageMask(BaseModel):
+    sample_start: int = Field(ge=0)
+    sample_count: int = Field(gt=0)
+    frequency_low_hz: float | None = Field(default=None, ge=0)
+    frequency_high_hz: float | None = Field(default=None, ge=0)
+    reason: str = Field(default="", max_length=200)
+
+
+class SceneCoverageFields(BaseModel):
+    sample_start: int = Field(ge=0)
+    sample_count: int = Field(gt=0)
+    frequency_low_hz: float | None = Field(default=None, ge=0)
+    frequency_high_hz: float | None = Field(default=None, ge=0)
+    task: Literal["detection", "modulation", "protocol", "decoder"]
+    taxonomy_scope: list[str] = Field(default_factory=list, max_length=32)
+    state: Literal["complete", "partial"]
+    ignore_regions: list[CoverageMask] = Field(default_factory=list, max_length=64)
+    uncertain_regions: list[CoverageMask] = Field(default_factory=list, max_length=64)
+    notes: str = Field(default="", max_length=2000)
+
+
+class SceneCoverageCreate(SceneCoverageFields):
+    pass
+
+
+class SceneCoverageRevision(SceneCoverageFields):
+    expected_revision: int = Field(ge=1)
+
+
 class ModeEvidenceRegion(BaseModel):
     capture_id: str = Field(min_length=1, max_length=80)
     region_id: str = Field(min_length=1, max_length=80)
@@ -1613,6 +1642,44 @@ def create_app(
             )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="capture or region not found") from exc
+        except LabelRevisionConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/api/captures/{capture_id}/coverage")
+    def list_scene_coverage(capture_id: str) -> list[dict[str, Any]]:
+        try:
+            return store.scene_coverages(capture_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="capture not found") from exc
+
+    @app.post("/api/captures/{capture_id}/coverage", status_code=201)
+    def create_scene_coverage(capture_id: str, data: SceneCoverageCreate) -> dict[str, Any]:
+        try:
+            return store.create_scene_coverage(capture_id, **data.model_dump())
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="capture not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/api/captures/{capture_id}/coverage/{coverage_id}/history")
+    def scene_coverage_history(capture_id: str, coverage_id: str) -> list[dict[str, Any]]:
+        try:
+            return store.scene_coverage_history(capture_id, coverage_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="capture or scene coverage not found") from exc
+
+    @app.post("/api/captures/{capture_id}/coverage/{coverage_id}", status_code=201)
+    def revise_scene_coverage(capture_id: str, coverage_id: str, data: SceneCoverageRevision) -> dict[str, Any]:
+        try:
+            values = data.model_dump()
+            expected_revision = values.pop("expected_revision")
+            return store.revise_scene_coverage(
+                capture_id, coverage_id, expected_revision=expected_revision, **values,
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="capture or scene coverage not found") from exc
         except LabelRevisionConflict as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ValueError as exc:

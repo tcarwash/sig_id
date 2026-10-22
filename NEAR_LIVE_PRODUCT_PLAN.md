@@ -1,8 +1,8 @@
 # Near-live decoding and correction-driven collection
 
 Status: staged delivery plan. Canonical modes, revision-bound corrections, geometry
-history, and split/merge lineage now have local implementations; later behaviors remain
-proposed. This refines near-live priorities;
+history, split/merge lineage, and evidence-backed local mode proposals now have local
+implementations; later behaviors remain proposed. This refines near-live priorities;
 IMPLEMENTATION_PLAN.md retains the broader catalog, raw-analysis and release gates.
 DISTRIBUTED_COLLECTION_PLAN.md retains the distributed-data architecture.
 
@@ -42,9 +42,10 @@ Verified by source inspection, not a new performance benchmark:
   Its center-distance matching needs close-neighbor and crossing/drift evaluation.
 - `sigid/decoder_backend.py` provides a minimal text interface, not a sample-stream,
   incremental event, or worker-lifecycle contract.
-- `sigid/dataset.py` stores independently typed family/method/protocol/variant fields.
-  Label validation checks source/review states, not taxonomy compatibility. Geometry
-  is not revisioned alongside labels. Local accepted labels are not peer consensus.
+- `sigid/dataset.py` retains legacy free-form labels alongside the canonical mode
+  registry and local evidence-backed proposals. Locally accepted mode entries and
+  labels are not peer consensus; the user-defined registry still needs remote review
+  and adjudication before treating it as globally shared truth.
 - `sigid/web/mode-candidates.mjs`, `sigid/trials.py`, and capability reports contain
   different mode subsets; a browser shortlist must not become a second taxonomy.
 - The hub is a pilot: authenticated WAV intake, basic audio review, and simple
@@ -376,7 +377,7 @@ detector missed it" marker. Saved detector proposals now offer Yes, Wrong identi
 and Not a signal actions. Feedback is an append-only event bound to the exact label and
 geometry revisions; each action appends a new label revision, corrected mode taxonomy
 is resolved canonically, and stale actions conflict. Existing labels are preserved through schema
-14 migrations; unmapped legacy labels remain as-is. Geometry has its own revision
+16 migrations; unmapped legacy labels remain as-is. Geometry has its own revision
 history; users can drag corrected bounds on the waterfall, save them with optimistic
 concurrency, inspect prior bounds, and discard a draft. Drawn child regions can replace
 a merged proposal through an explicit split; selected active regions can be merged into
@@ -384,11 +385,27 @@ a new unknown observation while preserving their original labels. Superseded par
 remain in history and are excluded from subsequent lineage operations. Browser smoke,
 API, dataset and resolver tests exercise these slices.
 
-Next add scene-completeness review and expose/reconcile geometry/identity/lineage events
-in the hub, then tackle retained source history and near-live worker scheduling. Grow
-the canonical registry deliberately. Prototype streaming Fldigi lifecycle/catch-up
-feasibility only as an isolated benchmark; do not rewrite the scheduler around unmeasured
-backend assumptions.
+Scene coverage now has a local append-only API contract for exact sample/frequency
+windows, task and taxonomy scope, complete/partial review state, and bounded ignore and
+uncertain masks. Every saved revision snapshots the digest of active overlapping label
+and geometry revisions; later annotation or lineage changes make the coverage visibly
+stale rather than silently reusing an obsolete completeness claim. UI scene-review
+controls and hub synchronization remain open.
+
+Users can propose a new mode with a canonical ID, taxonomy, aliases, a written
+identification rationale, distinguishing evidence, and exact saved-region citations
+from at least two different audio hashes. The citations snapshot capture hashes,
+sample/frequency bounds, and geometry revisions. Proposals remain outside mode search
+until a rationale-bearing local review accepts them. Accepted local definitions fill
+taxonomy through the same resolver and persist with a definition-specific version.
+Local acceptance is explicitly not peer verification; the queue has no account
+separation or hub consensus yet.
+
+Next add waterfall scene-review controls and expose/reconcile scene coverage,
+geometry/identity/lineage events, and mode-definition proposals in the hub, then tackle
+retained source history and near-live worker scheduling. Grow the canonical registry
+deliberately. Prototype streaming Fldigi lifecycle/catch-up feasibility only as an
+isolated benchmark; do not rewrite the scheduler around unmeasured backend assumptions.
 
 Do not begin by training a larger model or polishing the hub's deployment alone.
 The critical path is canonical identity -> correctable observations -> retained source
