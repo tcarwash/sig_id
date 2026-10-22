@@ -1,6 +1,7 @@
 import { liveTimeLabels } from "/waterfall-window.mjs";
 import { decodeSpectrumPacket, LiveWaterfall, liveDisplayBounds } from "/live-waterfall.mjs";
 import { createDemodExport, downloadDemodExport } from "/demod-export.mjs";
+import { bytesForBits, framingCandidates, createBitAnnotation } from "/bit-inspector.mjs";
 import { layoutSignalLabels, signalCaption, hitSignal } from "/signal-overlays.mjs";
 
 const el = (id) => document.getElementById(id);
@@ -33,6 +34,62 @@ function storeDemodExport(mode, result, settings) {
   el(DEMOD_EXPORT_BUTTONS[mode]).disabled = false;
   showRawTool(mode);
   showOutput("raw");
+}
+
+function renderRawBitInspector(mode, result) {
+  const output = el(mode === "2fsk" ? "demod-output" : `${mode}-output`);
+  const hypotheses = mode === "bpsk" ? [{ name: "normal", bits: result.bits }, { name: "inverted", bits: result.inverted_bits }]
+    : mode === "qpsk" ? (result.symbol_hypotheses || []).map((item, index) => ({ name: `rotation-${index + 1}`, bits: item.bits }))
+      : [{ name: "bits", bits: result.bits }];
+  const valid = hypotheses.filter((item) => typeof item.bits === "string" && /^[01]+$/.test(item.bits));
+  if (!valid.length) return;
+  const summary = output.textContent;
+  output.replaceChildren();
+  const intro = document.createElement("div"); intro.className = "decoded-text"; intro.textContent = summary; output.append(intro);
+  for (const hypothesis of valid) {
+    const section = document.createElement("section"); section.className = "bit-inspector";
+    const title = document.createElement("h4"); title.textContent = `${hypothesis.name} · ${hypothesis.bits.length} recovered bits`; section.append(title);
+    const flags = framingCandidates(hypothesis.bits);
+    if (flags.length) {
+      const clues = document.createElement("div"); clues.className = "bit-clues";
+      for (const flag of flags) { const clue = document.createElement("span"); clue.textContent = `Possible framing: ${flag.label} at bit ${flag.bit_start} · ${flag.evidence}`; clues.append(clue); }
+      section.append(clues);
+    }
+    const table = document.createElement("div"); table.className = "bit-byte-grid";
+    const cells = bytesForBits(hypothesis.bits);
+    let anchor = null, selected = null;
+    const paint = () => {
+      for (const cell of table.querySelectorAll("[data-bit-start]")) {
+        const start = Number(cell.dataset.bitStart), inSelection = selected && start < selected.end && start + Number(cell.dataset.bitCount) > selected.start;
+        const isFlag = flags.some((flag) => start < flag.bit_start + flag.bit_count && start + Number(cell.dataset.bitCount) > flag.bit_start);
+        cell.classList.toggle("selected", Boolean(inSelection)); cell.classList.toggle("candidate", isFlag);
+      }
+    };
+    for (const cell of cells) {
+      const row = document.createElement("div"); row.className = "bit-byte";
+      row.dataset.bitStart = cell.bit_start; row.dataset.bitCount = cell.bit_count;
+      const offset = document.createElement("span"); offset.className = "bit-offset"; offset.textContent = String(cell.bit_start).padStart(6, "0");
+      const binary = document.createElement("button"); binary.type = "button"; binary.className = "bit-value"; binary.textContent = cell.binary.padEnd(8, "·"); binary.title = `Bits ${cell.bit_start}–${cell.bit_start + cell.bit_count - 1}; click two bytes to select a range`;
+      const hex = document.createElement("span"); hex.className = "bit-hex"; hex.textContent = cell.hex;
+      const ascii = document.createElement("span"); ascii.className = "bit-ascii"; ascii.textContent = cell.ascii;
+      binary.addEventListener("click", () => { if (anchor === null) { anchor = cell.bit_start; selected = { start: anchor, end: anchor + cell.bit_count }; } else { selected = { start: Math.min(anchor, cell.bit_start), end: Math.max(anchor, cell.bit_start) + cell.bit_count }; anchor = null; } paint(); tagButton.disabled = !selected; });
+      row.append(offset, binary, hex, ascii); table.append(row);
+    }
+    const tagForm = document.createElement("form"); tagForm.className = "bit-tag-form";
+    const label = document.createElement("input"); label.placeholder = "Operator interpretation (e.g. likely header)"; label.setAttribute("aria-label", "Operator interpretation");
+    const color = document.createElement("input"); color.type = "color"; color.value = "#f4bf75"; color.setAttribute("aria-label", "Tag color");
+    const tagButton = document.createElement("button"); tagButton.type = "submit"; tagButton.textContent = "Tag selected bits"; tagButton.disabled = true;
+    tagForm.append(label, color, tagButton);
+    tagForm.addEventListener("submit", (event) => {
+      event.preventDefault(); if (!selected || !label.value.trim()) return;
+      const artifact = state.demodExports[mode];
+      artifact.bit_annotations.push(createBitAnnotation({ bit_start: selected.start, bit_count: selected.end - selected.start, label: label.value, color: color.value, hypothesis: hypothesis.name }));
+      const chip = document.createElement("span"); chip.className = "bit-annotation"; chip.style.setProperty("--tag-color", color.value); chip.textContent = `${label.value.trim()} · bits ${selected.start}–${selected.end - 1}`; section.append(chip);
+      for (const row of table.querySelectorAll(".bit-byte")) { const start = Number(row.dataset.bitStart); if (start < selected.end && start + Number(row.dataset.bitCount) > selected.start) row.style.setProperty("--tag-color", color.value); }
+      label.value = "";
+    });
+    section.append(table, tagForm); output.append(section);
+  }
 }
 
 for (const [mode, buttonId] of Object.entries(DEMOD_EXPORT_BUTTONS)) {
@@ -1116,6 +1173,7 @@ el("demod-form").addEventListener("submit", async (event) => {
       ? ` · estimated timing ${result.timing_offset_samples.toFixed(2)} samples (${result.timing_search.phase_count} phases)`
       : ` · timing ${result.timing_offset_samples.toFixed(2)} samples`;
     el("demod-output").textContent = `${result.demodulator} · ${result.symbol_count} symbols${timing} · mean |soft metric| ${confidence.toFixed(3)}\nProtocol: unknown\n\n${groupedBits}`;
+    renderRawBitInspector("2fsk", result);
   } catch (error) {
     if (state.capture !== sourceCapture) return;
     el("demod-output").textContent = `Demodulation failed: ${error.message}`;
@@ -1156,6 +1214,7 @@ el("ook-form").addEventListener("submit", async (event) => {
       ? `estimated ${result.timing_offset_samples.toFixed(2)} samples (${result.timing_search.phase_count} phases)`
       : `${result.timing_offset_samples.toFixed(2)} samples`;
     el("ook-output").textContent = `${result.demodulator} · ${result.symbol_count} symbols · timing ${timing}\nEstimated amplitude 0/1: ${result.estimated_zero_amplitude.toFixed(4)} / ${result.estimated_one_amplitude.toFixed(4)} · level separation ${result.level_separation_score.toFixed(3)}\nProtocol: unknown\n\n${groupedBits}`;
+    renderRawBitInspector("ook", result);
   } catch (error) {
     if (state.capture !== sourceCapture) return;
     el("ook-output").textContent = `Demodulation failed: ${error.message}`;
@@ -1217,6 +1276,7 @@ el("mfsk-form").addEventListener("submit", async (event) => {
       ? ` · estimated timing ${result.timing_offset_samples.toFixed(2)} samples (${result.timing_search.phase_count} phases)`
       : ` · timing ${result.timing_offset_samples.toFixed(2)} samples`;
     el("mfsk-output").textContent = `${result.demodulator} · ${result.tone_count} tones · ${result.symbol_count} symbols · ${rate}${timing} · mean soft confidence ${confidence.toFixed(3)}${bestRates}\nProtocol: unknown\n\nTone indices:\n${groupedSymbols}\n\n${bits}`;
+    renderRawBitInspector("mfsk", result);
   } catch (error) {
     if (state.capture !== sourceCapture) return;
     el("mfsk-output").textContent = `Demodulation failed: ${error.message}`;
@@ -1256,6 +1316,7 @@ el("bpsk-form").addEventListener("submit", async (event) => {
       ? result.soft_metrics.reduce((sum, value) => sum + Math.abs(value), 0) / result.soft_metrics.length
       : 0;
     el("bpsk-output").textContent = `${result.demodulator} · ${result.symbol_count} symbols · mean |soft metric| ${confidence.toFixed(3)}\nPolarity ambiguous: ${result.polarity_ambiguous}\nProtocol: unknown\n\nBit hypothesis A:\n${grouped(result.bits)}\n\nBit hypothesis B (inverted):\n${grouped(result.inverted_bits)}`;
+    renderRawBitInspector("bpsk", result);
   } catch (error) {
     if (state.capture !== sourceCapture) return;
     el("bpsk-output").textContent = `Demodulation failed: ${error.message}`;
@@ -1295,6 +1356,7 @@ el("qpsk-form").addEventListener("submit", async (event) => {
       `Hypothesis ${index + 1} · rotation ${(item.rotation_radians * 180 / Math.PI).toFixed(0)}°\nSymbols: ${item.symbols.join(" ")}\nBits:\n${grouped(item.bits)}`
     ).join("\n\n");
     el("qpsk-output").textContent = `${result.demodulator} · ${result.symbol_count} symbols · absolute rotation unknown\nProtocol: unknown\n\n${hypotheses}`;
+    renderRawBitInspector("qpsk", result);
   } catch (error) {
     if (state.capture !== sourceCapture) return;
     el("qpsk-output").textContent = `Demodulation failed: ${error.message}`;

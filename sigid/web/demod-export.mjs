@@ -21,6 +21,7 @@ export function createDemodExport({ capture, mode, result, settings, createdAt =
     },
     settings: { ...settings },
     result,
+    bit_annotations: [],
   };
 }
 

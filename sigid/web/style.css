@@ -478,6 +478,23 @@ textarea {
     Consolas,
     monospace;
 }
+.bit-inspector { margin: 12px 0; padding-top: 10px; border-top: 1px solid #263746; }
+.bit-inspector h4 { margin: 0 0 8px; color: #a7c6dd; font-size: 11px; }
+.bit-byte-grid { max-height: 280px; overflow: auto; padding: 4px; background: #09121a; border: 1px solid #203140; }
+.bit-byte { display: grid; grid-template-columns: 54px minmax(72px, 1fr) 24px 24px; gap: 8px; align-items: center; width: max-content; min-width: 205px; padding: 1px 4px; border: 1px solid transparent; border-radius: 3px; font: 11px/1.7 ui-monospace, monospace; }
+.bit-offset, .bit-hex { color: #70879b; }
+.bit-value { padding: 0; border: 0; background: transparent; color: #c3edda; text-align: left; font: inherit; cursor: pointer; }
+.bit-ascii { color: #f0d48a; }
+.bit-byte.selected { outline: 1px solid #76b7f2; background: #19344a; }
+.bit-byte.candidate { box-shadow: inset 0 -1px #bd8be3; }
+.bit-byte[style*="--tag-color"] { outline: 1px solid var(--tag-color); }
+.bit-clues { display: flex; flex-wrap: wrap; gap: 5px; margin: 5px 0 9px; }
+.bit-clues span, .bit-annotation { border: 1px solid #bd8be3; border-radius: 4px; padding: 3px 6px; color: #dfc6f4; font-size: 10px; }
+.bit-tag-form { display: flex; gap: 6px; margin-top: 8px; }
+.bit-tag-form input:not([type="color"]) { flex: 1; min-width: 120px; }
+.bit-tag-form input, .bit-tag-form button { font-size: 10px; }
+.bit-tag-form input[type="color"] { width: 34px; padding: 2px; }
+.bit-annotation { display: inline-block; margin: 7px 5px 0 0; border-color: var(--tag-color); color: var(--tag-color); }
 .output-dock {
   height: 180px;
   min-height: 40px;

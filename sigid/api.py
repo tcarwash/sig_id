@@ -1385,6 +1385,10 @@ def create_app(
     def demod_export_module() -> FileResponse:
         return FileResponse(WEB_DIR / "demod-export.mjs", media_type="text/javascript")
 
+    @app.get("/bit-inspector.mjs", include_in_schema=False)
+    def bit_inspector_module() -> FileResponse:
+        return FileResponse(WEB_DIR / "bit-inspector.mjs", media_type="text/javascript")
+
     @app.get("/signal-overlays.mjs", include_in_schema=False)
     def signal_overlays_module() -> FileResponse:
         return FileResponse(WEB_DIR / "signal-overlays.mjs", media_type="text/javascript")

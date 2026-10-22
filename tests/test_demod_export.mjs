@@ -26,6 +26,7 @@ test("demod export retains capture provenance, exact settings, decisions and pro
   assert.deepEqual(artifact.settings, settings);
   assert.deepEqual(artifact.result.symbols, [0, 3, 2]);
   assert.equal(artifact.protocol, null);
+  assert.deepEqual(artifact.bit_annotations, []);
   assert.equal(artifact.created_at, "2026-10-21T00:00:00.000Z");
 });
 

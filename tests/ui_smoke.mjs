@@ -15,7 +15,7 @@ from pathlib import Path
 from sigid.synthetic import generate_2fsk_wav, generate_mfsk_wav, generate_ook_wav, generate_bpsk_wav, generate_qpsk_wav
 p=Path(${JSON.stringify(root)})
 bits='00110110'*32
-generate_2fsk_wav(p/'2fsk.wav',bits,sample_rate=12000,symbol_rate=100,tone_low_hz=1000,tone_high_hz=1200)
+generate_2fsk_wav(p/'2fsk.wav','0110000101111110'+bits,sample_rate=12000,symbol_rate=100,tone_low_hz=1000,tone_high_hz=1200)
 generate_mfsk_wav(p/'mfsk.wav',[0,1,3,2]*64,tone_count=4,symbol_rate=50,base_tone_hz=1000,tone_spacing_hz=200)
 for name,fn in [('ook',generate_ook_wav),('bpsk',generate_bpsk_wav),('qpsk',generate_qpsk_wav)]: fn(p/(name+'.wav'),bits)
 `,
@@ -75,6 +75,15 @@ try {
       (id) => !document.getElementById(id).disabled,
       exportId,
     );
+    if (mode === "2fsk") {
+      assert.ok(await page.locator(".bit-ascii").allTextContents().then((items) => items.includes("a")));
+      assert.match(await page.locator(".bit-clues").textContent(), /HDLC-like flag/);
+      await page.locator(".bit-value").nth(0).click();
+      await page.locator(".bit-value").nth(1).click();
+      await page.locator(".bit-tag-form input[aria-label='Operator interpretation']").fill("likely header");
+      await page.locator(".bit-tag-form button").click();
+      assert.match(await page.locator(".bit-annotation").textContent(), /likely header/);
+    }
     const pending = page.waitForEvent("download");
     await page.locator(`#${exportId}`).click();
     const download = await pending,
@@ -82,6 +91,7 @@ try {
     await download.saveAs(destination);
     const result = JSON.parse(await readFile(destination, "utf8"));
     assert.equal(result.protocol, null);
+    if (mode === "2fsk") assert.equal(result.bit_annotations[0].label, "likely header");
     assert.equal(result.modulation_hypothesis, mode);
     lastCaptureId = result.source_capture.capture_id;
     assert.ok(result.result.symbol_count > 0);

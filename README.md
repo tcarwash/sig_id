@@ -65,7 +65,11 @@ returns both global polarity hypotheses, while QPSK analysis returns four possib
 phase reference. These are protocol-independent symbol/bit observations, not complete
 protocol decoders. Each demodulator can export a JSON artifact containing the capture
 hash, sample bounds, settings, raw decisions, ambiguity/soft metrics and protocol-unknown
-status so a manual analysis can be reproduced or used as training evidence.
+status so a manual analysis can be reproduced or used as training evidence. The raw-bit
+view aligns recovered bytes with printable ASCII. Operators can select byte ranges,
+add colored interpretation tags and include them in the JSON export. Exact `01111110`
+patterns are marked as possible HDLC-like flags; this is only a framing clue, not a
+mode or protocol identification.
 
 ## Run with Docker Compose on Linux
 

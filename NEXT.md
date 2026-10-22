@@ -13,6 +13,14 @@ that region with the selected mode as its variant label. This replay path is nat
 Linux only. Known-message audio round-trips now pass for BPSK31, BPSK63, RTTY, THOR8,
 THOR16, MFSK16, MFSK32, MT63-500S and MT63-1KS.
 
+Latest raw-analysis checkpoint: 2-FSK, OOK, M-FSK, BPSK and QPSK bit hypotheses now
+show byte-aligned binary, hex and printable-ASCII columns. Operators can select byte
+ranges, add colored interpretation tags, and retain those tags in the demodulation
+JSON export. An exact `01111110` pattern is shown as a tentative HDLC-like framing
+clue with its bit offset; this does not identify a protocol or mode. Browser smoke
+validation covers the view, clue, range tag and exported annotation. Tags currently
+live in the export artifact and are not yet persisted as database records.
+
 ## Agreed scope
 
 - Audio-passband waterfall, signal tracking, progressive identification and decoding.
