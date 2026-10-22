@@ -158,14 +158,13 @@ Ship this as soon as the gate passes. No classifier is required for 0.1.
   tentative versus supported output. Cap attempts per signal and per second.
 - The loaded method model now scores bounded two-second snippets for up to four
   strongest live candidates per analysis update. Accepted family proposals move to
-  the top of the candidate list and guide the existing tested-mode trial order;
-  every result retains model hash/sample bounds and remains a proposal. Automatic
-  scheduler policy and real-capture calibration are still open.
-- An explicit live UI opt-in starts a bounded receive-only tested-mode sweep after a
-  track is persistent and the model accepts its method proposal. Abstentions, short
-  snippets and one-off detections cannot start it; output stays tentative. Held-out
-  mixed-scene and real-capture validation remain required before recommending the
-  feature for routine use.
+  the top of the candidate list and guide isolated tested-mode trials; every proposal
+  retains model hash/sample bounds. The explicit UI opt-in starts only after a track is
+  persistent and the model accepts its method. Each trial replays the exact candidate
+  window through separate receive-only Fldigi processes, uses bounded mode order/rate
+  limits, and stores tentative output against its live track. Abstentions, short
+  snippets and one-off detections cannot start it. Held-out mixed-scene and real-capture
+  calibration remain open before recommending routine use.
 - Save identified events automatically with pre-roll; queue unknowns according to
   configurable quotas. Add storage usage and retention controls.
 

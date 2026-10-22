@@ -32,6 +32,15 @@ class FakeReceiveBackend:
         return b""
 
 
+class FakeReplayBackend:
+    def __init__(self):
+        self.modes = []
+
+    def decode(self, wav_path, *, mode, carrier_hz=None):
+        self.modes.append(mode)
+        return {"status": "completed_no_text", "text": "", "note": "No candidate text."}
+
+
 def make_model(path, *, novelty_threshold=100.0):
     feature_count = FEATURE_COUNT_BY_VERSION[FEATURE_VERSION]
     np.savez_compressed(
@@ -167,8 +176,10 @@ def test_classifier_api_fails_open_when_model_is_not_configured(tmp_path):
 def test_live_candidate_gets_bounded_model_proposal_and_model_ranking(tmp_path, monkeypatch):
     model_path = tmp_path / "method.npz"
     make_model(model_path)
+    replay = FakeReplayBackend()
     app = create_app(
-        tmp_path / "data", classifier_model_path=model_path, fldigi_client=FakeReceiveBackend()
+        tmp_path / "data", classifier_model_path=model_path, fldigi_client=FakeReceiveBackend(),
+        fldigi_replay_backend=replay,
     )
     sample_rate = 12_000
     signal_path = tmp_path / "live.wav"
@@ -181,7 +192,9 @@ def test_live_candidate_gets_bounded_model_proposal_and_model_ranking(tmp_path, 
         "window_sample_count": len(samples), "session_id": "live-model-test", "active": True,
     }
     app.state.live_capture.analysis_audio = lambda: snapshot
-    monkeypatch.setattr(app.state.live_capture, "status", lambda: {"active": True})
+    monkeypatch.setattr(app.state.live_capture, "status", lambda: {
+        "active": True, "session_id": "live-model-test",
+    })
     monkeypatch.setattr(
         "sigid.api.detect_tracks",
         lambda spectrum, threshold_db: [
@@ -240,5 +253,15 @@ def test_live_candidate_gets_bounded_model_proposal_and_model_ranking(tmp_path, 
             assert result["automatic_trial"]["status"] == "running"
             assert result["automatic_trial"]["trigger"] == "accepted_model_proposal"
             assert result["automatic_trial"]["current_mode"] == "RTTY"
+            assert result["automatic_trial"]["output_scope"] == "isolated_live_mode_sweep"
+            deadline = asyncio.get_running_loop().time() + 2
+            while asyncio.get_running_loop().time() < deadline:
+                [run] = app.state.capture_store.decoder_runs(session_id="live-model-test")
+                if run["status"] not in {"queued", "running"}:
+                    break
+                await asyncio.sleep(0.01)
+            assert run["status"] == "exhausted"
+            assert run["association"] == "exact_live_track_window"
+            assert replay.modes == ["RTTY", "THOR16", "BPSK31"]
 
     asyncio.run(exercise())

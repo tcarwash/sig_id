@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import os
 import asyncio
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 import logging
 from pathlib import Path
 import tempfile
+import time
 import wave
 from threading import Lock
 from typing import Any
@@ -31,7 +33,7 @@ from .receive_products import ReceiveProductStore
 from .spectrum import waterfall, waterfall_samples
 from .synthetic_dataset import MAX_MANIFEST_BYTES, import_synthetic_wav
 from .tracking import LiveTrackRegistry
-from .trials import FldigiTrialRunner
+from .trials import FldigiTrialRunner, MODULATION_TRIAL_ORDER, VALIDATED_TRIAL_MODES
 from .wav import WavSource
 
 
@@ -90,6 +92,14 @@ class FldigiReplayRequest(BaseModel):
     sample_start: int = Field(ge=0)
     sample_count: int = Field(gt=0, le=192_000 * 600)
     track_id: str | None = Field(default=None, max_length=128)
+    carrier_hz: float | None = Field(default=None, ge=0, le=20000)
+
+
+class FldigiTrackTrialRequest(BaseModel):
+    track_id: str = Field(min_length=1, max_length=128)
+    modulation_hypothesis: str = Field(default="unknown", max_length=80)
+    sample_start: int = Field(ge=0)
+    sample_count: int = Field(gt=0, le=192_000 * 10)
     carrier_hz: float | None = Field(default=None, ge=0, le=20000)
 
 
@@ -280,6 +290,143 @@ def create_app(
 
         run_region_replay(run_id, settings, int(capture["sample_rate"]), read_samples)
 
+    trial_attempted_tracks: dict[str, float] = {}
+    trial_start_times: deque[float] = deque()
+    trial_admission_lock = Lock()
+
+    def run_live_mode_sweep(
+        run_id: str, samples: np.ndarray, sample_rate: int,
+        settings: FldigiTrackTrialRequest, modes: list[str],
+    ) -> None:
+        temporary_audio: Path | None = None
+        attempted: list[str] = []
+        try:
+            temporary = tempfile.NamedTemporaryFile(prefix="sig-id-track-trial-", suffix=".wav", delete=False)
+            temporary_audio = Path(temporary.name)
+            temporary.close()
+            pcm = np.clip(np.rint(samples * 32767.0), -32768, 32767).astype("<i2")
+            with wave.open(str(temporary_audio), "wb") as output:
+                output.setnchannels(1)
+                output.setsampwidth(2)
+                output.setframerate(sample_rate)
+                output.writeframes(pcm.tobytes())
+
+            for mode in modes:
+                attempted.append(mode)
+                app.state.capture_store.update_decoder_run(run_id, {
+                    "attempted_modes": attempted, "current_mode": mode,
+                    "output_offset": 0, "output_end": None, "text": "",
+                    "status": "running",
+                    "note": f"Replaying the exact live track window in isolated {mode} receive mode.",
+                })
+                result = fldigi_replay.decode(
+                    temporary_audio, mode=mode, carrier_hz=settings.carrier_hz,
+                )
+                text = str(result.get("text", ""))
+                if text:
+                    app.state.capture_store.update_decoder_run(run_id, {
+                        "attempted_modes": attempted, "current_mode": mode,
+                        "output_offset": 0, "output_end": len(text.encode("utf-8")), "text": text,
+                        "status": "tentative_output",
+                        "note": f"{mode} produced text from the selected track window. Review it; this is not a protocol identification.",
+                    })
+                    return
+            app.state.capture_store.update_decoder_run(run_id, {
+                "attempted_modes": attempted, "current_mode": attempted[-1] if attempted else None,
+                "output_offset": 0, "output_end": 0, "text": "",
+                "status": "exhausted",
+                "note": "No text was recovered by the bounded isolated tested-mode sweep.",
+            })
+        except Exception as exc:
+            logging.getLogger(__name__).exception("Isolated live track mode sweep failed")
+            try:
+                app.state.capture_store.update_decoder_run(run_id, {
+                    "attempted_modes": attempted, "current_mode": attempted[-1] if attempted else None,
+                    "output_offset": 0, "output_end": None, "text": "",
+                    "status": "failed", "note": str(exc)[:2000],
+                })
+            except Exception:
+                logging.getLogger(__name__).exception("Could not persist isolated mode-sweep failure")
+        finally:
+            if temporary_audio is not None:
+                temporary_audio.unlink(missing_ok=True)
+            decode_job_lock.release()
+
+    def queue_live_mode_sweep(
+        session_id: str, settings: FldigiTrackTrialRequest,
+    ) -> dict[str, Any]:
+        status = live_capture.status()
+        if not status.get("active") or status.get("session_id") != session_id:
+            raise ValueError("live capture session is no longer active")
+        if not settings.track_id.startswith(f"{session_id}:"):
+            raise ValueError("track_id does not belong to the live capture session")
+        snapshot = live_capture.analysis_audio()
+        if snapshot is None or snapshot.get("session_id") != session_id:
+            raise ValueError("live audio window is unavailable")
+        window_start = int(snapshot["sample_offset"])
+        window_end = window_start + int(snapshot["window_sample_count"])
+        requested_end = settings.sample_start + settings.sample_count
+        if settings.sample_start < window_start or requested_end > window_end:
+            raise ValueError(f"selected samples are no longer in the live buffer ({window_start}–{window_end})")
+        try:
+            catalog = set(fldigi.mode_names())
+        except Exception as exc:
+            raise RuntimeError(f"Fldigi mode catalog unavailable: {exc}") from exc
+        proposed = MODULATION_TRIAL_ORDER.get(settings.modulation_hypothesis, VALIDATED_TRIAL_MODES)
+        modes = [mode for mode in proposed if mode in catalog]
+        if not modes:
+            raise ValueError("no loopback-tested trial modes are present in the Fldigi catalog")
+
+        channels = int(snapshot["channels"])
+        pcm = np.frombuffer(snapshot["pcm"], dtype="<i2").reshape(-1, channels)
+        left, right = settings.sample_start - window_start, requested_end - window_start
+        samples = pcm[left:right].astype(np.float64).mean(axis=1) / 32768.0
+        now = time.monotonic()
+        with trial_admission_lock:
+            while trial_start_times and now - trial_start_times[0] >= 60.0:
+                trial_start_times.popleft()
+            if settings.track_id in trial_attempted_tracks:
+                raise ValueError("this live track has already had an isolated mode sweep")
+            if len(trial_start_times) >= 6:
+                raise ValueError("isolated live mode-sweep rate limit reached")
+            if not decode_job_lock.acquire(blocking=False):
+                raise ValueError("an isolated Fldigi replay is already running")
+            trial_attempted_tracks[settings.track_id] = now
+            trial_start_times.append(now)
+            if len(trial_attempted_tracks) > 1024:
+                oldest = next(iter(trial_attempted_tracks))
+                del trial_attempted_tracks[oldest]
+
+        try:
+            run_id = store.create_decoder_run(
+                session_id=session_id, track_id=settings.track_id,
+                sample_start=settings.sample_start, sample_count=settings.sample_count,
+                sample_rate=int(snapshot["sample_rate"]),
+                modulation_hypothesis=settings.modulation_hypothesis,
+                backend="fldigi-isolated-track-sweep", modes=modes, attempted_modes=[],
+                current_mode=modes[0], output_offset=0, status="queued",
+                note="Waiting to run the bounded isolated tested-mode sweep on this live track window.",
+                output_scope="isolated_live_mode_sweep", association="exact_live_track_window",
+            )
+            decode_executor.submit(
+                run_live_mode_sweep, run_id, samples, int(snapshot["sample_rate"]), settings, modes,
+            )
+            return {
+                "run_id": run_id, "session_id": session_id, "track_id": settings.track_id,
+                "status": "running", "modes": modes, "current_mode": modes[0],
+                "output_offset": 0, "output_scope": "isolated_live_mode_sweep",
+                "note": "Isolated track-window mode sweep queued.",
+            }
+        except Exception:
+            decode_job_lock.release()
+            with trial_admission_lock:
+                trial_attempted_tracks.pop(settings.track_id, None)
+                try:
+                    trial_start_times.remove(now)
+                except ValueError:
+                    pass
+            raise
+
     @app.get("/api/health")
     def health() -> dict[str, str]:
         return {"status": "ok", "release": "0.1"}
@@ -453,18 +600,20 @@ def create_app(
                     ):
                         continue
                     try:
-                        automatic_trial = app.state.fldigi_trials.start(
+                        hypothesis = {
+                            "FSK": "FSK-like",
+                            "MFSK": "MFSK-like",
+                            "PSK": "single-tone / unknown",
+                        }.get(proposal["family"], proposal["family"])
+                        automatic_trial = queue_live_mode_sweep(
+                            snapshot["session_id"],
+                            FldigiTrackTrialRequest(
                             track_id=track["track_id"],
-                            modulation_hypothesis={
-                                "FSK": "FSK-like",
-                                "MFSK": "MFSK-like",
-                                "PSK": "single-tone / unknown",
-                            }.get(proposal["family"], proposal["family"]),
-                            live=True,
-                            session_id=snapshot["session_id"],
-                            sample_start=int(track["sample_start"]),
-                            sample_count=int(track["sample_count"]),
-                            sample_rate=int(snapshot["sample_rate"]),
+                                modulation_hypothesis=hypothesis,
+                                sample_start=int(proposal.get("sample_start", track["sample_start"])),
+                                sample_count=int(proposal.get("sample_count", track["sample_count"])),
+                                carrier_hz=float(track["center_hz"]),
+                            ),
                         )
                         automatic_trial["trigger"] = "accepted_model_proposal"
                         track["decoder_trial"] = {
@@ -655,6 +804,17 @@ def create_app(
         except Exception as exc:
             decode_job_lock.release()
             raise HTTPException(status_code=503, detail=f"could not queue live track replay: {exc}") from exc
+
+    @app.post("/api/live/sessions/{session_id}/decode-trials", status_code=202)
+    def start_isolated_live_trial(session_id: str, settings: FldigiTrackTrialRequest) -> dict[str, Any]:
+        try:
+            return queue_live_mode_sweep(session_id, settings)
+        except ValueError as exc:
+            reason = str(exc)
+            conflict = any(token in reason for token in ("no longer active", "already had", "already running", "rate limit"))
+            raise HTTPException(status_code=409 if conflict else 422, detail=reason) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     @app.post("/api/captures/{capture_id}/decode", status_code=202)
     def replay_capture_region(capture_id: str, settings: FldigiReplayRequest) -> dict[str, Any]:

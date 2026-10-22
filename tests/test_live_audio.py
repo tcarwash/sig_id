@@ -10,6 +10,7 @@ import httpx
 from sigid.api import create_app
 from sigid.dataset import CaptureStore
 from sigid.live_audio import LiveCaptureManager
+from sigid.tracking import LiveTrackRegistry
 
 
 class FakeAudio:
@@ -84,6 +85,20 @@ class FakeReplay:
             assert wav.getnchannels() == 1
             assert wav.getframerate() == 8000
         return {"status": "completed", "text": "LIVE TRACK TEXT", "note": f"Decoded {mode}."}
+
+
+class FakeSweepReplay:
+    def __init__(self):
+        self.modes = []
+        self.frames = None
+
+    def decode(self, wav_path, *, mode, carrier_hz=None):
+        self.modes.append(mode)
+        with wave.open(str(wav_path), "rb") as wav:
+            self.frames = wav.getnframes()
+        if mode == "RTTY":
+            return {"status": "completed", "text": "SWEEP FOUND TEXT", "note": "Mode decoded."}
+        return {"status": "completed_no_text", "text": "", "note": "No text."}
 
 
 def test_live_capture_writes_wav_and_registers_capture(tmp_path):
@@ -248,6 +263,106 @@ def test_live_track_replay_uses_exact_buffered_samples_and_links_when_stopped(tm
             )).json()
             assert saved_run["id"] == run_id
             assert saved_run["association"] == "exact_live_track_window"
+
+    asyncio.run(exercise())
+
+
+def test_live_mode_sweep_uses_isolated_audio_in_candidate_order(tmp_path):
+    replay = FakeSweepReplay()
+    app = create_app(
+        tmp_path / "app-data", audio_backend=FakeAudio(), fldigi_client=FakeFldigi(),
+        fldigi_replay_backend=replay,
+    )
+
+    async def exercise():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            started = await client.post("/api/live/start", json={"device_id": 1, "sample_rate": 8000})
+            session_id = started.json()["session_id"]
+            response = await client.post(
+                f"/api/live/sessions/{session_id}/decode-trials",
+                json={"track_id": f"{session_id}:0001", "modulation_hypothesis": "FSK-like",
+                      "sample_start": 32, "sample_count": 640, "carrier_hz": 1100},
+            )
+            assert response.status_code == 202, response.text
+            run_id = response.json()["run_id"]
+            duplicate = await client.post(
+                f"/api/live/sessions/{session_id}/decode-trials",
+                json={"track_id": f"{session_id}:0001", "modulation_hypothesis": "FSK-like",
+                      "sample_start": 32, "sample_count": 640, "carrier_hz": 1100},
+            )
+            assert duplicate.status_code == 409
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                [run] = (await client.get(f"/api/live/sessions/{session_id}/decode-runs")).json()
+                if run["status"] not in {"queued", "running"}:
+                    break
+                await asyncio.sleep(0.01)
+            assert run["id"] == run_id
+            assert run["status"] == "tentative_output"
+            assert run["output_text"] == "SWEEP FOUND TEXT"
+            assert run["modes"] == ["RTTY", "THOR16", "BPSK31"]
+            assert run["attempted_modes"] == ["RTTY"]
+            assert replay.modes == ["RTTY"]
+            assert replay.frames == 640
+            assert run["output_scope"] == "isolated_live_mode_sweep"
+            assert run["association"] == "exact_live_track_window"
+            stopped = await client.post("/api/live/stop")
+            assert stopped.status_code == 200
+            [saved] = (await client.get(
+                f"/api/captures/{stopped.json()['capture']['id']}/decode-runs"
+            )).json()
+            assert saved["id"] == run_id
+
+    asyncio.run(exercise())
+
+
+def test_accepted_persistent_model_candidate_starts_isolated_sweep(tmp_path, monkeypatch):
+    replay = FakeSweepReplay()
+    monkeypatch.setattr("sigid.api.detect_tracks", lambda spectrum, threshold_db: [{
+        "id": "track-001", "sample_start": 0, "sample_count": spectrum["sample_count"],
+        "center_hz": 1000.0, "bandwidth_hz": 200.0, "peak_snr_db": 20.0, "protocol": None,
+    }])
+    monkeypatch.setattr("sigid.api.extract_features", lambda *args, **kwargs: {})
+    monkeypatch.setattr("sigid.api.propose", lambda *args, **kwargs: {
+        "abstained": False, "family": "FSK", "method": "FSK", "confidence": 0.99,
+    })
+    app = create_app(
+        tmp_path / "app-data", audio_backend=FakeAudio(), fldigi_client=FakeFldigi(),
+        fldigi_replay_backend=replay,
+    )
+    app.state.classifier = {
+        "metadata": {
+            "feature_version": "test", "classes": ["FSK"],
+            "abstention_threshold": 0.5, "family_abstention_threshold": 0.5,
+            "model_sha256": "test-model",
+        },
+        "parameters": {},
+    }
+
+    async def exercise():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            started = await client.post("/api/live/start", json={"device_id": 1, "sample_rate": 8000})
+            session_id = started.json()["session_id"]
+            app.state.live_track_registry = LiveTrackRegistry(session_id, confirmation_observations=1)
+            analysis = await client.get("/api/live/analysis", params={
+                "fft_size": 64, "hop_size": 16, "auto_trial": "true", "include_spectrum": "false",
+            })
+            assert analysis.status_code == 200, analysis.text
+            trial = analysis.json()["automatic_trial"]
+            assert trial["trigger"] == "accepted_model_proposal"
+            assert trial["run_id"]
+            assert trial["output_scope"] == "isolated_live_mode_sweep"
+            [run] = (await client.get(f"/api/live/sessions/{session_id}/decode-runs")).json()
+            assert run["track_id"] == analysis.json()["tracks"][0]["track_id"]
+            assert run["sample_start"] == 0
+            assert run["sample_count"] == 1024
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline and run["status"] in {"queued", "running"}:
+                await asyncio.sleep(0.01)
+                [run] = (await client.get(f"/api/live/sessions/{session_id}/decode-runs")).json()
+            assert run["status"] == "tentative_output"
+            assert run["output_text"] == "SWEEP FOUND TEXT"
+            await client.post("/api/live/stop")
 
     asyncio.run(exercise())
 

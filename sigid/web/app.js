@@ -12,8 +12,8 @@ let spectrumPoll = null;
 let liveDisplay = null;
 let fldigiPoll = null;
 let fldigiOffset = null;
-let trialPoll = null;
 let watchedTrialTrack = null;
+let isolatedTrialActive = false;
 
 const DEMOD_EXPORT_BUTTONS = {
   "2fsk": "demod-export-2fsk",
@@ -125,7 +125,7 @@ el("fldigi-check-wefax").addEventListener("click", async () => {
 });
 
 async function pollFldigiOutput() {
-  if (trialPoll) return;
+  if (isolatedTrialActive) return;
   const generation = state.outputGeneration;
   try {
     if (fldigiOffset === null) {
@@ -151,46 +151,25 @@ async function pollFldigiOutput() {
 }
 
 function watchDecoderTrial(result) {
-  if (trialPoll || watchedTrialTrack === result.track_id) return;
+  if (!result.run_id || watchedTrialTrack === result.track_id) return;
   watchedTrialTrack = result.track_id;
-  const generation = state.outputGeneration;
   state.decoderTrial = {track_id:result.track_id,status:result.status,mode:result.current_mode,run_id:result.run_id};
-  state.textOutputContext = `Saved receive run ${result.run_id?.slice(0,8) || "pending"} · track ${result.track_id} · tentative · shared audio input`;
+  state.textOutputContext = `Isolated mode sweep ${result.run_id.slice(0,8)} · track ${result.track_id} · tentative`;
   updateOutputContext();
-  fldigiOffset = result.output_offset;
-  el("fldigi-status").textContent = `Trying ${result.current_mode} for ${result.track_id} · receive only · audio routing is external`;
-  el("decoded-text").textContent = `Automatic receive trial: ${result.current_mode}\nTentative only · waiting ${result.note}`;
-  trialPoll = setInterval(async () => {
-    try {
-      const trial = await request("/api/fldigi/trials/current");
-      if (generation !== state.outputGeneration) return;
-      state.decoderTrial = {track_id:trial.track_id,status:trial.status,mode:trial.current_mode,run_id:trial.run_id};
-      if (!state.frozen) renderSignalLabels();
-      el("fldigi-status").textContent = `${trial.status} · ${trial.attempted_modes.join(" → ")} · ${trial.note}`;
-      if (trial.status === "tentative_output") {
-        el("decoded-text").textContent = `TENTATIVE · ${trial.current_mode}\n${trial.text}`;
-        fldigiOffset = trial.output_end ?? fldigiOffset;
-      } else if (trial.status !== "running") {
-        el("decoded-text").textContent = `${trial.status.toUpperCase()} · ${trial.current_mode || "no mode"}\n${trial.note}`;
-        if (trialPoll) clearInterval(trialPoll);
-        trialPoll = null;
-        pollFldigiOutput();
-      }
-    } catch (error) {
-      el("fldigi-status").textContent = `Automatic trial stopped · ${error.message}`;
-      if (trialPoll) clearInterval(trialPoll);
-      trialPoll = null;
-    }
-  }, 1000);
+  el("fldigi-status").textContent = `Trying isolated tested modes for ${result.track_id} · exact live sample window`;
+  el("decoded-text").textContent = `Isolated receive trial: ${result.current_mode}\nTentative only · ${result.note}`;
+  isolatedTrialActive = true;
+  pollLiveDecodeRun(result.session_id || state.liveSessionId, result.run_id);
 }
 
 async function startDecoderTrial(track) {
   if (!track.track_id || !state.liveView) return;
   try {
-    const result = await request("/api/fldigi/trials/start", {
+    const result = await request(`/api/live/sessions/${encodeURIComponent(state.liveSessionId)}/decode-trials`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         track_id: track.track_id,
+        carrier_hz: track.center_hz,
         sample_start: track.sample_start,
         sample_count: track.sample_count,
         modulation_hypothesis: track.model_proposal?.available && !track.model_proposal.abstained
@@ -245,6 +224,14 @@ async function pollLiveDecodeRun(sessionId, runId) {
       state.decodeRuns = runs;
       renderDecodeRuns();
       const run = runs.find((item) => item.id === runId);
+      if (run) {
+        state.decoderTrial = {
+          track_id: run.track_id, status: run.status,
+          mode: run.current_mode, run_id: run.id,
+        };
+        el("fldigi-status").textContent = `${run.status} · ${run.attempted_modes.join(" → ")} · ${run.note}`;
+        if (!state.frozen) renderSignalLabels();
+      }
       if (run && !["queued", "running"].includes(run.status)) {
         el("replay-status").textContent = `${run.status.toUpperCase()} · ${run.current_mode} · ${run.note}`;
         if (run.output_text) {
@@ -464,7 +451,7 @@ el("live-start").addEventListener("click", async () => {
         const autoTrial = el("auto-trial").checked;
         const analysis = await request(`/api/live/analysis?fft_size=4096&hop_size=512&max_rows=640&include_spectrum=false&auto_trial=${autoTrial}`);
         if (generation !== state.liveGeneration || !state.liveView) return;
-        if (analysis.automatic_trial?.status === "running") watchDecoderTrial(analysis.automatic_trial);
+        if (analysis.automatic_trial?.run_id) watchDecoderTrial(analysis.automatic_trial);
         if (state.frozen) return;
         if (analysis.warming_up) {
           el("waterfall-state").textContent = `Collecting analysis window · ${analysis.window_sample_count.toLocaleString()} samples`;
@@ -1413,8 +1400,7 @@ function resetOutputSession() {
   }
   showOutput("text");
   el("output-context").textContent = "Shared Fldigi output · audio route external";
-  if (trialPoll) clearInterval(trialPoll);
-  trialPoll = null;
+  isolatedTrialActive = false;
   watchedTrialTrack = null;
   state.selectedTrack = null;
   state.frozen = false;

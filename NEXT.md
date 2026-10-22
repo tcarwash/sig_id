@@ -55,11 +55,13 @@ Linux only. A known-message audio round-trip now passes for BPSK31, RTTY and THO
   changes the operator's running Fldigi instance. The label action remains explicit and
   saves the selected mode as the region variant. RF-free tests verify known-message
   round-trips in BPSK31, RTTY and THOR16.
-- While recording, the inspector can replay a selected live candidate's exact sample
-  window using an isolated Fldigi process. It rejects a window that has expired from the
-  ten-second live analysis buffer, persists the exact session/track bounds, and links
-  the run to the saved capture on Stop. API and headless-browser checks cover this path.
-  The separate automatic tested-mode sweep still reads the shared external Fldigi input.
+- While recording, the inspector and accepted-model scheduler can replay a selected
+  live candidate's exact sample window using isolated Fldigi processes. The bounded
+  tested-mode sweep tries up to three modes in hypothesis order and stops at the first
+  tentative text result. It rejects a window that expired from the ten-second live
+  analysis buffer, suppresses duplicate track attempts, enforces a six-starts-per-minute
+  limit, persists exact session/track bounds and links the run to the saved capture on
+  Stop. API and headless-browser checks cover manual and automatic scheduling.
 - Graceful application shutdown finalizes an outstanding capture. Writer faults retain
   completed audio blocks and mark the indexed recording partial; metadata-index failures
   retain the readable WAV and report its path. Input close failures still drain the
@@ -198,15 +200,17 @@ Linux only. A known-message audio round-trip now passes for BPSK31, RTTY and THO
   and incremental text output; Fldigi implements it, and the bounded trial runner
   now depends on that contract. Fldigi remains the only implemented protocol
   decoder backend; the contract does not itself add mode coverage.
-- Live provisional candidates can start a bounded Fldigi receive trial across up to
-  three loopback-tested modes, with six-second dwell periods, per-track duplicate
-  suppression and a six-starts-per-minute limit. New receive text stops the sweep as
-  tentative output; trials require an active live capture and external audio routing.
-- Receive trials are now durable records. Each run retains its live session, candidate
-  track ID, captured sample window, sample rate, attempted modes, output offsets, text,
-  and final state. Stopping a recording links those runs to its saved capture; reopening
-  the capture lets the operator review the output. Records explicitly mark Fldigi's
-  input as shared and the track link as tentative because the audio path is not isolated.
+- The selected live-candidate trial action now replays its exact sample window through
+  separate isolated Fldigi receive instances, trying up to three loopback-tested modes
+  in hypothesis order and stopping at the first tentative text result. It rejects stale
+  ring-buffer intervals, suppresses per-track duplicates and limits work to six sweeps
+  per minute. Accepted-model automatic trials use the same path after a track persists.
+- Receive trials are durable records. Each isolated run retains its live session,
+  candidate track ID, exact sample window, sample rate, attempted modes, output text and
+  final state. Stopping a recording links those runs to the saved capture; reopening it
+  lets the operator review output alongside the explicit `isolated_live_mode_sweep`
+  scope and `exact_live_track_window` association. A legacy direct shared-input trial
+  route remains separately marked as tentative.
 - Provisional automatic candidates from persistent spectral peaks, shown as amber
   dashed waterfall overlays with frequency/time, tone-count hypothesis, occupancy
   and peak SNR. Saved-capture track analysis adapts FFT size to sample rate and
@@ -238,13 +242,11 @@ Linux only. A known-message audio round-trip now passes for BPSK31, RTTY and THO
 
 ## Next action
 
-The core GUI overhaul, Linux Compose run path, and exact-window replay for selected
-saved and live regions are implemented. Next route accepted-model automatic trials
-through the isolated live-window worker; the existing automatic tested-mode sweep still
-uses the shared external Fldigi input. Continue broad Fldigi decode fixtures after that.
-Keep unresolved catalog modes, remote capture agent, job/review workflows, quotas and
-prolonged hardware/resource soak on the 1.0 gate. The classifier's clean-source coverage
-weakness also remains open, as detailed below.
+The core GUI overhaul, Linux Compose run path, exact-window replay for saved/live regions
+and isolated accepted-model trials are implemented. Continue with broader isolated Fldigi
+decode fixtures and per-mode capability evidence, then address unresolved catalog modes,
+remote capture, job/review workflows, quotas and prolonged resource soak on the 1.0 gate.
+The classifier's clean-source coverage weakness also remains open, as detailed below.
 
 The reproducible historical multi-ASK calibration/evaluation report is saved at
 `reports/ask-ood-benchmark-2026-10-21.json`, with generation and training commands in
@@ -276,7 +278,7 @@ Verified: Fldigi 4.2.13 and its XML-RPC method catalog are installed; unit tests
 cover receive-only client semantics, PCM WAV block indexing/normalization and
 synthetic 2-FSK/MFSK metadata, exact symbols/bits and tone frequencies, SQLite
 capture hashes/regions/label history, JSONL export, spectrogram peak detection, upload/region APIs, and Fldigi
-status/catalog/mode/output APIs, WEFAX product import and image delivery. Current full suite: 181 passed, 10 skipped;
+status/catalog/mode/output APIs, WEFAX product import and image delivery. Current full suite: 183 passed, 10 skipped;
 the opt-in isolated selection audit checks all 169 entries (165 selectable, four unresolved),
 and `node --test tests/test_waterfall_window.mjs`, module syntax validation, headless
 Chromium loading, and `git diff --check` pass. The generic text-backend

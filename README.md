@@ -36,12 +36,13 @@ through temporary virtual audio into the workbench API. Routing actual radio inp
 to Fldigi remains an external setup and is not yet validated. The workbench also
 offers bounded Fldigi mode trials for live candidates. The “Auto-try accepted model IDs”
 checkbox opts into starting a sweep only after a track persists and the loaded model
-accepts a method; abstentions never start trials. Mode changes are receive-only and
-recovered text remains tentative until reviewed. In the inspector, a selected live
-track can also be replayed in one chosen mode from its exact sample window in the
-bounded live buffer; stale windows are rejected and the output is attached to the live
-session, then linked to the saved capture when recording stops. This uses a separate
-Fldigi process. Saved recordings let you select a region and replay it through the same
+accepts a method; abstentions never start trials. Automatic and manual live-track
+sweeps replay the candidate's exact buffered samples through isolated Fldigi instances,
+trying up to three tested modes. Recovered text stays tentative until reviewed. In the
+inspector, a selected live track can also be replayed in one chosen mode from its exact
+sample window in the bounded live buffer; stale windows are rejected and output is
+attached to the live session, then linked to the saved capture when recording stops.
+Saved recordings let you select a region and replay it through the same
 temporary PulseAudio/PipeWire loopback. The selected mode's output is stored with the exact
 capture window. “Tag region as selected mode” saves a human-reviewed label as a
 separate explicit action. This native-host feature requires Fldigi, its configured

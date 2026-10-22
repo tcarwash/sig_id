@@ -242,6 +242,7 @@ try {
       );
       if (rate === 48000) {
         let liveReplayRequest = null;
+        let liveSweepRequest = null;
         let liveReplaySession = null;
         await page.route("**/api/live/analysis*", async (route) => {
           const status = await (await page.request.get(new URL("/api/live", page.url()).href)).json();
@@ -268,14 +269,32 @@ try {
           liveReplayRequest = JSON.parse(route.request().postData());
           await route.fulfill({ status: 202, json: { run_id: "live-replay-01", status: "queued", mode: "RTTY" } });
         });
+        await page.route("**/api/live/sessions/*/decode-trials", async (route) => {
+          liveSweepRequest = JSON.parse(route.request().postData());
+          await route.fulfill({ status: 202, json: {
+            run_id: "live-trial-01", session_id: liveReplaySession,
+            track_id: liveSweepRequest.track_id, status: "running",
+            modes: ["RTTY", "THOR16", "BPSK31"], current_mode: "RTTY",
+            note: "Isolated sweep queued.",
+          } });
+        });
         await page.route("**/api/live/sessions/*/decode-runs", async (route) => {
           await route.fulfill({ json: [{
             id: "live-replay-01", track_id: `${liveReplaySession}:ui-track`,
             sample_start: liveReplayRequest?.sample_start ?? 0,
             sample_count: liveReplayRequest?.sample_count ?? 1,
             sample_rate: rate, current_mode: "RTTY", status: "completed",
+            attempted_modes: ["RTTY"], modes: ["RTTY"],
             note: "Isolated live track replay finished.", output_text: "LIVE TRACK TEXT",
             output_scope: "isolated_live_window_replay", association: "exact_live_track_window",
+          }, {
+            id: "live-trial-01", track_id: liveSweepRequest?.track_id || `${liveReplaySession}:ui-track`,
+            sample_start: liveSweepRequest?.sample_start ?? 0,
+            sample_count: liveSweepRequest?.sample_count ?? 1,
+            sample_rate: rate, current_mode: "RTTY", status: "tentative_output",
+            attempted_modes: ["RTTY"], modes: ["RTTY", "THOR16", "BPSK31"],
+            note: "RTTY recovered text; review it.", output_text: "ISOLATED SWEEP TEXT",
+            output_scope: "isolated_live_mode_sweep", association: "exact_live_track_window",
           }] });
         });
         await page.waitForTimeout(1100);
@@ -289,6 +308,12 @@ try {
         assert.ok(liveReplayRequest.sample_count > 0);
         assert.match(await page.locator("#decoded-text").textContent(), /LIVE TRACK TEXT/);
         assert.equal(liveReplaySession, (await page.request.get(new URL("/api/live", page.url()).href).then(response => response.json())).session_id);
+        await page.locator('[data-inspector-tab="signals"]').click();
+        await page.locator("#track-list").getByRole("button", { name: "Try tested modes" }).first().click();
+        await page.waitForFunction(() => document.getElementById("fldigi-status").textContent.includes("tentative_output"));
+        assert.equal(liveSweepRequest.track_id, `${liveReplaySession}:ui-track`);
+        assert.equal(liveSweepRequest.modulation_hypothesis, "FSK-like");
+        assert.match(await page.locator("#decoded-text").textContent(), /ISOLATED SWEEP TEXT/);
       }
       assert.equal(await page.locator("#time-start").textContent(), "Now");
       assert.equal(await page.locator("#time-end").textContent(), "−30 s");
