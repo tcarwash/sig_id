@@ -6,7 +6,7 @@ import { narrowKnownModes } from "/mode-candidates.mjs";
 import { layoutSignalLabels, signalCaption, hitSignal } from "/signal-overlays.mjs";
 
 const el = (id) => document.getElementById(id);
-const state = { capture: null, waterfall: null, drag: null, selection: null, regions: [], tracks: [], bitAnnotations: [], liveView: false, liveSessionId: null, modelAvailable: false, view: null, demodExports: {}, selectedTrack: null, frozen: false };
+const state = { capture: null, waterfall: null, drag: null, selection: null, regions: [], tracks: [], bitAnnotations: [], protocolStencils: [], liveView: false, liveSessionId: null, modelAvailable: false, view: null, demodExports: {}, selectedTrack: null, frozen: false };
 const baseCanvas = el("waterfall");
 const overlayCanvas = el("overlay");
 let livePoll = null;
@@ -62,7 +62,7 @@ function renderRawBitInspector(mode, result) {
   for (const hypothesis of valid) {
     const section = document.createElement("section"); section.className = "bit-inspector";
     const title = document.createElement("h4"); title.textContent = `${hypothesis.name} · ${hypothesis.bits.length} recovered bits`; section.append(title);
-    const flags = framingCandidates(hypothesis.bits);
+    const flags = framingCandidates(hypothesis.bits, state.protocolStencils);
     if (flags.length) {
       const clues = document.createElement("div"); clues.className = "bit-clues";
       for (const flag of flags) { const clue = document.createElement("span"); clue.textContent = `Possible framing: ${flag.label} at bit ${flag.bit_start} · ${flag.evidence}`; clues.append(clue); }
@@ -85,7 +85,7 @@ function renderRawBitInspector(mode, result) {
       const binary = document.createElement("button"); binary.type = "button"; binary.className = "bit-value"; binary.textContent = cell.binary.padEnd(8, "·"); binary.title = `Bits ${cell.bit_start}–${cell.bit_start + cell.bit_count - 1}; click two bytes to select a range`;
       const hex = document.createElement("span"); hex.className = "bit-hex"; hex.textContent = cell.hex;
       const ascii = document.createElement("span"); ascii.className = "bit-ascii"; ascii.textContent = cell.ascii;
-      binary.addEventListener("click", () => { if (anchor === null) { anchor = cell.bit_start; selected = { start: anchor, end: anchor + cell.bit_count }; } else { selected = { start: Math.min(anchor, cell.bit_start), end: Math.max(anchor, cell.bit_start) + cell.bit_count }; anchor = null; } paint(); tagButton.disabled = !selected; });
+      binary.addEventListener("click", () => { if (anchor === null) { anchor = cell.bit_start; selected = { start: anchor, end: anchor + cell.bit_count }; } else { selected = { start: Math.min(anchor, cell.bit_start), end: Math.max(anchor, cell.bit_start) + cell.bit_count }; anchor = null; } paint(); tagButton.disabled = !selected; stencilButton.disabled = !selected; if (selected) stencilPattern.value = hypothesis.bits.slice(selected.start, selected.end); });
       row.append(offset, binary, hex, ascii); table.append(row);
     }
     const tagForm = document.createElement("form"); tagForm.className = "bit-tag-form";
@@ -119,7 +119,30 @@ function renderRawBitInspector(mode, result) {
         const failure = document.createElement("span"); failure.className = "bit-save-error"; failure.textContent = `Tag not saved: ${error.message}`; section.append(failure);
       } finally { tagButton.disabled = !selected; tagButton.textContent = "Tag selected bits"; }
     });
-    section.append(table, tagForm); output.append(section);
+    const stencilForm = document.createElement("form"); stencilForm.className = "bit-stencil-form";
+    const stencilHeading = document.createElement("strong"); stencilHeading.textContent = "Create reusable stencil from selected bits";
+    const stencilName = document.createElement("input"); stencilName.placeholder = "Stencil name"; stencilName.maxLength = 100; stencilName.setAttribute("aria-label", "Stencil name");
+    const stencilField = document.createElement("input"); stencilField.placeholder = "Field, e.g. preamble"; stencilField.maxLength = 100; stencilField.setAttribute("aria-label", "Stencil field");
+    const stencilPattern = document.createElement("input"); stencilPattern.placeholder = "Pattern · 0/1 required, ? wildcard"; stencilPattern.maxLength = 512; stencilPattern.pattern = "[01?]{4,512}"; stencilPattern.setAttribute("aria-label", "Stencil bit pattern");
+    const stencilProtocols = document.createElement("input"); stencilProtocols.placeholder = "Possible protocols, comma separated"; stencilProtocols.setAttribute("aria-label", "Possible protocols");
+    const stencilButton = document.createElement("button"); stencilButton.type = "submit"; stencilButton.textContent = "Save stencil"; stencilButton.disabled = true;
+    const stencilStatus = document.createElement("span"); stencilStatus.className = "bit-stencil-status";
+    stencilForm.append(stencilHeading, stencilName, stencilField, stencilPattern, stencilProtocols, stencilButton, stencilStatus);
+    stencilForm.addEventListener("submit", async (event) => {
+      event.preventDefault(); if (!selected || !state.capture) return;
+      stencilButton.disabled = true; stencilButton.textContent = "Saving…";
+      try {
+        const saved = await request("/api/protocol-stencils", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+          name: stencilName.value, field: stencilField.value, pattern: stencilPattern.value,
+          protocols: stencilProtocols.value.split(",").map((value) => value.trim()).filter(Boolean),
+          source_capture_id: state.capture.id,
+        }) });
+        state.protocolStencils.push(saved);
+        stencilStatus.textContent = "Saved for future bitstream checks; rerun analysis to apply it here.";
+      } catch (error) { stencilStatus.textContent = `Stencil not saved: ${error.message}`; }
+      finally { stencilButton.disabled = !selected; stencilButton.textContent = "Save stencil"; }
+    });
+    section.append(table, tagForm, stencilForm); output.append(section);
   }
 }
 
@@ -736,6 +759,8 @@ async function loadCapture() {
   renderRegions();
   try { await refreshBitAnnotations(c.id); }
   catch (error) { el("saved-bit-annotations").textContent = `Saved bit tags unavailable · ${error.message}`; }
+  try { state.protocolStencils = await request("/api/protocol-stencils"); }
+  catch (error) { state.protocolStencils = []; showError(`Saved protocol stencils unavailable · ${error.message}`); }
   try {
     state.decodeRuns = await request(`/api/captures/${c.id}/decode-runs`);
   } catch (error) {
@@ -1524,6 +1549,8 @@ function resetOutputSession() {
   state.decoderTrial = null;
   el("signal-region-shortcuts").replaceChildren();
   el("saved-bit-annotations").replaceChildren();
+  state.bitAnnotations = [];
+  state.protocolStencils = [];
   beginNewRegion();
   el("inspector-context").textContent = "Select a signal on the waterfall to inspect it.";
   el("manifest-download").classList.add("hidden");

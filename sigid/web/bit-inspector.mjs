@@ -15,14 +15,21 @@ export function bytesForBits(bits) {
   return rows;
 }
 
-export function framingCandidates(bits) {
-  return matchProtocolStencils(bits).map((match) => ({
+export function framingCandidates(bits, customStencils = []) {
+  return matchProtocolStencils(bits, undefined, { maxMatches: 256 }).map((match) => ({
     bit_start: match.bit_start,
     bit_count: match.bit_count,
     label: `${match.name} · ${match.field}`,
     evidence: `${match.note} Possible protocols: ${match.protocols.join(", ") || "unassigned"}.`,
     stencil_id: match.stencil_id,
-  }));
+  })).concat(matchProtocolStencils(bits, customStencils).map((match) => ({
+    bit_start: match.bit_start,
+    bit_count: match.bit_count,
+    label: `${match.name} · ${match.field}`,
+    evidence: `${match.note} Possible protocols: ${match.protocols.join(", ") || "unassigned"}.`,
+    stencil_id: match.stencil_id,
+    source: "operator",
+  })));
 }
 
 export function createBitAnnotation({ bit_start, bit_count, label, color = "#f4bf75", hypothesis = "bits" }) {

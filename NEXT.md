@@ -24,7 +24,9 @@ annotation reload and export. A nearby mode shortlist filters the nine loopback-
 Fldigi modes by the selected raw demodulator's modulation family and explains the
 match; it is explicitly a partial catalog. Bit tags now persist with their demod
 settings and recovered bits in SQLite and export as JSONL with capture and stream
-hashes.
+hashes. Operators can also save reusable exact or wildcard bit stencils from a
+selected range, name the field and possible protocol families, and have those
+patterns checked against later bitstreams. These remain tentative pattern evidence.
 
 ## Agreed scope
 

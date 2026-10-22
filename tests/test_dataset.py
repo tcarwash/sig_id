@@ -136,3 +136,16 @@ def test_bit_annotations_reject_ranges_outside_bits_or_capture(indexed_capture):
         store.add_bit_annotation(capture_id, **{**arguments, "bit_start": 4})
     with pytest.raises(ValueError, match="sample range"):
         store.add_bit_annotation(capture_id, **{**arguments, "sample_count": 481, "settings": {"sample_start": 0, "sample_count": 481}})
+
+
+def test_operator_stencil_is_validated_and_survives_store_reopen(indexed_capture, tmp_path):
+    store, capture_id, _ = indexed_capture
+    saved = store.add_protocol_stencil(
+        name="Training preamble", field="preamble", pattern="1010????1100",
+        protocols=["Example protocol", " Example protocol "], source_capture_id=capture_id,
+    )
+    reopened = CaptureStore(tmp_path / "dataset.sqlite3")
+    assert reopened.protocol_stencils() == [{**saved, "protocols": ["Example protocol"], "source": "operator"}]
+    for bad_pattern in ("???0", "010", "01xx"):
+        with pytest.raises(ValueError):
+            store.add_protocol_stencil(name="bad", field="header", pattern=bad_pattern, protocols=[])

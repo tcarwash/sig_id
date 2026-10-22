@@ -52,7 +52,7 @@ class CaptureStore:
     def _initialize(self) -> None:
         with self._connect() as db:
             version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1, 2, 3, 4):
+            if version not in (0, 1, 2, 3, 4, 5):
                 raise RuntimeError(f"unsupported dataset schema version: {version}")
             db.executescript(
                 """
@@ -150,6 +150,16 @@ class CaptureStore:
                     created_utc TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS bit_annotations_by_stream ON bit_annotations(bitstream_id, created_utc);
+                CREATE TABLE IF NOT EXISTS protocol_stencils (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    field TEXT NOT NULL,
+                    pattern TEXT NOT NULL,
+                    protocols_json TEXT NOT NULL,
+                    source_capture_id TEXT REFERENCES captures(id) ON DELETE SET NULL,
+                    created_utc TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS protocol_stencils_by_name ON protocol_stencils(name);
                 """
             )
             columns = {row[1] for row in db.execute("PRAGMA table_info(decoder_runs)")}
@@ -157,7 +167,7 @@ class CaptureStore:
                 db.execute("ALTER TABLE decoder_runs ADD COLUMN output_scope TEXT NOT NULL DEFAULT 'shared_live_input'")
             if "association" not in columns:
                 db.execute("ALTER TABLE decoder_runs ADD COLUMN association TEXT NOT NULL DEFAULT 'track_window_tentative'")
-            db.execute("PRAGMA user_version = 4")
+            db.execute("PRAGMA user_version = 5")
 
     @staticmethod
     def _sha256(path: Path) -> str:
@@ -380,6 +390,50 @@ class CaptureStore:
                 record["settings"] = json.loads(record.pop("settings_json"))
                 stream.write(json.dumps(record, sort_keys=True) + "\n")
         return len(rows)
+
+    def add_protocol_stencil(
+        self, *, name: str, field: str, pattern: str, protocols: list[str],
+        source_capture_id: str | None = None,
+    ) -> dict[str, Any]:
+        name, field = name.strip(), field.strip()
+        if not name or len(name) > 100 or not field or len(field) > 100:
+            raise ValueError("stencil name and field must contain 1 to 100 characters")
+        if len(pattern) < 4 or len(pattern) > 512 or any(bit not in "01?" for bit in pattern):
+            raise ValueError("stencil pattern must contain 4 to 512 bits or wildcard characters")
+        if sum(bit != "?" for bit in pattern) < 4:
+            raise ValueError("stencil pattern must constrain at least four bits")
+        normalized_protocols = sorted({str(item).strip() for item in protocols if str(item).strip()})
+        if len(normalized_protocols) > 20 or any(len(item) > 120 for item in normalized_protocols):
+            raise ValueError("stencil protocol list is too large")
+        stencil_id = str(uuid4())
+        created = datetime.now(timezone.utc).isoformat()
+        with self._connect() as db:
+            if source_capture_id is not None and db.execute(
+                "SELECT 1 FROM captures WHERE id = ?", (source_capture_id,)
+            ).fetchone() is None:
+                raise KeyError(f"unknown capture: {source_capture_id}")
+            db.execute(
+                """INSERT INTO protocol_stencils
+                   (id,name,field,pattern,protocols_json,source_capture_id,created_utc)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (stencil_id, name, field, pattern, json.dumps(normalized_protocols), source_capture_id, created),
+            )
+        return {
+            "id": stencil_id, "name": name, "field": field, "pattern": pattern,
+            "protocols": normalized_protocols, "source_capture_id": source_capture_id,
+            "created_utc": created, "source": "operator",
+        }
+
+    def protocol_stencils(self) -> list[dict[str, Any]]:
+        with self._connect() as db:
+            rows = db.execute("SELECT * FROM protocol_stencils ORDER BY name COLLATE NOCASE,id").fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["protocols"] = json.loads(item.pop("protocols_json"))
+            item["source"] = "operator"
+            result.append(item)
+        return result
 
     def capture(self, capture_id: str) -> dict[str, Any]:
         with self._connect() as db:

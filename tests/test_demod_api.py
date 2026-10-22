@@ -92,6 +92,31 @@ def test_api_demodulates_saved_region_to_raw_bits_without_protocol_label(tmp_pat
     asyncio.run(exercise())
 
 
+def test_api_saves_reusable_protocol_stencils_from_operator_patterns(tmp_path):
+    wav_path = tmp_path / "stencil-source.wav"
+    generate_2fsk_wav(wav_path, "01010101", sample_rate=8000, symbol_rate=100)
+    app = create_app(tmp_path / "stencil-app")
+
+    async def exercise():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            capture = await client.post("/api/captures", files={"file": ("stencil.wav", wav_path.read_bytes(), "audio/wav")})
+            capture_id = capture.json()["id"]
+            saved = await client.post("/api/protocol-stencils", json={
+                "name": "Demo sync", "field": "sync word", "pattern": "1010?011",
+                "protocols": ["Demo protocol"], "source_capture_id": capture_id,
+            })
+            assert saved.status_code == 201, saved.text
+            assert saved.json()["source"] == "operator"
+            listed = await client.get("/api/protocol-stencils")
+            assert listed.json()[0]["pattern"] == "1010?011"
+            invalid = await client.post("/api/protocol-stencils", json={
+                "name": "Too vague", "field": "sync", "pattern": "??????", "protocols": [],
+            })
+            assert invalid.status_code == 422
+
+    asyncio.run(exercise())
+
+
 def test_api_demodulates_mfsk_symbols_and_power_of_two_bits(tmp_path):
     symbols = [0, 3, 1, 2] * 12
     wav_path = tmp_path / "known-mfsk.wav"

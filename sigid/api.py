@@ -82,6 +82,14 @@ class BitAnnotationCreate(BaseModel):
     color: str = Field(pattern="^#[0-9A-Fa-f]{6}$")
 
 
+class ProtocolStencilCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    field: str = Field(min_length=1, max_length=100)
+    pattern: str = Field(min_length=4, max_length=512, pattern="^[01?]+$")
+    protocols: list[str] = Field(default_factory=list, max_length=20)
+    source_capture_id: str | None = None
+
+
 class LiveCaptureStart(BaseModel):
     device_id: int | None = None
     sample_rate: int = Field(default=48_000, ge=4000, le=192000)
@@ -1341,6 +1349,22 @@ def create_app(
             )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="capture not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/api/protocol-stencils")
+    def list_protocol_stencils() -> list[dict[str, Any]]:
+        return store.protocol_stencils()
+
+    @app.post("/api/protocol-stencils", status_code=201)
+    def create_protocol_stencil(data: ProtocolStencilCreate) -> dict[str, Any]:
+        try:
+            return store.add_protocol_stencil(
+                name=data.name, field=data.field, pattern=data.pattern,
+                protocols=data.protocols, source_capture_id=data.source_capture_id,
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="source capture not found") from exc
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 

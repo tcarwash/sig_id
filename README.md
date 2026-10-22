@@ -77,6 +77,9 @@ is intentionally labeled partial; it is not the full decoder catalog.
 Operator bit-range tags are saved immediately with their capture, demodulator settings,
 bit hypothesis and recovered stream. They remain available when the capture is reopened
 and can be exported as JSONL from `/api/exports/bit-annotations.jsonl` for dataset work.
+Operators can also save reusable exact or wildcard bit stencils from a selected bit
+range, name the field and possible protocol families, and match them against later
+bitstreams as tentative evidence.
 
 ## Run with Docker Compose on Linux
 

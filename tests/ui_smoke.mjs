@@ -87,6 +87,11 @@ try {
       await page.locator(".bit-tag-form input[aria-label='Operator interpretation']").fill("likely header");
       await page.locator(".bit-tag-form button").click();
       assert.match(await page.locator(".bit-annotation").first().textContent(), /likely header/);
+      await page.locator(".bit-stencil-form input[aria-label='Stencil name']").fill("Saved preamble");
+      await page.locator(".bit-stencil-form input[aria-label='Stencil field']").fill("preamble");
+      await page.locator(".bit-stencil-form input[aria-label='Possible protocols']").fill("Demo protocol");
+      await page.locator(".bit-stencil-form button").click();
+      await page.waitForFunction(() => document.querySelector(".bit-stencil-status")?.textContent.includes("Saved for future"));
     }
     const pending = page.waitForEvent("download");
     await page.locator(`#${exportId}`).click();
@@ -112,6 +117,10 @@ try {
   lastCaptureId = taggedCaptureId;
   // Manual labeling and direct saved-annotation selection.
   await page.locator("#show-signals").click();
+  await page.locator('[data-inspector-tab="raw"]').click();
+  await page.locator("#raw-tool").selectOption("2fsk");
+  await page.locator("#demod-run").click();
+  await page.waitForFunction(() => [...document.querySelectorAll(".bit-clues")].some(node => node.textContent.includes("Saved preamble")));
   await page.locator("#close-inspector").click();
   const box = await page.locator("#overlay").boundingBox();
   await page.mouse.move(box.x + box.width * 0.25, box.y + box.height * 0.2);
