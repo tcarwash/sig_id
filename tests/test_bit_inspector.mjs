@@ -13,7 +13,7 @@ test("bit view groups bytes with aligned printable ASCII and partial tails", () 
 
 test("recognizes an exact HDLC-like flag as a candidate, without claiming a mode", () => {
   assert.deepEqual(framingCandidates("100111111000"), [
-    { bit_start: 2, bit_count: 8, label: "HDLC-like flag (0x7E)", evidence: "Exact 8-bit pattern; bit order and protocol are unverified." },
+    { bit_start: 2, bit_count: 8, label: "HDLC-like flag · frame delimiter", evidence: "Common delimiter, not unique to one protocol; bit order and framing are unverified. Possible protocols: HDLC family; also used by protocols such as AX.25.", stencil_id: "hdlc-flag" },
   ]);
   assert.deepEqual(framingCandidates(""), []);
 });

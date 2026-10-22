@@ -75,9 +75,12 @@ try {
       (id) => !document.getElementById(id).disabled,
       exportId,
     );
+    if (mode === "mfsk") assert.match(await page.locator("[data-raw-result]:visible .mode-shortlist").first().textContent(), /THOR8.*THOR16.*MFSK16.*MFSK32/s);
+    if (mode === "bpsk") assert.match(await page.locator("[data-raw-result]:visible .mode-shortlist").first().textContent(), /BPSK31.*BPSK63/s);
     if (mode === "2fsk") {
       assert.ok(await page.locator(".bit-ascii").allTextContents().then((items) => items.includes("a")));
       assert.match(await page.locator(".bit-clues").textContent(), /HDLC-like flag/);
+      assert.match(await page.locator("[data-raw-result]:visible .mode-shortlist").first().textContent(), /RTTY/);
       await page.locator(".bit-value").nth(0).click();
       await page.locator(".bit-value").nth(1).click();
       await page.locator(".bit-tag-form input[aria-label='Operator interpretation']").fill("likely header");

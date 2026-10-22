@@ -490,6 +490,10 @@ textarea {
 .bit-byte[style*="--tag-color"] { outline: 1px solid var(--tag-color); }
 .bit-clues { display: flex; flex-wrap: wrap; gap: 5px; margin: 5px 0 9px; }
 .bit-clues span, .bit-annotation { border: 1px solid #bd8be3; border-radius: 4px; padding: 3px 6px; color: #dfc6f4; font-size: 10px; }
+.mode-shortlist { margin: 8px 0; padding: 7px 9px; border-left: 2px solid #6d9fc4; background: #101d28; color: #a9c5da; font-size: 10px; }
+.mode-shortlist strong { display: block; color: #d2e5f2; font-size: 10px; }
+.mode-shortlist ul { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 5px 0; padding-left: 17px; }
+.mode-shortlist small { color: #7f94a5; }
 .bit-tag-form { display: flex; gap: 6px; margin-top: 8px; }
 .bit-tag-form input:not([type="color"]) { flex: 1; min-width: 120px; }
 .bit-tag-form input, .bit-tag-form button { font-size: 10px; }

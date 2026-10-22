@@ -52,6 +52,8 @@ def test_upload_waterfall_manual_label_audio_and_jsonl_export(tmp_path):
             assert (await client.get("/waterfall-window.mjs")).status_code == 200
             assert (await client.get("/demod-export.mjs")).status_code == 200
             assert (await client.get("/bit-inspector.mjs")).status_code == 200
+            assert (await client.get("/protocol-stencils.mjs")).status_code == 200
+            assert (await client.get("/mode-candidates.mjs")).status_code == 200
             assert (await client.get("/signal-overlays.mjs")).status_code == 200
             assert "Provisional signal candidates" in (await client.get("/")).text
             assert "waterfall-layout" in (await client.get("/style.css")).text

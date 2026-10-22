@@ -2,6 +2,7 @@ import { liveTimeLabels } from "/waterfall-window.mjs";
 import { decodeSpectrumPacket, LiveWaterfall, liveDisplayBounds } from "/live-waterfall.mjs";
 import { createDemodExport, downloadDemodExport } from "/demod-export.mjs";
 import { bytesForBits, framingCandidates, createBitAnnotation } from "/bit-inspector.mjs";
+import { narrowKnownModes } from "/mode-candidates.mjs";
 import { layoutSignalLabels, signalCaption, hitSignal } from "/signal-overlays.mjs";
 
 const el = (id) => document.getElementById(id);
@@ -46,6 +47,18 @@ function renderRawBitInspector(mode, result) {
   const summary = output.textContent;
   output.replaceChildren();
   const intro = document.createElement("div"); intro.className = "decoded-text"; intro.textContent = summary; output.append(intro);
+  const modulation = ({ "2fsk": "2-FSK", ook: "OOK", mfsk: "MFSK", bpsk: "BPSK", qpsk: "QPSK" })[mode];
+  const candidates = narrowKnownModes({ modulation });
+  const shortlist = document.createElement("div"); shortlist.className = "mode-shortlist";
+  const shortlistTitle = document.createElement("strong"); shortlistTitle.textContent = `Possible Fldigi modes · ${modulation} · reviewed subset`; shortlist.append(shortlistTitle);
+  if (candidates.length) {
+    const list = document.createElement("ul");
+    for (const candidate of candidates) { const item = document.createElement("li"); item.textContent = `${candidate.mode} — ${candidate.reasons.join("; ")} · ${candidate.evidence}`; list.append(item); }
+    shortlist.append(list);
+  } else {
+    const empty = document.createElement("span"); empty.textContent = "No loopback-validated mode in this modulation family yet."; shortlist.append(empty);
+  }
+  const caveat = document.createElement("small"); caveat.textContent = "Shortlist only: other Fldigi modes may also fit, and this does not confirm an ID."; shortlist.append(caveat); output.append(shortlist);
   for (const hypothesis of valid) {
     const section = document.createElement("section"); section.className = "bit-inspector";
     const title = document.createElement("h4"); title.textContent = `${hypothesis.name} · ${hypothesis.bits.length} recovered bits`; section.append(title);

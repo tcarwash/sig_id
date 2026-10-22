@@ -1389,6 +1389,14 @@ def create_app(
     def bit_inspector_module() -> FileResponse:
         return FileResponse(WEB_DIR / "bit-inspector.mjs", media_type="text/javascript")
 
+    @app.get("/protocol-stencils.mjs", include_in_schema=False)
+    def protocol_stencils_module() -> FileResponse:
+        return FileResponse(WEB_DIR / "protocol-stencils.mjs", media_type="text/javascript")
+
+    @app.get("/mode-candidates.mjs", include_in_schema=False)
+    def mode_candidates_module() -> FileResponse:
+        return FileResponse(WEB_DIR / "mode-candidates.mjs", media_type="text/javascript")
+
     @app.get("/signal-overlays.mjs", include_in_schema=False)
     def signal_overlays_module() -> FileResponse:
         return FileResponse(WEB_DIR / "signal-overlays.mjs", media_type="text/javascript")

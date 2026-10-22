@@ -1,0 +1,22 @@
+// Reviewed initial shortlist drawn from the nine Fldigi modes with end-to-end
+// loopback evidence. This intentionally does not imply full catalog coverage.
+export const REVIEWED_MODE_CANDIDATES = Object.freeze([
+  { mode: "BPSK31", modulation: "BPSK", evidence: "Fldigi loopback validated" },
+  { mode: "BPSK63", modulation: "BPSK", evidence: "Fldigi loopback validated" },
+  { mode: "RTTY", modulation: "2-FSK", evidence: "Fldigi loopback validated" },
+  { mode: "THOR8", modulation: "MFSK", evidence: "Fldigi loopback validated" },
+  { mode: "THOR16", modulation: "MFSK", evidence: "Fldigi loopback validated" },
+  { mode: "MFSK16", modulation: "MFSK", evidence: "Fldigi loopback validated" },
+  { mode: "MFSK32", modulation: "MFSK", evidence: "Fldigi loopback validated" },
+  { mode: "MT63-500S", modulation: "OFDM", evidence: "Fldigi loopback validated" },
+  { mode: "MT63-1KS", modulation: "OFDM", evidence: "Fldigi loopback validated" },
+]);
+
+export function narrowKnownModes({ modulation, stencils = [], modes = REVIEWED_MODE_CANDIDATES } = {}) {
+  const matches = modes.filter((item) => !modulation || item.modulation === modulation);
+  return matches.map((item) => ({
+    ...item,
+    reasons: [modulation ? `Matches observed ${modulation} modulation family` : "No modulation family filter applied"],
+    related_stencils: stencils.filter((stencil) => item.protocolFamilies?.some((family) => stencil.protocols?.includes(family))).map((stencil) => stencil.stencil_id),
+  }));
+}

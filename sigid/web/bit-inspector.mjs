@@ -1,3 +1,5 @@
+import { matchProtocolStencils } from "./protocol-stencils.mjs";
+
 export function printableAscii(byte) {
   return byte >= 32 && byte <= 126 ? String.fromCharCode(byte) : ".";
 }
@@ -14,13 +16,13 @@ export function bytesForBits(bits) {
 }
 
 export function framingCandidates(bits) {
-  if (typeof bits !== "string") return [];
-  const candidates = [];
-  // HDLC uses the 0x7E flag; bit order and framing are not inferred here.
-  for (let at = bits.indexOf("01111110"); at >= 0; at = bits.indexOf("01111110", at + 1)) {
-    candidates.push({ bit_start: at, bit_count: 8, label: "HDLC-like flag (0x7E)", evidence: "Exact 8-bit pattern; bit order and protocol are unverified." });
-  }
-  return candidates;
+  return matchProtocolStencils(bits).map((match) => ({
+    bit_start: match.bit_start,
+    bit_count: match.bit_count,
+    label: `${match.name} · ${match.field}`,
+    evidence: `${match.note} Possible protocols: ${match.protocols.join(", ") || "unassigned"}.`,
+    stencil_id: match.stencil_id,
+  }));
 }
 
 export function createBitAnnotation({ bit_start, bit_count, label, color = "#f4bf75", hypothesis = "bits" }) {
