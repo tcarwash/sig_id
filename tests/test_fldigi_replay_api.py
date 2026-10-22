@@ -66,6 +66,7 @@ def test_saved_region_replays_exact_sample_window_and_persists_result(tmp_path):
             assert runs[0]["association"] == "exact_capture_window"
             assert runs[0]["sample_start"] == start
             assert runs[0]["sample_count"] == count
+            assert runs[0]["carrier_hz"] == 1234
             assert replay.request == {
                 "mode": "RTTY", "carrier_hz": 1234, "sample_rate": 8000,
                 "frames": count, "channels": 1,
@@ -75,6 +76,7 @@ def test_saved_region_replays_exact_sample_window_and_persists_result(tmp_path):
     reloaded = CaptureStore(tmp_path / "data" / "dataset.sqlite3")
     [run] = reloaded.decoder_runs(capture_id=capture_id)
     assert run["output_text"] == "HELLO FROM REGION"
+    assert run["carrier_hz"] == 1234
 
 
 def test_region_replay_rejects_invalid_range_and_unavailable_mode(tmp_path):

@@ -172,6 +172,17 @@
                     <option>Connect to Fldigi</option>
                   </select></label
                 >
+                <label class="fldigi-carrier-label"
+                  >Audio carrier (Hz)<input
+                    id="fldigi-carrier-hz"
+                    type="number"
+                    min="1"
+                    max="20000"
+                    step="1"
+                    placeholder="Selected band midpoint"
+                  />
+                </label>
+                <p class="subhead">Prefilled from the selected frequency band midpoint. Adjust to the signal’s actual audio center if needed.</p>
                 <button id="fldigi-select" type="button" disabled>
                   Select receive mode
                 </button>

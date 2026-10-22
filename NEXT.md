@@ -8,26 +8,26 @@ THOR8/16, MFSK16/32 and MT63-500S/1KS audio loopbacks pass through Fldigi into t
 radio-input routing and independent-signal validation remain open. Saved-capture
 regions can be replayed in the selected mode through a separate Fldigi process and a
 private PulseAudio/PipeWire sink; output is
-persisted against the exact capture window. The inspector can also explicitly save
-that region with the selected mode as its variant label. This replay path is native
-Linux only. Known-message audio round-trips now pass for BPSK31/63/F/125/250/500/1000,
+persisted against the exact capture window. The audio-carrier control is prefilled from
+selection-band midpoint, allows manual adjustment, and records the requested carrier
+with each receive run. The inspector can also explicitly save that region with the selected
+mode as its variant label. This replay path is native Linux only. Known-message audio
+round-trips now pass for BPSK31/63/F/125/250/500/1000,
 QPSK31/63/125/250/500, 8PSK125/250/500, RTTY, THOR8/16, MFSK16/32, OLIVIA-8/250 and MT63-500S/1KS.
 
 Latest raw-analysis checkpoint: 2-FSK, OOK, M-FSK, BPSK and QPSK bit hypotheses now
-show byte-aligned binary, hex and printable-ASCII columns. Operators can select byte
-ranges, add colored interpretation tags, and retain those tags in the demodulation
-JSON export. An extensible stencil matcher scans masked bit patterns and shows the
-matching field, possible protocol family and bit offset as tentative evidence. The
-initial stencil is the common HDLC-like `01111110` frame flag; it does not identify a
-protocol or mode. Browser smoke validation covers the view, clue, range tag, saved
-annotation reload and export. A nearby mode shortlist filters the seventeen loopback-reviewed
-Fldigi modes by the selected raw demodulator's modulation family and explains the
-match; it is explicitly a partial catalog. Bit tags now persist with their demod
-settings and recovered bits in SQLite and export as JSONL with capture and stream
-hashes. Operators can also save reusable exact or wildcard bit stencils from a
-selected range, name the field and possible protocol families, and have those
-patterns checked against later bitstreams. These remain tentative pattern evidence.
-The byte view labels offset, binary, hex and ASCII columns. The receiver output pane
+offer byte-start offsets 0–7, MSB/LSB byte display, polarity inversion, and differential/
+NRZI interpretations with both transition conventions and initial states. Per-view
+metrics show bit/byte entropy, bit balance, transition fraction, longest run and printable
+byte fractions; these are descriptive diagnostics, not modulation/protocol confidence.
+Stencil matches are grouped by occurrence count and offsets but remain tentative clues.
+Annotations save their exact transform/alignment settings with the derived bitstream and
+continue to export with capture/stream hashes. Browser smoke verification covers alignment
+selection, transforms, metrics, tag highlighting, persisted interpretation metadata and
+the five demodulation exports. CRC/FEC validation, descrambling, and protocol-specific
+frame decoding and bit de-stuffing are not implemented; protocol remains unknown unless a real decoder verifies it.
+The Fldigi shortlist remains a partial, modulation-filtered catalog. Operators can save
+reusable exact or wildcard stencils for later bitstream checks. The receiver output pane
 is resizable by pointer or keyboard, remembers its height, and stays within the viewport.
 
 ## Agreed scope

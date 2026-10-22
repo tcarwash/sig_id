@@ -48,8 +48,11 @@ attached to the live session, then linked to the saved capture when recording st
 Saved recordings let you play the selected time range in the browser with “Replay
 selected region.” “Decode selected region” sends that same exact sample window to an
 isolated Fldigi instance through a temporary PulseAudio/PipeWire loopback; the running
-Fldigi receiver is left alone. The selected mode's output is stored with the exact
-capture window. “Tag region as selected mode” saves a human-reviewed label as a
+Fldigi receiver is left alone. The audio-carrier field starts at the selected frequency
+band's midpoint and can be adjusted manually when that is not the signal's tone-bank
+center. The chosen carrier and exact sample window are saved with the receive run for
+review. The selected mode's output is stored with the exact capture window.
+“Tag region as selected mode” saves a human-reviewed label as a
 separate explicit action. This native-host feature requires Fldigi, its configured
 profile, `xvfb-run`, `pactl`, and `paplay`; it does not change the running receiver or
 transmit. It is not available in the default Compose container, which has no host audio
@@ -69,10 +72,15 @@ phase reference. These are protocol-independent symbol/bit observations, not com
 protocol decoders. Each demodulator can export a JSON artifact containing the capture
 hash, sample bounds, settings, raw decisions, ambiguity/soft metrics and protocol-unknown
 status so a manual analysis can be reproduced or used as training evidence. The raw-bit
-view aligns recovered bytes in labeled binary, hexadecimal and printable-ASCII columns.
-The receiver output pane can be dragged taller or shorter, resized from the keyboard,
-and remembers its chosen height. Operators can select byte ranges,
-add colored interpretation tags and include them in the JSON export. A bit-stencil
+view offers all eight byte-start offsets, MSB/LSB byte interpretations, and optional
+polarity inversion or differential/NRZI conventions with both transition mappings and
+initial states. Per-view diagnostics report bit/byte entropy, balance, transition rate,
+run length, and printable-byte fractions; these are descriptive clues, not a decoder
+confidence score or protocol identification. Pattern matches are grouped with their
+occurrence offsets, while remaining explicitly tentative. The receiver output pane can
+be dragged taller or shorter, resized from the keyboard, and remembers its chosen height.
+Operators can select byte ranges, add colored interpretation tags, and include the exact
+transform/alignment settings in the saved annotation and JSON export. A bit-stencil
 matcher can check exact or masked patterns and report the possible field, candidate
 protocol families and offset as tentative evidence. Its initial `01111110` stencil
 marks a common HDLC-like flag; this is only a framing clue, not a mode or protocol ID.
@@ -99,6 +107,16 @@ the separately running host Fldigi XML-RPC service. Direct host audio-device rou
 into the container is not configured automatically; use the native audio setup for it.
 See [OPERATIONS.md](OPERATIONS.md) for updates, models, tested backup/restore and
 repeatable container checks.
+
+## Distributed contribution and peer review
+
+An opt-in contribution/review hub is available as a separate Compose project. It
+accepts bounded PCM WAV submissions with sample-indexed annotations and requires two
+distinct reviewers to confirm signal extent. Start-up, credentials and current limits
+are documented in [hub/README.md](hub/README.md); see
+[DISTRIBUTED_COLLECTION_PLAN.md](DISTRIBUTED_COLLECTION_PLAN.md) for the broader
+architecture and staged rollout. The local workbench does not yet provide the upload
+outbox/sync UI, and hub review is not yet a trusted training-data release process.
 
 ## Development
 

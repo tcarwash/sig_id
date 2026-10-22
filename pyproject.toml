@@ -36,6 +36,7 @@ sig-id-import-scene = "sigid.scenes:import_main"
 sig-id-evaluate-detector = "sigid.detection_evaluation:main"
 sig-id-import-sigidwiki = "sigid.sigidwiki:main"
 sig-id-serve = "sigid.server:main"
+sig-id-hub = "sigid.hub:main"
 
 [tool.setuptools.package-data]
 sigid = ["web/*.html", "web/*.js", "web/*.mjs", "web/*.css"]

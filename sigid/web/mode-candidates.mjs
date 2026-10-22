@@ -19,6 +19,8 @@ export const REVIEWED_MODE_CANDIDATES = Object.freeze([
   { mode: "RTTY", modulation: "2-FSK", evidence: "Fldigi loopback validated" },
   { mode: "THOR8", modulation: "MFSK", evidence: "Fldigi loopback validated" },
   { mode: "THOR16", modulation: "MFSK", evidence: "Fldigi loopback validated" },
+  { mode: "MFSK4", modulation: "MFSK", evidence: "Fldigi loopback validated" },
+  { mode: "MFSK8", modulation: "MFSK", evidence: "Fldigi loopback validated" },
   { mode: "MFSK16", modulation: "MFSK", evidence: "Fldigi loopback validated" },
   { mode: "MFSK32", modulation: "MFSK", evidence: "Fldigi loopback validated" },
   { mode: "OLIVIA-8/250", modulation: "MFSK", evidence: "Fldigi loopback validated" },

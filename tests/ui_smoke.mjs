@@ -102,10 +102,20 @@ try {
     if (mode === "qpsk") assert.match(await page.locator("[data-raw-result]:visible .mode-shortlist").first().textContent(), /QPSK31.*QPSK63.*QPSK125.*QPSK250.*QPSK500/s);
     if (mode === "2fsk") {
       assert.ok(await page.locator(".bit-ascii").allTextContents().then((items) => items.includes("a")));
-      assert.match(await page.locator(".bit-byte-header").textContent(), /Offset.*Binary.*Hex.*ASCII/);
+      assert.match(await page.locator(".bit-byte-header").textContent(), /Bit offset.*Bits.*MSB hex.*MSB ASCII.*LSB hex.*LSB ASCII/);
+      const alignment = page.locator("[aria-label='Byte alignment offset']");
+      await alignment.selectOption("3");
+      assert.equal(await page.locator(".bit-byte:not(.bit-byte-header) .bit-offset").first().textContent(), "000003");
+      assert.match(await page.locator(".bit-metrics").textContent(), /Byte alignment 3.*skip 3 leading bits/);
+      await alignment.selectOption("0");
+      const transform = page.locator("[aria-label='Bitstream interpretation transform']");
+      await transform.selectOption("differential-xor");
+      assert.equal(await page.locator("[aria-label='Differential initial state']").isEnabled(), true);
+      assert.match(await page.locator(".bit-metrics").textContent(), /bit entropy.*byte entropy/);
+      await transform.selectOption("raw");
       const asciiRows = await page.locator(".bit-ascii").allTextContents();
       const asciiIndex = asciiRows.indexOf("a");
-      assert.equal(await page.locator(".bit-byte").nth(asciiIndex + 1).locator(".bit-hex").textContent(), "61");
+      assert.equal(await page.locator(".bit-byte").nth(asciiIndex + 1).locator(".bit-hex").first().textContent(), "61");
       assert.match(await page.locator(".bit-clues").textContent(), /HDLC-like flag/);
       assert.match(await page.locator("[data-raw-result]:visible .mode-shortlist").first().textContent(), /RTTY/);
       await page.locator(".bit-value").nth(0).click();
@@ -113,6 +123,7 @@ try {
       await page.locator(".bit-tag-form input[aria-label='Operator interpretation']").fill("likely header");
       await page.locator(".bit-tag-form button").click();
       assert.match(await page.locator(".bit-annotation").first().textContent(), /likely header/);
+      assert.ok(await page.locator(".bit-byte[style*='--tag-color']").count() > 0, "saved tags highlight their source byte rows");
       await page.locator(".bit-stencil-form input[aria-label='Stencil name']").fill("Saved preamble");
       await page.locator(".bit-stencil-form input[aria-label='Stencil field']").fill("preamble");
       await page.locator(".bit-stencil-form input[aria-label='Possible protocols']").fill("Demo protocol");
@@ -129,6 +140,13 @@ try {
     if (mode === "2fsk") {
       taggedCaptureId = result.source_capture.capture_id;
       assert.equal(result.bit_annotations[0].label, "likely header");
+      assert.deepEqual(result.bit_annotations[0].settings.interpretation, {
+        transform: "raw", initial_state: 0, byte_alignment: 0, byte_order: "both",
+      });
+      const savedAnnotations = await (await page.request.get(new URL(`/api/captures/${taggedCaptureId}/bit-annotations`, page.url()).href)).json();
+      assert.deepEqual(savedAnnotations[0].settings.interpretation, {
+        transform: "raw", initial_state: 0, byte_alignment: 0, byte_order: "both",
+      });
     }
     assert.equal(result.modulation_hypothesis, mode);
     lastCaptureId = result.source_capture.capture_id;
@@ -212,10 +230,13 @@ try {
       sample_start: 1, sample_count: 100, sample_rate: 12000,
       current_mode: "RTTY", status: "completed", note: "Isolated replay finished.",
       output_text: "REGION DECODED", output_scope: "isolated_region_replay",
-      association: "exact_capture_window",
+      association: "exact_capture_window", carrier_hz: 1808,
     }] });
   });
   assert.equal(await page.locator("#decode-selection").textContent(), "Decode selected region");
+  const carrierInput = page.locator("#fldigi-carrier-hz");
+  assert.ok(Number(await carrierInput.inputValue()) > 0, "the selected band center initializes the audio carrier field");
+  await carrierInput.fill("1808");
   await page.locator("#play-selection").click();
   await page.waitForFunction(() => document.getElementById("audio-region-status").textContent.startsWith("Playing selected audio"));
   const playedStart = await page.locator("#audio-player").evaluate((audio) => audio.currentTime);
@@ -227,6 +248,8 @@ try {
   await page.waitForFunction(() => document.getElementById("replay-status").textContent.includes("COMPLETED"));
   assert.ok(replayRequest.sample_start >= 0 && replayRequest.sample_count > 0);
   assert.equal(replayRequest.mode, "RTTY");
+  assert.equal(replayRequest.carrier_hz, 1808);
+  assert.match(await page.locator(".decode-run").textContent(), /carrier 1808 Hz/);
   assert.match(await page.locator("#decoded-text").textContent(), /REGION DECODED/);
   await page.locator("#tag-as-mode").click();
   await page.waitForFunction(() => document.getElementById("save-region").textContent === "Save region label");

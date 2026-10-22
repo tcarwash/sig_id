@@ -20,10 +20,10 @@ def test_reference_registry_covers_catalog_without_overclaiming_decode_support()
 
     assert report["catalog_count"] == 169 == len(modes)
     assert report["selectable_count"] == 165
-    assert report["decode_validated_count"] == 23
+    assert report["decode_validated_count"] == 25
     assert all(mode["catalog_present"] for mode in modes.values())
     assert {name for name, mode in modes.items() if mode["decode_validated"]} == {
-        "BPSK31", "BPSK63", "BPSK63F", "BPSK125", "BPSK250", "BPSK500", "BPSK1000", "RTTY", "THOR8", "THOR16", "MFSK16",
+        "BPSK31", "BPSK63", "BPSK63F", "BPSK125", "BPSK250", "BPSK500", "BPSK1000", "RTTY", "THOR8", "THOR16", "MFSK4", "MFSK8", "MFSK16",
         "MFSK32", "MT63-500S", "MT63-1KS", "OLIVIA-8/250", "QPSK31", "QPSK63",
         "QPSK125", "QPSK250", "QPSK500", "8PSK125", "8PSK250", "8PSK500",
     }
@@ -41,7 +41,7 @@ def test_reference_registry_covers_catalog_without_overclaiming_decode_support()
     assert "def test_fldigi_payload_reaches_workbench_api_through_virtual_audio" in source
     assert "def test_isolated_region_replay_decodes_a_known_fldigi_transmission" in source
     validated_modes = (
-        "BPSK31", "BPSK63", "BPSK63F", "BPSK125", "BPSK250", "BPSK500", "BPSK1000", "RTTY", "THOR8", "THOR16", "MFSK16", "MFSK32",
+        "BPSK31", "BPSK63", "BPSK63F", "BPSK125", "BPSK250", "BPSK500", "BPSK1000", "RTTY", "THOR8", "THOR16", "MFSK4", "MFSK8", "MFSK16", "MFSK32",
         "MT63-500S", "MT63-1KS", "OLIVIA-8/250", "QPSK31", "QPSK63", "QPSK125", "QPSK250",
         "QPSK500", "8PSK125", "8PSK250", "8PSK500",
     )

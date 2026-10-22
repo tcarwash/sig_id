@@ -1,0 +1,32 @@
+services:
+  hub:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: sig-id-hub:local
+    command: ["sig-id-hub", "--host", "0.0.0.0", "--port", "${SIG_ID_HUB_PORT:-8020}"]
+    environment:
+      SIG_ID_HUB_DATA_DIR: /data
+      SIG_ID_HUB_UPLOAD_TOKEN: ${SIG_ID_HUB_UPLOAD_TOKEN:?Set SIG_ID_HUB_UPLOAD_TOKEN}
+      SIG_ID_HUB_REVIEWERS: ${SIG_ID_HUB_REVIEWERS:?Set SIG_ID_HUB_REVIEWERS as reviewer=token,...}
+      SIG_ID_HUB_PORT: ${SIG_ID_HUB_PORT:-8020}
+    ports:
+      - "${SIG_ID_HUB_BIND:-127.0.0.1}:${SIG_ID_HUB_PORT:-8020}:${SIG_ID_HUB_PORT:-8020}"
+    volumes:
+      - hub_data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=64m
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 20s
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.environ['SIG_ID_HUB_PORT']+'/api/health',timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+volumes:
+  hub_data:

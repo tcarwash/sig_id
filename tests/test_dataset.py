@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 
 import pytest
 
@@ -34,6 +35,29 @@ def test_capture_stores_sample_format_hash_and_provenance(indexed_capture):
         "generator": "test-fixture",
         "sample_width_bytes": 2,
     }
+
+
+def test_legacy_decoder_runs_schema_migrates_carrier_frequency(tmp_path):
+    database = tmp_path / "legacy.sqlite3"
+    with sqlite3.connect(database) as db:
+        db.execute("""CREATE TABLE decoder_runs (
+            id TEXT PRIMARY KEY, session_id TEXT NOT NULL, capture_id TEXT,
+            track_id TEXT NOT NULL, sample_start INTEGER, sample_count INTEGER,
+            sample_rate INTEGER, modulation_hypothesis TEXT NOT NULL,
+            backend TEXT NOT NULL, modes_json TEXT NOT NULL,
+            attempted_modes_json TEXT NOT NULL, current_mode TEXT,
+            output_offset INTEGER NOT NULL, output_end INTEGER,
+            output_text TEXT NOT NULL, status TEXT NOT NULL, note TEXT NOT NULL,
+            created_utc TEXT NOT NULL, updated_utc TEXT NOT NULL
+        )""")
+
+    CaptureStore(database)
+
+    with sqlite3.connect(database) as db:
+        columns = {row[1] for row in db.execute("PRAGMA table_info(decoder_runs)")}
+        version = db.execute("PRAGMA user_version").fetchone()[0]
+    assert "carrier_hz" in columns
+    assert version == 6
 
 
 def test_regions_keep_partial_labels_and_revision_history(indexed_capture, tmp_path):

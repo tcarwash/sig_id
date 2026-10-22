@@ -52,7 +52,7 @@ class CaptureStore:
     def _initialize(self) -> None:
         with self._connect() as db:
             version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1, 2, 3, 4, 5):
+            if version not in (0, 1, 2, 3, 4, 5, 6):
                 raise RuntimeError(f"unsupported dataset schema version: {version}")
             db.executescript(
                 """
@@ -106,6 +106,7 @@ class CaptureStore:
                     sample_start INTEGER,
                     sample_count INTEGER,
                     sample_rate INTEGER,
+                    carrier_hz REAL,
                     modulation_hypothesis TEXT NOT NULL,
                     backend TEXT NOT NULL,
                     modes_json TEXT NOT NULL,
@@ -167,7 +168,9 @@ class CaptureStore:
                 db.execute("ALTER TABLE decoder_runs ADD COLUMN output_scope TEXT NOT NULL DEFAULT 'shared_live_input'")
             if "association" not in columns:
                 db.execute("ALTER TABLE decoder_runs ADD COLUMN association TEXT NOT NULL DEFAULT 'track_window_tentative'")
-            db.execute("PRAGMA user_version = 5")
+            if "carrier_hz" not in columns:
+                db.execute("ALTER TABLE decoder_runs ADD COLUMN carrier_hz REAL")
+            db.execute("PRAGMA user_version = 6")
 
     @staticmethod
     def _sha256(path: Path) -> str:
@@ -475,6 +478,7 @@ class CaptureStore:
         status: str, note: str, capture_id: str | None = None,
         output_scope: str = "shared_live_input",
         association: str = "track_window_tentative",
+        carrier_hz: float | None = None,
     ) -> str:
         if not session_id or not track_id:
             raise ValueError("decoder run requires a live session and track")
@@ -485,12 +489,12 @@ class CaptureStore:
         with self._connect() as db:
             db.execute(
                 """INSERT INTO decoder_runs
-                   (id, session_id, capture_id, track_id, sample_start, sample_count, sample_rate,
+                   (id, session_id, capture_id, track_id, sample_start, sample_count, sample_rate, carrier_hz,
                     modulation_hypothesis, backend, modes_json, attempted_modes_json,
                     current_mode, output_offset, output_end, output_text, status, note,
                     output_scope, association, created_utc, updated_utc)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '', ?, ?, ?, ?, ?, ?)""",
-                (run_id, session_id, capture_id, track_id, sample_start, sample_count, sample_rate,
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '', ?, ?, ?, ?, ?, ?)""",
+                (run_id, session_id, capture_id, track_id, sample_start, sample_count, sample_rate, carrier_hz,
                  modulation_hypothesis, backend, json.dumps(modes),
                  json.dumps(attempted_modes), current_mode, output_offset, status,
                  note, output_scope, association, now, now),

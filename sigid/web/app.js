@@ -1,7 +1,7 @@
 import { liveTimeLabels } from "/waterfall-window.mjs";
 import { decodeSpectrumPacket, LiveWaterfall, liveDisplayBounds } from "/live-waterfall.mjs";
 import { createDemodExport, downloadDemodExport } from "/demod-export.mjs";
-import { bytesForBits, framingCandidates, createBitAnnotation } from "/bit-inspector.mjs";
+import { bitSelectionRange, bitstreamMetrics, bytesForBits, framingCandidates, transformBitstream, createBitAnnotation } from "/bit-inspector.mjs";
 import { narrowKnownModes } from "/mode-candidates.mjs";
 import { layoutSignalLabels, signalCaption, hitSignal } from "/signal-overlays.mjs";
 
@@ -87,97 +87,177 @@ function renderRawBitInspector(mode, result) {
   for (const hypothesis of valid) {
     const section = document.createElement("section"); section.className = "bit-inspector";
     const title = document.createElement("h4"); title.textContent = `${hypothesis.name} · ${hypothesis.bits.length} recovered bits`; section.append(title);
-    const flags = framingCandidates(hypothesis.bits, state.protocolStencils);
-    if (flags.length) {
-      const clues = document.createElement("div"); clues.className = "bit-clues";
-      for (const flag of flags) { const clue = document.createElement("span"); clue.textContent = `Possible framing: ${flag.label} at bit ${flag.bit_start} · ${flag.evidence}`; clues.append(clue); }
-      section.append(clues);
-    }
-    const table = document.createElement("div"); table.className = "bit-byte-grid";
-    table.setAttribute("role", "table");
-    table.setAttribute("aria-label", "Recovered bits aligned as binary, hexadecimal, and ASCII");
-    const header = document.createElement("div"); header.className = "bit-byte bit-byte-header"; header.setAttribute("role", "row");
-    for (const label of ["Offset", "Binary", "Hex", "ASCII"]) {
-      const role = "columnheader";
-      const cell = document.createElement("span"); cell.textContent = label; cell.setAttribute("role", role); header.append(cell);
-    }
-    table.append(header);
-    const cells = bytesForBits(hypothesis.bits);
-    let anchor = null, selected = null;
-    const paint = () => {
-      for (const cell of table.querySelectorAll("[data-bit-start]")) {
-        const start = Number(cell.dataset.bitStart), inSelection = selected && start < selected.end && start + Number(cell.dataset.bitCount) > selected.start;
-        const isFlag = flags.some((flag) => start < flag.bit_start + flag.bit_count && start + Number(cell.dataset.bitCount) > flag.bit_start);
-        cell.classList.toggle("selected", Boolean(inSelection)); cell.classList.toggle("candidate", isFlag);
+    const controls = document.createElement("div"); controls.className = "bit-interpret-controls";
+    const transformSelect = document.createElement("select"); transformSelect.setAttribute("aria-label", "Bitstream interpretation transform");
+    const transforms = [
+      ["raw", "Raw bits"],
+      ["inverted", "Invert polarity"],
+      ["differential-xor", "Differential / NRZI · 1 means transition"],
+      ["differential-xnor", "Differential / NRZI · 0 means transition"],
+    ];
+    for (const [value, text] of transforms) { const option = document.createElement("option"); option.value = value; option.textContent = text; transformSelect.append(option); }
+    const initialSelect = document.createElement("select"); initialSelect.setAttribute("aria-label", "Differential initial state");
+    for (const value of [0, 1]) { const option = document.createElement("option"); option.value = String(value); option.textContent = `Initial state ${value}`; initialSelect.append(option); }
+    const alignmentSelect = document.createElement("select"); alignmentSelect.setAttribute("aria-label", "Byte alignment offset");
+    for (let value = 0; value < 8; value += 1) { const option = document.createElement("option"); option.value = String(value); option.textContent = `Byte start at bit ${value}`; alignmentSelect.append(option); }
+    controls.append(transformSelect, initialSelect, alignmentSelect);
+    section.append(controls);
+    const viewContent = document.createElement("div"); section.append(viewContent); output.append(section);
+
+    const renderView = () => {
+      viewContent.replaceChildren();
+      const transform = transformSelect.value;
+      const initialState = Number(initialSelect.value);
+      const alignment = Number(alignmentSelect.value);
+      const bits = transformBitstream(hypothesis.bits, transform, initialState);
+      const interpretationName = transform === "raw" ? hypothesis.name
+        : transform === "inverted" ? `${hypothesis.name} · inverted`
+          : `${hypothesis.name} · ${transform === "differential-xor" ? "NRZI 1=transition" : "NRZI 0=transition"} · initial ${initialState}`;
+      const flags = framingCandidates(bits, state.protocolStencils);
+      const metrics = bitstreamMetrics(bits, alignment);
+      const metricsLine = document.createElement("p"); metricsLine.className = "bit-metrics";
+      const showMetric = (value, digits = 3) => value === null ? "n/a" : value.toFixed(digits);
+      const leading = Math.min(alignment, bits.length);
+      const trailing = metrics.byte_count ? (bits.length - leading) % 8 : Math.max(0, bits.length - leading);
+      metricsLine.textContent = `Byte alignment ${alignment} · skip ${leading} leading bit${leading === 1 ? "" : "s"} · ${metrics.byte_count} complete bytes · ${trailing} trailing bit${trailing === 1 ? "" : "s"} · bit entropy ${showMetric(metrics.bit_entropy_bits)} bits/bit · byte entropy ${showMetric(metrics.byte_entropy_bits)} bits/byte · ones ${showMetric(metrics.one_fraction)} · transitions ${showMetric(metrics.transition_fraction)} · longest run ${metrics.longest_run} · printable MSB/LSB ${showMetric(metrics.printable_byte_fraction)}/${showMetric(metrics.lsb_printable_byte_fraction)}`;
+      viewContent.append(metricsLine);
+      const caution = document.createElement("small"); caution.className = "bit-order-note";
+      caution.textContent = "These statistics are descriptive, not confidence. Pattern hits (including repeats) may overlap or occur by chance; they do not validate framing or identify a protocol.";
+      viewContent.append(caution);
+
+      if (flags.length) {
+        const clues = document.createElement("div"); clues.className = "bit-clues";
+        const groupedFlags = new Map();
+        for (const flag of flags) {
+          if (!groupedFlags.has(flag.stencil_id)) groupedFlags.set(flag.stencil_id, { flag, offsets: [] });
+          groupedFlags.get(flag.stencil_id).offsets.push(flag.bit_start);
+        }
+        for (const { flag, offsets } of groupedFlags.values()) {
+          const clue = document.createElement("span");
+          clue.textContent = `Pattern clue: ${flag.label} · ${offsets.length} occurrence${offsets.length === 1 ? "" : "s"} at bit${offsets.length === 1 ? "" : "s"} ${offsets.slice(0, 8).join(", ")}${offsets.length > 8 ? ", …" : ""} · ${flag.evidence}`;
+          clues.append(clue);
+        }
+        viewContent.append(clues);
       }
-    };
-    for (const cell of cells) {
-      const row = document.createElement("div"); row.className = "bit-byte"; row.setAttribute("role", "row");
-      row.dataset.bitStart = cell.bit_start; row.dataset.bitCount = cell.bit_count;
-      const offset = document.createElement("span"); offset.className = "bit-offset"; offset.textContent = String(cell.bit_start).padStart(6, "0");
-      const binary = document.createElement("button"); binary.type = "button"; binary.className = "bit-value"; binary.textContent = cell.binary.padEnd(8, "·"); binary.title = `Bits ${cell.bit_start}–${cell.bit_start + cell.bit_count - 1}; click two bytes to select a range`;
-      const hex = document.createElement("span"); hex.className = "bit-hex"; hex.textContent = cell.hex;
-      const ascii = document.createElement("span"); ascii.className = "bit-ascii"; ascii.textContent = cell.ascii;
-      offset.setAttribute("role", "rowheader");
-      for (const node of [binary, hex, ascii]) node.setAttribute("role", "cell");
-      binary.addEventListener("click", () => { if (anchor === null) { anchor = cell.bit_start; selected = { start: anchor, end: anchor + cell.bit_count }; } else { selected = { start: Math.min(anchor, cell.bit_start), end: Math.max(anchor, cell.bit_start) + cell.bit_count }; anchor = null; } paint(); tagButton.disabled = !selected; stencilButton.disabled = !selected; if (selected) stencilPattern.value = hypothesis.bits.slice(selected.start, selected.end); });
-      row.append(offset, binary, hex, ascii); table.append(row);
-    }
-    const tagForm = document.createElement("form"); tagForm.className = "bit-tag-form";
-    const label = document.createElement("input"); label.placeholder = "Operator interpretation (e.g. likely header)"; label.setAttribute("aria-label", "Operator interpretation");
-    const color = document.createElement("input"); color.type = "color"; color.value = "#f4bf75"; color.setAttribute("aria-label", "Tag color");
-    const tagButton = document.createElement("button"); tagButton.type = "submit"; tagButton.textContent = "Tag selected bits"; tagButton.disabled = true;
-    tagForm.append(label, color, tagButton);
-    tagForm.addEventListener("submit", async (event) => {
-      event.preventDefault(); if (!selected || !label.value.trim()) return;
-      const artifact = state.demodExports[mode];
-      const bitStart = selected.start, bitCount = selected.end - selected.start;
-      const annotation = createBitAnnotation({ bit_start: bitStart, bit_count: bitCount, label: label.value, color: color.value, hypothesis: hypothesis.name });
-      tagButton.disabled = true; tagButton.textContent = "Saving…";
-      try {
-        const source = artifact.source_capture;
-        const persisted = await request(`/api/captures/${source.capture_id}/bit-annotations`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            mode, sample_start: artifact.result.sample_start ?? artifact.settings.sample_start,
-            sample_count: artifact.result.sample_count ?? artifact.settings.sample_count,
-            settings: artifact.settings, hypothesis: hypothesis.name, bits: hypothesis.bits,
-            bit_start: bitStart, bit_count: bitCount, label: annotation.label, color: annotation.color,
-          }),
+
+      const table = document.createElement("div"); table.className = "bit-byte-grid";
+      table.setAttribute("role", "table");
+      table.setAttribute("aria-label", "Recovered bits with MSB-first and LSB-first hexadecimal and ASCII views");
+      const header = document.createElement("div"); header.className = "bit-byte bit-byte-header"; header.setAttribute("role", "row");
+      for (const label of ["Bit offset", "Bits", "MSB hex", "MSB ASCII", "LSB hex", "LSB ASCII"]) {
+        const cell = document.createElement("span"); cell.textContent = label; cell.setAttribute("role", "columnheader"); header.append(cell);
+      }
+      table.append(header);
+      let anchor = null, selected = null;
+      const tagButton = document.createElement("button"); tagButton.type = "submit"; tagButton.textContent = "Tag selected bits"; tagButton.disabled = true;
+      const stencilButton = document.createElement("button"); stencilButton.type = "submit"; stencilButton.textContent = "Save stencil"; stencilButton.disabled = true;
+      const stencilPattern = document.createElement("input"); stencilPattern.placeholder = "Pattern · 0/1 required, ? wildcard"; stencilPattern.maxLength = 512; stencilPattern.pattern = "[01?]{4,512}"; stencilPattern.setAttribute("aria-label", "Stencil bit pattern");
+      const paint = () => {
+        for (const row of table.querySelectorAll("[data-bit-start]")) {
+          const start = Number(row.dataset.bitStart), count = Number(row.dataset.bitCount);
+          const inSelection = selected && start < selected.end && start + count > selected.start;
+          const isFlag = flags.some((flag) => start < flag.bit_start + flag.bit_count && start + count > flag.bit_start);
+          row.classList.toggle("selected", Boolean(inSelection)); row.classList.toggle("candidate", isFlag);
+          const tagged = (state.demodExports[mode]?.bit_annotations || []).find((annotation) =>
+            annotation.hypothesis === `${interpretationName} · byte start ${alignment}`
+            && start < annotation.bit_start + annotation.bit_count && start + count > annotation.bit_start);
+          if (tagged) row.style.setProperty("--tag-color", tagged.color || "#f4bf75");
+          else row.style.removeProperty("--tag-color");
+        }
+      };
+      for (const cell of bytesForBits(bits, alignment)) {
+        const row = document.createElement("div"); row.className = "bit-byte"; row.setAttribute("role", "row");
+        row.dataset.bitStart = cell.bit_start; row.dataset.bitCount = cell.bit_count;
+        const offset = document.createElement("span"); offset.className = "bit-offset"; offset.textContent = String(cell.bit_start).padStart(6, "0"); offset.setAttribute("role", "rowheader");
+        const binary = document.createElement("button"); binary.type = "button"; binary.className = "bit-value"; binary.textContent = cell.binary.padEnd(8, "·"); binary.title = `Bits ${cell.bit_start}–${cell.bit_start + cell.bit_count - 1}; click two rows to select a range`; binary.setAttribute("role", "cell");
+        const hex = document.createElement("span"); hex.className = "bit-hex"; hex.textContent = cell.hex; hex.setAttribute("role", "cell");
+        const ascii = document.createElement("span"); ascii.className = "bit-ascii"; ascii.textContent = cell.ascii; ascii.setAttribute("role", "cell");
+        const lsbHex = document.createElement("span"); lsbHex.className = "bit-hex"; lsbHex.textContent = cell.lsb_hex; lsbHex.setAttribute("role", "cell");
+        const lsbAscii = document.createElement("span"); lsbAscii.className = "bit-ascii"; lsbAscii.textContent = cell.lsb_ascii; lsbAscii.setAttribute("role", "cell");
+        binary.addEventListener("click", () => {
+          if (anchor === null) { anchor = cell; selected = bitSelectionRange(cell, cell); }
+          else { selected = bitSelectionRange(anchor, cell); anchor = null; }
+          paint(); tagButton.disabled = !selected; stencilButton.disabled = !selected;
+          if (selected) stencilPattern.value = bits.slice(selected.start, selected.end);
         });
-        Object.assign(annotation, persisted); artifact.bit_annotations.push(annotation);
-        const chip = document.createElement("span"); chip.className = "bit-annotation"; chip.style.setProperty("--tag-color", color.value); chip.textContent = `${label.value.trim()} · bits ${bitStart}–${bitStart + bitCount - 1}`; section.append(chip);
-        for (const row of table.querySelectorAll(".bit-byte")) { const start = Number(row.dataset.bitStart); if (start < bitStart + bitCount && start + Number(row.dataset.bitCount) > bitStart) row.style.setProperty("--tag-color", color.value); }
-        label.value = "";
-        await refreshBitAnnotations(source.capture_id);
-      } catch (error) {
-        const failure = document.createElement("span"); failure.className = "bit-save-error"; failure.textContent = `Tag not saved: ${error.message}`; section.append(failure);
-      } finally { tagButton.disabled = !selected; tagButton.textContent = "Tag selected bits"; }
-    });
-    const stencilForm = document.createElement("form"); stencilForm.className = "bit-stencil-form";
-    const stencilHeading = document.createElement("strong"); stencilHeading.textContent = "Create reusable stencil from selected bits";
-    const stencilName = document.createElement("input"); stencilName.placeholder = "Stencil name"; stencilName.maxLength = 100; stencilName.setAttribute("aria-label", "Stencil name");
-    const stencilField = document.createElement("input"); stencilField.placeholder = "Field, e.g. preamble"; stencilField.maxLength = 100; stencilField.setAttribute("aria-label", "Stencil field");
-    const stencilPattern = document.createElement("input"); stencilPattern.placeholder = "Pattern · 0/1 required, ? wildcard"; stencilPattern.maxLength = 512; stencilPattern.pattern = "[01?]{4,512}"; stencilPattern.setAttribute("aria-label", "Stencil bit pattern");
-    const stencilProtocols = document.createElement("input"); stencilProtocols.placeholder = "Possible protocols, comma separated"; stencilProtocols.setAttribute("aria-label", "Possible protocols");
-    const stencilButton = document.createElement("button"); stencilButton.type = "submit"; stencilButton.textContent = "Save stencil"; stencilButton.disabled = true;
-    const stencilStatus = document.createElement("span"); stencilStatus.className = "bit-stencil-status";
-    stencilForm.append(stencilHeading, stencilName, stencilField, stencilPattern, stencilProtocols, stencilButton, stencilStatus);
-    stencilForm.addEventListener("submit", async (event) => {
-      event.preventDefault(); if (!selected || !state.capture) return;
-      stencilButton.disabled = true; stencilButton.textContent = "Saving…";
-      try {
-        const saved = await request("/api/protocol-stencils", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
-          name: stencilName.value, field: stencilField.value, pattern: stencilPattern.value,
-          protocols: stencilProtocols.value.split(",").map((value) => value.trim()).filter(Boolean),
-          source_capture_id: state.capture.id,
-        }) });
-        state.protocolStencils.push(saved);
-        stencilStatus.textContent = "Saved for future bitstream checks; rerun analysis to apply it here.";
-      } catch (error) { stencilStatus.textContent = `Stencil not saved: ${error.message}`; }
-      finally { stencilButton.disabled = !selected; stencilButton.textContent = "Save stencil"; }
-    });
-    section.append(table, tagForm, stencilForm); output.append(section);
+        row.append(offset, binary, hex, ascii, lsbHex, lsbAscii); table.append(row);
+      }
+      paint();
+
+      const tagForm = document.createElement("form"); tagForm.className = "bit-tag-form";
+      const label = document.createElement("input"); label.placeholder = "Operator interpretation (e.g. likely header)"; label.setAttribute("aria-label", "Operator interpretation");
+      const color = document.createElement("input"); color.type = "color"; color.value = "#f4bf75"; color.setAttribute("aria-label", "Tag color");
+      tagForm.append(label, color, tagButton);
+      const annotationChips = document.createElement("div"); annotationChips.className = "bit-annotations";
+      const renderAnnotationChips = () => {
+        annotationChips.replaceChildren();
+        for (const annotation of state.demodExports[mode]?.bit_annotations || []) {
+          if (annotation.hypothesis !== `${interpretationName} · byte start ${alignment}`) continue;
+          const chip = document.createElement("span"); chip.className = "bit-annotation"; chip.style.setProperty("--tag-color", annotation.color || "#f4bf75");
+          chip.textContent = `${annotation.label} · bits ${annotation.bit_start}–${annotation.bit_start + annotation.bit_count - 1}`; annotationChips.append(chip);
+        }
+      };
+      tagForm.addEventListener("submit", async (event) => {
+        event.preventDefault(); if (!selected || !label.value.trim()) return;
+        const artifact = state.demodExports[mode];
+        const bitStart = selected.start, bitCount = selected.end - selected.start;
+        const hypothesisName = `${interpretationName} · byte start ${alignment}`;
+        const annotation = createBitAnnotation({ bit_start: bitStart, bit_count: bitCount, label: label.value, color: color.value, hypothesis: hypothesisName });
+        const interpretation = { transform, initial_state: initialState, byte_alignment: alignment, byte_order: "both" };
+        annotation.interpretation = interpretation;
+        annotation.settings = { ...artifact.settings, interpretation };
+        tagButton.disabled = true; tagButton.textContent = "Saving…";
+        try {
+          const source = artifact.source_capture;
+          const persisted = await request(`/api/captures/${source.capture_id}/bit-annotations`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              mode, sample_start: artifact.result.sample_start ?? artifact.settings.sample_start,
+              sample_count: artifact.result.sample_count ?? artifact.settings.sample_count,
+              settings: annotation.settings,
+              hypothesis: hypothesisName, bits,
+              bit_start: bitStart, bit_count: bitCount, label: annotation.label, color: annotation.color,
+            }),
+          });
+          Object.assign(annotation, persisted); artifact.bit_annotations.push(annotation); renderAnnotationChips(); paint();
+          label.value = "";
+          await refreshBitAnnotations(source.capture_id);
+        } catch (error) {
+          const failure = document.createElement("span"); failure.className = "bit-save-error"; failure.textContent = `Tag not saved: ${error.message}`; tagForm.append(failure);
+        } finally { tagButton.disabled = !selected; tagButton.textContent = "Tag selected bits"; }
+      });
+      const stencilForm = document.createElement("form"); stencilForm.className = "bit-stencil-form";
+      const stencilHeading = document.createElement("strong"); stencilHeading.textContent = "Create reusable stencil from selected bits";
+      const stencilName = document.createElement("input"); stencilName.placeholder = "Stencil name"; stencilName.maxLength = 100; stencilName.setAttribute("aria-label", "Stencil name");
+      const stencilField = document.createElement("input"); stencilField.placeholder = "Field, e.g. preamble"; stencilField.maxLength = 100; stencilField.setAttribute("aria-label", "Stencil field");
+      const stencilProtocols = document.createElement("input"); stencilProtocols.placeholder = "Possible protocols, comma separated"; stencilProtocols.setAttribute("aria-label", "Possible protocols");
+      const stencilStatus = document.createElement("span"); stencilStatus.className = "bit-stencil-status";
+      stencilForm.append(stencilHeading, stencilName, stencilField, stencilPattern, stencilProtocols, stencilButton, stencilStatus);
+      stencilForm.addEventListener("submit", async (event) => {
+        event.preventDefault(); if (!selected || !state.capture) return;
+        stencilButton.disabled = true; stencilButton.textContent = "Saving…";
+        try {
+          const saved = await request("/api/protocol-stencils", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+            name: stencilName.value, field: stencilField.value, pattern: stencilPattern.value,
+            protocols: stencilProtocols.value.split(",").map((value) => value.trim()).filter(Boolean),
+            source_capture_id: state.capture.id,
+          }) });
+          state.protocolStencils.push(saved);
+          stencilStatus.textContent = "Saved for future bitstream checks; rerun analysis to apply it here.";
+        } catch (error) { stencilStatus.textContent = `Stencil not saved: ${error.message}`; }
+        finally { stencilButton.disabled = !selected; stencilButton.textContent = "Save stencil"; }
+      });
+      renderAnnotationChips();
+      viewContent.append(table, tagForm, annotationChips, stencilForm);
+    };
+    const updateInterpretation = () => {
+      initialSelect.disabled = !transformSelect.value.startsWith("differential-");
+      renderView();
+    };
+    transformSelect.addEventListener("change", updateInterpretation);
+    initialSelect.addEventListener("change", renderView);
+    alignmentSelect.addEventListener("change", renderView);
+    updateInterpretation();
   }
 }
 
@@ -404,9 +484,16 @@ el("decode-selection").addEventListener("click", async () => {
   const liveSessionId = state.liveView ? state.liveSessionId : null;
   const mode = el("fldigi-mode").value;
   if (!selection || (!captureId && !liveSessionId) || !mode) return;
+  const carrierText = el("fldigi-carrier-hz").value.trim();
+  const carrierHz = carrierText ? Number(carrierText) : null;
+  if (carrierText && (!Number.isFinite(carrierHz) || carrierHz <= 0 || carrierHz > 20000)) {
+    el("replay-status").textContent = "Enter an audio carrier frequency from 1 to 20000 Hz, or clear the field to leave it unset.";
+    return;
+  }
   const button = el("decode-selection");
   button.disabled = true;
-  el("replay-status").textContent = `Queuing ${mode} decode for ${(selection.sample_start / state.waterfall.sample_rate).toFixed(2)}–${((selection.sample_start + selection.sample_count) / state.waterfall.sample_rate).toFixed(2)} s…`;
+  const carrierStatus = carrierHz === null ? "carrier unset" : `carrier ${carrierHz.toFixed(0)} Hz`;
+  el("replay-status").textContent = `Queuing ${mode} decode · ${carrierStatus} · ${(selection.sample_start / state.waterfall.sample_rate).toFixed(2)}–${((selection.sample_start + selection.sample_count) / state.waterfall.sample_rate).toFixed(2)} s…`;
   try {
     const endpoint = liveSessionId
       ? `/api/live/sessions/${encodeURIComponent(liveSessionId)}/decode`
@@ -418,11 +505,10 @@ el("decode-selection").addEventListener("click", async () => {
         sample_start: selection.sample_start,
         sample_count: selection.sample_count,
         track_id: state.selectedTrack?.track_id || null,
-        carrier_hz: Number.isFinite(selection.frequency_low_hz) && Number.isFinite(selection.frequency_high_hz)
-          ? (selection.frequency_low_hz + selection.frequency_high_hz) / 2 : null,
+        carrier_hz: carrierHz,
       }),
     });
-    el("replay-status").textContent = `Decode ${result.status} · ${mode} · isolated ${liveSessionId ? "live track" : "selected region"} input`;
+    el("replay-status").textContent = `Decode ${result.status} · ${mode} · ${carrierStatus} · isolated ${liveSessionId ? "live track" : "selected region"} input`;
     if (liveSessionId) pollLiveDecodeRun(liveSessionId, result.run_id);
     else pollSavedDecodeRun(captureId, result.run_id);
   } catch (error) {
@@ -907,7 +993,8 @@ function renderDecodeRuns() {
     const interval = Number.isInteger(run.sample_start) && Number.isInteger(run.sample_count) && run.sample_rate
       ? ` · ${(run.sample_start / run.sample_rate).toFixed(2)}–${((run.sample_start + run.sample_count) / run.sample_rate).toFixed(2)} s`
       : " · track time unavailable";
-    button.textContent = `${run.current_mode || "Fldigi"} · ${run.status}${interval}`;
+    const carrier = Number.isFinite(run.carrier_hz) ? ` · carrier ${run.carrier_hz.toFixed(0)} Hz` : "";
+    button.textContent = `${run.current_mode || "Fldigi"} · ${run.status}${carrier}${interval}`;
     button.addEventListener("click", () => {
       showOutput("text");
       state.textOutputContext = `Saved run ${run.id.slice(0,8)} · ${run.output_scope} · ${run.association}`;
@@ -1109,6 +1196,7 @@ function selectTrack(track) {
   const binStep = (highHz - lowHz) / Math.max(1, bins - 1);
   const sampleEnd = Math.min(data.sample_count, track.sample_start + track.sample_count);
   state.selection = { sample_start: track.sample_start, sample_count: Math.max(1, sampleEnd - track.sample_start), frequency_low_hz: track.frequency_low_hz, frequency_high_hz: track.frequency_high_hz, x1, y1, x2, y2 };
+  updateCarrierFromSelection(state.selection);
   state.selectedTrack = track;
   beginNewRegion();
   const center = (track.frequency_low_hz + track.frequency_high_hz) / 2;
@@ -1265,6 +1353,7 @@ overlayCanvas.addEventListener("pointerup", (event) => {
     frequency_high_hz: frequencyHigh,
     x1: state.drag.x, y1: state.drag.y, x2: point.x, y2: point.y,
   };
+  updateCarrierFromSelection(state.selection);
   state.drag = null;
   state.selectedTrack = null;
   beginNewRegion();
@@ -1617,6 +1706,14 @@ function openInspector(tab = "label") {
   for (const button of document.querySelectorAll("[data-inspector-tab]")) button.setAttribute("aria-pressed", String(button.dataset.inspectorTab === tab));
   updateDecoderSelectionControls();
 }
+function updateCarrierFromSelection(selection) {
+  const input = el("fldigi-carrier-hz");
+  if (!input) return;
+  const low = selection?.frequency_low_hz, high = selection?.frequency_high_hz;
+  input.value = Number.isFinite(low) && Number.isFinite(high) && high > low
+    ? String(Math.round((low + high) / 2))
+    : "";
+}
 function updateDecoderSelectionControls() {
   const validLiveSelection = Boolean(state.liveView && state.liveSessionId && state.selection);
   const validSavedSelection = Boolean(state.capture && state.selection && !state.liveView);
@@ -1776,6 +1873,7 @@ function selectSavedRegion(region) {
   clearError();
   state.selection = {sample_start:region.sample_start, sample_count:region.sample_count,
     frequency_low_hz:region.frequency_low_hz ?? 0, frequency_high_hz:region.frequency_high_hz ?? Math.min(3000,data.sample_rate/2)};
+  updateCarrierFromSelection(state.selection);
   state.selectedTrack = null;
   state.editRegion = {id:region.id, revision:region.revision};
   reprojectSelection();

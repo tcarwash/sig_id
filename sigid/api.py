@@ -274,7 +274,8 @@ def create_app(
             app.state.capture_store.update_decoder_run(run_id, {
                 "attempted_modes": [settings.mode], "current_mode": settings.mode,
                 "output_offset": 0, "output_end": len(text.encode("utf-8")), "text": text,
-                "status": result.get("status", "completed"), "note": result.get("note", ""),
+                "status": result.get("status", "completed"),
+                "note": f"{result.get('note', '')} Carrier setting: {settings.carrier_hz if settings.carrier_hz is not None else 'unset'} Hz.",
             })
         except Exception as exc:
             logging.getLogger(__name__).exception("Isolated Fldigi region replay failed")
@@ -427,6 +428,7 @@ def create_app(
                 backend="fldigi-isolated-track-sweep", modes=modes, attempted_modes=[],
                 current_mode=modes[0], output_offset=0, status="queued",
                 note="Waiting to run the bounded isolated tested-mode sweep on this live track window.",
+                carrier_hz=settings.carrier_hz,
                 output_scope="isolated_live_mode_sweep", association="exact_live_track_window",
             )
             decode_executor.submit(
@@ -815,13 +817,14 @@ def create_app(
                 backend="fldigi-isolated-replay", modes=[settings.mode], attempted_modes=[],
                 current_mode=settings.mode, output_offset=0, status="queued",
                 note="Waiting to replay the selected live track window in an isolated Fldigi instance.",
+                carrier_hz=settings.carrier_hz,
                 output_scope="isolated_live_window_replay", association="exact_live_track_window",
             )
             decode_executor.submit(
                 run_region_replay, run_id, settings, int(snapshot["sample_rate"]),
                 lambda: samples.tolist(),
             )
-            return {"run_id": run_id, "status": "queued", "mode": settings.mode}
+            return {"run_id": run_id, "status": "queued", "mode": settings.mode, "carrier_hz": settings.carrier_hz}
         except Exception as exc:
             decode_job_lock.release()
             raise HTTPException(status_code=503, detail=f"could not queue live track replay: {exc}") from exc
@@ -863,10 +866,11 @@ def create_app(
                 modes=[settings.mode], attempted_modes=[], current_mode=settings.mode,
                 output_offset=0, status="queued",
                 note="Waiting to replay the selected saved-capture region.",
+                carrier_hz=settings.carrier_hz,
                 output_scope="isolated_region_replay", association="exact_capture_window",
             )
             decode_executor.submit(run_saved_replay, run_id, capture, settings)
-            return {"run_id": run_id, "status": "queued", "mode": settings.mode}
+            return {"run_id": run_id, "status": "queued", "mode": settings.mode, "carrier_hz": settings.carrier_hz}
         except Exception as exc:
             decode_job_lock.release()
             raise HTTPException(status_code=503, detail=f"could not queue the selected-region replay: {exc}") from exc

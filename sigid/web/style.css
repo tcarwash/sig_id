@@ -371,6 +371,7 @@ h3 {
 .notes-label,
 .field,
 .fldigi-mode-label,
+.fldigi-carrier-label,
 .demod-form label,
 .live-controls label {
   display: flex;
@@ -480,9 +481,13 @@ textarea {
 }
 .bit-inspector { margin: 12px 0; padding-top: 10px; border-top: 1px solid #263746; }
 .bit-inspector h4 { margin: 0 0 8px; color: #a7c6dd; font-size: 11px; }
+.bit-interpret-controls { display: flex; flex-wrap: wrap; gap: 6px; margin: 7px 0; }
+.bit-interpret-controls select { max-width: 100%; padding: 5px 8px; border: 1px solid #30485b; border-radius: 4px; background: #0d1923; color: #c2d2df; font: inherit; font-size: 11px; }
+.bit-metrics { margin: 6px 0 2px; color: #b6c7d4; font: 10px/1.6 ui-monospace, monospace; overflow-wrap: anywhere; }
 .bit-byte-grid { max-height: 280px; overflow: auto; padding: 4px; background: #09121a; border: 1px solid #203140; }
-.bit-byte { display: grid; grid-template-columns: 54px minmax(72px, 1fr) 24px 24px; gap: 8px; align-items: center; width: max-content; min-width: 205px; padding: 1px 4px; border: 1px solid transparent; border-radius: 3px; font: 11px/1.7 ui-monospace, monospace; }
+.bit-byte { display: grid; grid-template-columns: 62px minmax(72px, 1fr) 42px 60px 42px 60px; gap: 6px; align-items: center; width: max-content; min-width: 376px; padding: 1px 4px; border: 1px solid transparent; border-radius: 3px; font: 11px/1.7 ui-monospace, monospace; }
 .bit-byte-header { position: sticky; top: -4px; z-index: 2; border-bottom: 1px solid #314454; background: #0d1923; color: #91a9bb; font-weight: 700; }
+.bit-order-note { margin: 5px 0; color: #91a9bb; font-size: 10px; }
 .bit-offset, .bit-hex { color: #70879b; }
 .bit-value { padding: 0; border: 0; background: transparent; color: #c3edda; text-align: left; font: inherit; cursor: pointer; }
 .bit-ascii { color: #f0d48a; }
