@@ -99,7 +99,7 @@ try {
     );
     if (mode === "mfsk") assert.match(await page.locator("[data-raw-result]:visible .mode-shortlist").first().textContent(), /THOR8.*THOR16.*MFSK16.*MFSK32/s);
     if (mode === "bpsk") assert.match(await page.locator("[data-raw-result]:visible .mode-shortlist").first().textContent(), /BPSK31.*BPSK63/s);
-    if (mode === "qpsk") assert.match(await page.locator("[data-raw-result]:visible .mode-shortlist").first().textContent(), /QPSK31/);
+    if (mode === "qpsk") assert.match(await page.locator("[data-raw-result]:visible .mode-shortlist").first().textContent(), /QPSK31.*QPSK63.*QPSK125.*QPSK250.*QPSK500/s);
     if (mode === "2fsk") {
       assert.ok(await page.locator(".bit-ascii").allTextContents().then((items) => items.includes("a")));
       assert.match(await page.locator(".bit-byte-header").textContent(), /Offset.*Binary.*Hex.*ASCII/);

@@ -14,7 +14,8 @@ REFERENCE_VERSION = "4.2.13"
 NON_MODE_ENTRIES = {"RSID_EOT"}
 KNOWN_AUDIO_ROUND_TRIPS = {
     "BPSK31", "BPSK63", "RTTY", "THOR8", "THOR16", "MFSK16", "MFSK32",
-    "MT63-500S", "MT63-1KS", "QPSK31",
+    "MT63-500S", "MT63-1KS", "QPSK31", "QPSK63", "QPSK125", "QPSK250",
+    "QPSK500", "8PSK125", "8PSK250",
 }
 KNOWN_UNAVAILABLE = {
     "OFDM500F": "The reference backend lists this name but returns to BPSK31 when selection is requested.",

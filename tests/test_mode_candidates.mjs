@@ -10,6 +10,13 @@ test("observed modulation narrows the reviewed Fldigi mode subset with reasons",
 });
 
 test("QPSK shortlist exposes the validated mode without implying complete catalog coverage", () => {
-  assert.deepEqual(narrowKnownModes({ modulation: "QPSK" }).map((candidate) => candidate.mode), ["QPSK31"]);
-  assert.equal(REVIEWED_MODE_CANDIDATES.length, 10);
+  assert.deepEqual(
+    narrowKnownModes({ modulation: "QPSK" }).map((candidate) => candidate.mode),
+    ["QPSK31", "QPSK63", "QPSK125", "QPSK250", "QPSK500"],
+  );
+  assert.deepEqual(
+    narrowKnownModes({ modulation: "8PSK" }).map((candidate) => candidate.mode),
+    ["8PSK125", "8PSK250"],
+  );
+  assert.equal(REVIEWED_MODE_CANDIDATES.length, 16);
 });
