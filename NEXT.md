@@ -53,8 +53,13 @@ Linux only. A known-message audio round-trip now passes for BPSK31, RTTY and THO
   status, notes and recovered text. Playback uses a private null sink and a copied
   profile with audio set to PulseAudio and all known PTT paths forced off; it never
   changes the operator's running Fldigi instance. The label action remains explicit and
-  saves the selected mode as the region variant. Run the dedicated RF-free replay
-  integration check covers a known-message round-trip in BPSK31, RTTY and THOR16.
+  saves the selected mode as the region variant. RF-free tests verify known-message
+  round-trips in BPSK31, RTTY and THOR16.
+- While recording, the inspector can replay a selected live candidate's exact sample
+  window using an isolated Fldigi process. It rejects a window that has expired from the
+  ten-second live analysis buffer, persists the exact session/track bounds, and links
+  the run to the saved capture on Stop. API and headless-browser checks cover this path.
+  The separate automatic tested-mode sweep still reads the shared external Fldigi input.
 - Graceful application shutdown finalizes an outstanding capture. Writer faults retain
   completed audio blocks and mark the indexed recording partial; metadata-index failures
   retain the readable WAV and report its path. Input close failures still drain the
@@ -233,13 +238,13 @@ Linux only. A known-message audio round-trip now passes for BPSK31, RTTY and THO
 
 ## Next action
 
-The core GUI overhaul, Linux Compose run path and durable tentative receive-run records
-are implemented. Continue toward 1.0 with track-scoped decoder audio input/replay and
-broader Fldigi decode fixtures; shared external Fldigi routing does not establish
-independent decoding of every detected track. Keep full-catalog issues, remote capture
-agent, job/review workflows, quotas and prolonged hardware/resource soak on the release
-gate. The classifier's clean-source coverage weakness also remains open, as detailed
-below.
+The core GUI overhaul, Linux Compose run path, and exact-window replay for selected
+saved and live regions are implemented. Next route accepted-model automatic trials
+through the isolated live-window worker; the existing automatic tested-mode sweep still
+uses the shared external Fldigi input. Continue broad Fldigi decode fixtures after that.
+Keep unresolved catalog modes, remote capture agent, job/review workflows, quotas and
+prolonged hardware/resource soak on the 1.0 gate. The classifier's clean-source coverage
+weakness also remains open, as detailed below.
 
 The reproducible historical multi-ASK calibration/evaluation report is saved at
 `reports/ask-ood-benchmark-2026-10-21.json`, with generation and training commands in
@@ -271,7 +276,7 @@ Verified: Fldigi 4.2.13 and its XML-RPC method catalog are installed; unit tests
 cover receive-only client semantics, PCM WAV block indexing/normalization and
 synthetic 2-FSK/MFSK metadata, exact symbols/bits and tone frequencies, SQLite
 capture hashes/regions/label history, JSONL export, spectrogram peak detection, upload/region APIs, and Fldigi
-status/catalog/mode/output APIs, WEFAX product import and image delivery. Current full suite: 180 passed, 10 skipped;
+status/catalog/mode/output APIs, WEFAX product import and image delivery. Current full suite: 181 passed, 10 skipped;
 the opt-in isolated selection audit checks all 169 entries (165 selectable, four unresolved),
 and `node --test tests/test_waterfall_window.mjs`, module syntax validation, headless
 Chromium loading, and `git diff --check` pass. The generic text-backend

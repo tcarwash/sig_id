@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 import wave
 import struct
 
@@ -71,6 +72,18 @@ class FakeFldigi:
 
     def receive_text(self, *, start=0, length=65536):
         return self.text[start : start + length]
+
+
+class FakeReplay:
+    def __init__(self):
+        self.frames = None
+
+    def decode(self, wav_path, *, mode, carrier_hz=None):
+        with wave.open(str(wav_path), "rb") as wav:
+            self.frames = wav.getnframes()
+            assert wav.getnchannels() == 1
+            assert wav.getframerate() == 8000
+        return {"status": "completed", "text": "LIVE TRACK TEXT", "note": f"Decoded {mode}."}
 
 
 def test_live_capture_writes_wav_and_registers_capture(tmp_path):
@@ -186,6 +199,55 @@ def test_live_capture_api_flow(tmp_path, monkeypatch):
             assert (await client.get(f"/api/captures/missing/decode-runs")).status_code == 404
             assert (await client.get(f"/api/captures/{capture['id']}/waterfall", params={"fft_size": 64, "hop_size": 16})).status_code == 200
             assert (await client.get("/api/live/analysis")).status_code == 409
+
+    asyncio.run(exercise())
+
+
+def test_live_track_replay_uses_exact_buffered_samples_and_links_when_stopped(tmp_path):
+    replay = FakeReplay()
+    app = create_app(
+        tmp_path / "app-data", audio_backend=FakeAudio(), fldigi_client=FakeFldigi(),
+        fldigi_replay_backend=replay,
+    )
+
+    async def exercise():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            started = await client.post("/api/live/start", json={"device_id": 1, "sample_rate": 8000})
+            assert started.status_code == 200, started.text
+            session_id = started.json()["session_id"]
+            settings = {
+                "mode": "RTTY", "sample_start": 128, "sample_count": 512,
+                "track_id": f"{session_id}:0001", "carrier_hz": 1200,
+            }
+            response = await client.post(f"/api/live/sessions/{session_id}/decode", json=settings)
+            assert response.status_code == 202, response.text
+            run_id = response.json()["run_id"]
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                runs = (await client.get(f"/api/live/sessions/{session_id}/decode-runs")).json()
+                if runs and runs[0]["status"] not in {"queued", "running"}:
+                    break
+                await asyncio.sleep(0.01)
+            assert runs[0]["id"] == run_id
+            assert runs[0]["status"] == "completed"
+            assert runs[0]["output_text"] == "LIVE TRACK TEXT"
+            assert runs[0]["output_scope"] == "isolated_live_window_replay"
+            assert runs[0]["association"] == "exact_live_track_window"
+            assert runs[0]["sample_start"] == settings["sample_start"]
+            assert runs[0]["sample_count"] == settings["sample_count"]
+            assert replay.frames == settings["sample_count"]
+
+            stale = await client.post(f"/api/live/sessions/{session_id}/decode", json={
+                **settings, "sample_start": 2000,
+            })
+            assert stale.status_code == 422
+            stopped = await client.post("/api/live/stop")
+            assert stopped.status_code == 200
+            [saved_run] = (await client.get(
+                f"/api/captures/{stopped.json()['capture']['id']}/decode-runs"
+            )).json()
+            assert saved_run["id"] == run_id
+            assert saved_run["association"] == "exact_live_track_window"
 
     asyncio.run(exercise())
 

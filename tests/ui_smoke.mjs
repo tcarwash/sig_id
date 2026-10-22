@@ -240,7 +240,58 @@ try {
           .getElementById("waterfall-state")
           .textContent.includes("30 s display"),
       );
-      assert.equal(await page.locator("#time-start").textContent(), "−30 s");
+      if (rate === 48000) {
+        let liveReplayRequest = null;
+        let liveReplaySession = null;
+        await page.route("**/api/live/analysis*", async (route) => {
+          const status = await (await page.request.get(new URL("/api/live", page.url()).href)).json();
+          liveReplaySession = status.session_id;
+          const count = Math.max(1, Math.min(rate, status.frames_written));
+          const start = status.frames_written - count;
+          await route.fulfill({ json: {
+            active: true, warming_up: false, session_id: liveReplaySession,
+            spectrum: null,
+            tracks: [{
+              id: "track-001", track_id: `${liveReplaySession}:ui-track`,
+              sample_start: start, sample_count: count,
+              time_start_seconds: start / rate, time_end_seconds: status.frames_written / rate,
+              frequency_low_hz: 950, frequency_high_hz: 1250, center_hz: 1100,
+              bandwidth_hz: 300, peak_snr_db: 22, drift_hz_per_second: 0,
+              tone_centers_hz: [1000, 1200], tone_count_candidate: 2,
+              modulation_hypothesis: "FSK-like", protocol: null,
+              track_observations: 4, track_state: "persistent", occupancy: 0.9,
+            }],
+            automatic_trial: null, analysis: { threshold_db: 18, method: "UI fixture" },
+          } });
+        });
+        await page.route("**/api/live/sessions/*/decode", async (route) => {
+          liveReplayRequest = JSON.parse(route.request().postData());
+          await route.fulfill({ status: 202, json: { run_id: "live-replay-01", status: "queued", mode: "RTTY" } });
+        });
+        await page.route("**/api/live/sessions/*/decode-runs", async (route) => {
+          await route.fulfill({ json: [{
+            id: "live-replay-01", track_id: `${liveReplaySession}:ui-track`,
+            sample_start: liveReplayRequest?.sample_start ?? 0,
+            sample_count: liveReplayRequest?.sample_count ?? 1,
+            sample_rate: rate, current_mode: "RTTY", status: "completed",
+            note: "Isolated live track replay finished.", output_text: "LIVE TRACK TEXT",
+            output_scope: "isolated_live_window_replay", association: "exact_live_track_window",
+          }] });
+        });
+        await page.waitForTimeout(1100);
+        await page.locator("#show-signals").click();
+        await page.locator("#track-list").getByRole("button", { name: "Review region" }).first().click();
+        await page.locator('[data-inspector-tab="decode"]').click();
+        await page.locator("#fldigi-mode").selectOption("RTTY");
+        await page.locator("#decode-selection").click();
+        await page.waitForFunction(() => document.getElementById("replay-status").textContent.includes("COMPLETED"));
+        assert.equal(liveReplayRequest.mode, "RTTY");
+        assert.ok(liveReplayRequest.sample_count > 0);
+        assert.match(await page.locator("#decoded-text").textContent(), /LIVE TRACK TEXT/);
+        assert.equal(liveReplaySession, (await page.request.get(new URL("/api/live", page.url()).href).then(response => response.json())).session_id);
+      }
+      assert.equal(await page.locator("#time-start").textContent(), "Now");
+      assert.equal(await page.locator("#time-end").textContent(), "−30 s");
       assert.equal(
         await page.locator("#waterfall").getAttribute("height"),
         String(Math.ceil((30 * rate) / 512)),

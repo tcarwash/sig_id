@@ -213,25 +213,15 @@ def create_app(
     app.state.live_track_registry = None
     app.state.fldigi_trials = FldigiTrialRunner(fldigi, run_store=store)
 
-    def run_saved_replay(
-        run_id: str, capture: dict[str, Any], settings: FldigiReplayRequest,
+    def run_region_replay(
+        run_id: str, settings: FldigiReplayRequest, sample_rate: int,
+        sample_reader: Any,
     ) -> None:
         temporary_audio: Path | None = None
         try:
-            selected_start = settings.sample_start
-            selected_end = selected_start + settings.sample_count
-            samples: list[float] = []
-            for block in WavSource(capture["audio_path"]).blocks():
-                block_end = block.first_sample + block.sample_count
-                if block_end <= selected_start:
-                    continue
-                if block.first_sample >= selected_end:
-                    break
-                left = max(0, selected_start - block.first_sample)
-                right = min(block.sample_count, selected_end - block.first_sample)
-                samples.extend(block.samples[left:right])
+            samples = sample_reader()
             if len(samples) != settings.sample_count:
-                raise ValueError("selected sample range could not be read from the capture")
+                raise ValueError("selected sample range could not be read in full")
             temporary = tempfile.NamedTemporaryFile(prefix="sig-id-region-", suffix=".wav", delete=False)
             temporary_audio = Path(temporary.name)
             temporary.close()
@@ -239,12 +229,12 @@ def create_app(
             with wave.open(str(temporary_audio), "wb") as output:
                 output.setnchannels(1)
                 output.setsampwidth(2)
-                output.setframerate(int(capture["sample_rate"]))
+                output.setframerate(sample_rate)
                 output.writeframes(pcm.tobytes())
             app.state.capture_store.update_decoder_run(run_id, {
                 "attempted_modes": [settings.mode], "current_mode": settings.mode,
                 "output_offset": 0, "output_end": None, "text": "",
-                "status": "running", "note": "Preparing the selected capture window for isolated receive replay.",
+                "status": "running", "note": "Preparing the selected sample window for isolated receive replay.",
             })
             result = fldigi_replay.decode(
                 temporary_audio, mode=settings.mode, carrier_hz=settings.carrier_hz,
@@ -269,6 +259,26 @@ def create_app(
             if temporary_audio is not None:
                 temporary_audio.unlink(missing_ok=True)
             decode_job_lock.release()
+
+    def run_saved_replay(
+        run_id: str, capture: dict[str, Any], settings: FldigiReplayRequest,
+    ) -> None:
+        def read_samples() -> list[float]:
+            selected_start = settings.sample_start
+            selected_end = selected_start + settings.sample_count
+            samples: list[float] = []
+            for block in WavSource(capture["audio_path"]).blocks():
+                block_end = block.first_sample + block.sample_count
+                if block_end <= selected_start:
+                    continue
+                if block.first_sample >= selected_end:
+                    break
+                left = max(0, selected_start - block.first_sample)
+                right = min(block.sample_count, selected_end - block.first_sample)
+                samples.extend(block.samples[left:right])
+            return samples
+
+        run_region_replay(run_id, settings, int(capture["sample_rate"]), read_samples)
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
@@ -594,6 +604,57 @@ def create_app(
     @app.get("/api/live/sessions/{session_id}/decode-runs")
     def session_decode_runs(session_id: str) -> list[dict[str, Any]]:
         return store.decoder_runs(session_id=session_id)
+
+    @app.post("/api/live/sessions/{session_id}/decode", status_code=202)
+    def replay_live_region(session_id: str, settings: FldigiReplayRequest) -> dict[str, Any]:
+        status = live_capture.status()
+        if not status.get("active") or status.get("session_id") != session_id:
+            raise HTTPException(status_code=409, detail="live capture session is no longer active")
+        snapshot = live_capture.analysis_audio()
+        if snapshot is None or snapshot.get("session_id") != session_id:
+            raise HTTPException(status_code=409, detail="live audio window is unavailable")
+        window_start = int(snapshot["sample_offset"])
+        window_end = window_start + int(snapshot["window_sample_count"])
+        requested_end = settings.sample_start + settings.sample_count
+        if settings.sample_start < window_start or requested_end > window_end:
+            raise HTTPException(
+                status_code=422,
+                detail=f"selected samples are no longer in the live buffer ({window_start}–{window_end})",
+            )
+        try:
+            modes = fldigi.mode_names()
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"Fldigi mode catalog unavailable: {exc}") from exc
+        if settings.mode not in modes:
+            raise HTTPException(status_code=422, detail="selected mode is not available in the Fldigi catalog")
+        channels = int(snapshot["channels"])
+        pcm = np.frombuffer(snapshot["pcm"], dtype="<i2").reshape(-1, channels)
+        left = settings.sample_start - window_start
+        right = requested_end - window_start
+        samples = pcm[left:right].astype(np.float64).mean(axis=1) / 32768.0
+        track_id = settings.track_id or f"{session_id}:manual:{settings.sample_start}:{settings.sample_count}"
+        if not track_id.startswith(f"{session_id}:"):
+            raise HTTPException(status_code=422, detail="track_id does not belong to the active live session")
+        if not decode_job_lock.acquire(blocking=False):
+            raise HTTPException(status_code=409, detail="an isolated Fldigi replay is already running")
+        try:
+            run_id = store.create_decoder_run(
+                session_id=session_id, track_id=track_id,
+                sample_start=settings.sample_start, sample_count=settings.sample_count,
+                sample_rate=int(snapshot["sample_rate"]), modulation_hypothesis="unknown",
+                backend="fldigi-isolated-replay", modes=[settings.mode], attempted_modes=[],
+                current_mode=settings.mode, output_offset=0, status="queued",
+                note="Waiting to replay the selected live track window in an isolated Fldigi instance.",
+                output_scope="isolated_live_window_replay", association="exact_live_track_window",
+            )
+            decode_executor.submit(
+                run_region_replay, run_id, settings, int(snapshot["sample_rate"]),
+                lambda: samples.tolist(),
+            )
+            return {"run_id": run_id, "status": "queued", "mode": settings.mode}
+        except Exception as exc:
+            decode_job_lock.release()
+            raise HTTPException(status_code=503, detail=f"could not queue live track replay: {exc}") from exc
 
     @app.post("/api/captures/{capture_id}/decode", status_code=202)
     def replay_capture_region(capture_id: str, settings: FldigiReplayRequest) -> dict[str, Any]:

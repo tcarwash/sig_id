@@ -4,7 +4,7 @@ import { createDemodExport, downloadDemodExport } from "/demod-export.mjs";
 import { layoutSignalLabels, signalCaption, hitSignal } from "/signal-overlays.mjs";
 
 const el = (id) => document.getElementById(id);
-const state = { capture: null, waterfall: null, drag: null, selection: null, regions: [], tracks: [], liveView: false, modelAvailable: false, view: null, demodExports: {}, selectedTrack: null, frozen: false };
+const state = { capture: null, waterfall: null, drag: null, selection: null, regions: [], tracks: [], liveView: false, liveSessionId: null, modelAvailable: false, view: null, demodExports: {}, selectedTrack: null, frozen: false };
 const baseCanvas = el("waterfall");
 const overlayCanvas = el("overlay");
 let livePoll = null;
@@ -205,13 +205,17 @@ async function startDecoderTrial(track) {
 el("decode-selection").addEventListener("click", async () => {
   const selection = state.selection;
   const captureId = state.capture?.id;
+  const liveSessionId = state.liveView ? state.liveSessionId : null;
   const mode = el("fldigi-mode").value;
-  if (!selection || !captureId || state.liveView || !mode) return;
+  if (!selection || (!captureId && !liveSessionId) || !mode) return;
   const button = el("decode-selection");
   button.disabled = true;
   el("replay-status").textContent = `Queuing ${mode} replay for ${(selection.sample_start / state.waterfall.sample_rate).toFixed(2)}–${((selection.sample_start + selection.sample_count) / state.waterfall.sample_rate).toFixed(2)} s…`;
   try {
-    const result = await request(`/api/captures/${captureId}/decode`, {
+    const endpoint = liveSessionId
+      ? `/api/live/sessions/${encodeURIComponent(liveSessionId)}/decode`
+      : `/api/captures/${captureId}/decode`;
+    const result = await request(endpoint, {
       method: "POST", headers: {"Content-Type":"application/json"},
       body: JSON.stringify({
         mode,
@@ -222,14 +226,44 @@ el("decode-selection").addEventListener("click", async () => {
           ? (selection.frequency_low_hz + selection.frequency_high_hz) / 2 : null,
       }),
     });
-    el("replay-status").textContent = `Replay ${result.status} · ${mode} · isolated region input`;
-    pollSavedDecodeRun(captureId, result.run_id);
+    el("replay-status").textContent = `Replay ${result.status} · ${mode} · isolated ${liveSessionId ? "live track" : "region"} input`;
+    if (liveSessionId) pollLiveDecodeRun(liveSessionId, result.run_id);
+    else pollSavedDecodeRun(captureId, result.run_id);
   } catch (error) {
     el("replay-status").textContent = `Replay could not start · ${error.message}`;
   } finally {
     updateDecoderSelectionControls();
   }
 });
+
+async function pollLiveDecodeRun(sessionId, runId) {
+  for (let attempt = 0; attempt < 240; attempt++) {
+    if (state.liveSessionId !== sessionId) return;
+    try {
+      const runs = await request(`/api/live/sessions/${encodeURIComponent(sessionId)}/decode-runs`);
+      if (state.liveSessionId !== sessionId) return;
+      state.decodeRuns = runs;
+      renderDecodeRuns();
+      const run = runs.find((item) => item.id === runId);
+      if (run && !["queued", "running"].includes(run.status)) {
+        el("replay-status").textContent = `${run.status.toUpperCase()} · ${run.current_mode} · ${run.note}`;
+        if (run.output_text) {
+          showOutput("text");
+          state.textOutputContext = `Isolated replay ${run.id.slice(0,8)} · exact live track window · tentative text`;
+          el("output-context").textContent = state.textOutputContext;
+          el("decoded-text").textContent = run.output_text;
+        }
+        updateDecoderSelectionControls();
+        return;
+      }
+    } catch (error) {
+      el("replay-status").textContent = `Replay status unavailable · ${error.message}`;
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  el("replay-status").textContent = "Replay is still running. Stop and reopen the capture later to review its saved result.";
+}
 
 async function pollSavedDecodeRun(captureId, runId) {
   for (let attempt = 0; attempt < 240; attempt++) {
@@ -382,12 +416,14 @@ el("live-start").addEventListener("click", async () => {
     clearDemodExports();
     state.capture = null;
     state.liveView = true;
+    state.liveSessionId = started.session_id;
     resetOutputSession();
     state.waterfall = null;
     state.view = null;
     state.selection = null;
     state.regions = [];
     state.tracks = [];
+    state.decodeRuns = [];
     baseCanvas.getContext("2d").clearRect(0, 0, baseCanvas.width, baseCanvas.height);
     overlayCanvas.getContext("2d").clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
     el("demod-run").disabled = true;
@@ -413,6 +449,7 @@ el("live-start").addEventListener("click", async () => {
     renderTracks();
     el("live-status").textContent = `Recording · ${started.device_name} · ${started.sample_rate.toLocaleString()} Hz`;
     renderRegions();
+    renderDecodeRuns();
     const generation = state.liveGeneration = (state.liveGeneration || 0) + 1;
     liveDisplay = new LiveWaterfall(60);
     startSpectrumStream(generation, started.session_id);
@@ -454,6 +491,7 @@ el("live-stop").addEventListener("click", async () => {
     if (livePoll) clearInterval(livePoll);
     if (spectrumPoll) clearTimeout(spectrumPoll);
     state.capture = result.capture;
+    state.liveSessionId = null;
     await loadCapture();
     el("live-status").textContent = result.truncated_reason
       ? `Saved partial live capture · ${result.truncated_reason} · ${result.frames_written.toLocaleString()} samples`
@@ -557,6 +595,7 @@ async function loadCapture() {
   const generation = state.captureGeneration = (state.captureGeneration || 0) + 1;
   clearDemodExports();
   state.liveView = false;
+  state.liveSessionId = null;
   resetOutputSession();
   state.waterfall = null;
   baseCanvas.getContext("2d").clearRect(0, 0, baseCanvas.width, baseCanvas.height);
@@ -624,7 +663,9 @@ function renderDecodeRuns() {
   list.replaceChildren();
   const runs = state.decodeRuns || [];
   if (!runs.length) {
-    list.textContent = "No saved Fldigi receive runs for this capture.";
+    list.textContent = state.liveView
+      ? "No Fldigi receive runs for this live session yet."
+      : "No saved Fldigi receive runs for this capture.";
     return;
   }
   for (const run of runs) {
@@ -1338,10 +1379,14 @@ function openInspector(tab = "label") {
   updateDecoderSelectionControls();
 }
 function updateDecoderSelectionControls() {
-  const validSelection = Boolean(state.capture && state.selection && !state.liveView);
+  const validLiveSelection = Boolean(state.liveView && state.liveSessionId && state.selection);
+  const validSavedSelection = Boolean(state.capture && state.selection && !state.liveView);
   const validMode = Boolean(el("fldigi-mode")?.value && !el("fldigi-mode").disabled);
-  if (el("decode-selection")) el("decode-selection").disabled = !validSelection || !validMode;
-  if (el("tag-as-mode")) el("tag-as-mode").disabled = !validSelection || !validMode;
+  if (el("decode-selection")) {
+    el("decode-selection").disabled = !(validSavedSelection || validLiveSelection) || !validMode;
+    el("decode-selection").textContent = validLiveSelection ? "Decode live track window" : "Replay selected region";
+  }
+  if (el("tag-as-mode")) el("tag-as-mode").disabled = !validSavedSelection || !validMode;
 }
 function showOutput(tab) {
   state.outputTab = tab;
