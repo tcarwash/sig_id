@@ -21,6 +21,7 @@ export const REVIEWED_MODE_CANDIDATES = Object.freeze([
   { mode: "THOR16", modulation: "MFSK", evidence: "Fldigi loopback validated" },
   { mode: "MFSK16", modulation: "MFSK", evidence: "Fldigi loopback validated" },
   { mode: "MFSK32", modulation: "MFSK", evidence: "Fldigi loopback validated" },
+  { mode: "OLIVIA-8/250", modulation: "MFSK", evidence: "Fldigi loopback validated" },
   { mode: "MT63-500S", modulation: "OFDM", evidence: "Fldigi loopback validated" },
   { mode: "MT63-1KS", modulation: "OFDM", evidence: "Fldigi loopback validated" },
 ]);

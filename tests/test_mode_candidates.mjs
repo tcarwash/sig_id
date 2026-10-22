@@ -4,7 +4,7 @@ import { REVIEWED_MODE_CANDIDATES, narrowKnownModes } from "../sigid/web/mode-ca
 
 test("observed modulation narrows the reviewed Fldigi mode subset with reasons", () => {
   const candidates = narrowKnownModes({ modulation: "MFSK" });
-  assert.deepEqual(candidates.map((candidate) => candidate.mode), ["THOR8", "THOR16", "MFSK16", "MFSK32"]);
+  assert.deepEqual(candidates.map((candidate) => candidate.mode), ["THOR8", "THOR16", "MFSK16", "MFSK32", "OLIVIA-8/250"]);
   assert.ok(candidates.every((candidate) => candidate.reasons[0] === "Matches observed MFSK modulation family"));
   assert.ok(candidates.every((candidate) => candidate.evidence === "Fldigi loopback validated"));
 });
@@ -22,5 +22,5 @@ test("QPSK shortlist exposes the validated mode without implying complete catalo
     narrowKnownModes({ modulation: "BPSK" }).map((candidate) => candidate.mode),
     ["BPSK31", "BPSK63", "BPSK63F", "BPSK125", "BPSK250", "BPSK500", "BPSK1000"],
   );
-  assert.equal(REVIEWED_MODE_CANDIDATES.length, 22);
+  assert.equal(REVIEWED_MODE_CANDIDATES.length, 23);
 });

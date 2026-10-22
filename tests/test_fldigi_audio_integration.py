@@ -138,7 +138,7 @@ def _stop_process(process: subprocess.Popen[bytes]) -> None:
     "mode",
     ["BPSK31", "BPSK63", "BPSK63F", "BPSK125", "BPSK250", "BPSK500", "BPSK1000", "QPSK31", "QPSK63", "QPSK125", "QPSK250", "QPSK500",
      "8PSK125", "8PSK250", "8PSK500", "RTTY", "THOR8", "THOR16", "MFSK16", "MFSK32",
-     "MT63-500S", "MT63-1KS"],
+     "MT63-500S", "MT63-1KS", "OLIVIA-8/250"],
 )
 @pytest.mark.skipif(
     os.environ.get("SIGID_TEST_FLDIGI_AUDIO") != "1",
@@ -175,6 +175,8 @@ def test_fldigi_payload_reaches_workbench_api_through_virtual_audio(tmp_path, mo
         app = create_app(tmp_path / "app-data", fldigi_client=receiver)
         payload = "SIGID LOOPBACK COMPLETE 123"
         wire_text = f"{payload} {payload}" if mode.startswith(("QPSK", "8PSK")) else payload
+        if mode.startswith("OLIVIA"):
+            wire_text = " ".join([payload] * 4)
 
         async def verify_workbench_decode() -> None:
             async with httpx.AsyncClient(
@@ -228,7 +230,7 @@ def test_fldigi_payload_reaches_workbench_api_through_virtual_audio(tmp_path, mo
     "mode",
     ["BPSK31", "BPSK63", "BPSK63F", "BPSK125", "BPSK250", "BPSK500", "BPSK1000", "QPSK31", "QPSK63", "QPSK125", "QPSK250", "QPSK500",
      "8PSK125", "8PSK250", "8PSK500", "RTTY", "THOR8", "THOR16", "MFSK16", "MFSK32",
-     "MT63-500S", "MT63-1KS"],
+     "MT63-500S", "MT63-1KS", "OLIVIA-8/250"],
 )
 def test_isolated_region_replay_decodes_a_known_fldigi_transmission(tmp_path, mode):
     """Transmit inside a null sink, save that audio, then decode it via the production replay worker."""
@@ -247,7 +249,7 @@ def test_isolated_region_replay_decodes_a_known_fldigi_transmission(tmp_path, mo
 
     transmitter = None
     recorder = None
-    replay = IsolatedFldigiReplay(decode_timeout=25)
+    replay = IsolatedFldigiReplay(decode_timeout=90 if mode.startswith("OLIVIA") else 25)
     try:
         try:
             port = _free_port()
@@ -257,6 +259,8 @@ def test_isolated_region_replay_decodes_a_known_fldigi_transmission(tmp_path, mo
         sender, sender_rpc = _connect(f"http://127.0.0.1:{port}/RPC2", transmitter)
         payload = "SIGID LOOPBACK COMPLETE 123"
         wire_text = f"{payload} {payload}" if mode.startswith(("QPSK", "8PSK")) else payload
+        if mode.startswith("OLIVIA"):
+            wire_text = " ".join([payload] * 4)
         sender.select_modem(mode)
         sender.set_carrier(1000)
         audio_path = tmp_path / "known-transmission.wav"
@@ -271,6 +275,8 @@ def test_isolated_region_replay_decodes_a_known_fldigi_transmission(tmp_path, mo
         sender_rpc.main.tx()
         if mode.startswith(("MT63", "THOR")):
             dwell = 40
+        elif mode.startswith("OLIVIA"):
+            dwell = 70
         elif mode.startswith(("QPSK", "8PSK")):
             dwell = 24
         elif mode.startswith("MFSK"):

@@ -11,7 +11,7 @@ private PulseAudio/PipeWire sink; output is
 persisted against the exact capture window. The inspector can also explicitly save
 that region with the selected mode as its variant label. This replay path is native
 Linux only. Known-message audio round-trips now pass for BPSK31/63/F/125/250/500/1000,
-QPSK31/63/125/250/500, 8PSK125/250/500, RTTY, THOR8/16, MFSK16/32 and MT63-500S/1KS.
+QPSK31/63/125/250/500, 8PSK125/250/500, RTTY, THOR8/16, MFSK16/32, OLIVIA-8/250 and MT63-500S/1KS.
 
 Latest raw-analysis checkpoint: 2-FSK, OOK, M-FSK, BPSK and QPSK bit hypotheses now
 show byte-aligned binary, hex and printable-ASCII columns. Operators can select byte
@@ -74,13 +74,13 @@ is resizable by pointer or keyboard, remembers its height, and stays within the 
   changes the operator's running Fldigi instance. The label action remains explicit and
   saves the selected mode as the region variant. RF-free tests verify known-message
   round-trips in BPSK31/63/F/125/250/500/1000, QPSK31/63/125/250/500, 8PSK125/250/500, RTTY, THOR8/16,
-  MFSK16/32 and MT63-500S/1KS. Longer test captures are used for interleaved THOR and MT63.
+  MFSK16/32, OLIVIA-8/250 and MT63-500S/1KS. Longer captures are used for interleaved modes.
 - The capture inspector now separates browser audio playback (“Replay selected region”)
   from isolated Fldigi decoding (“Decode selected region”). Playback seeks to and stops
   at the selected sample interval; decode retains its mode choice and persisted run.
   Headless-browser checks cover saved and live selection affordances.
 - A reproducible Fldigi 4.2.13 capability registry covers all 169 audited catalog
-  entries. It distinguishes 165 selection successes from the twenty-two modes with
+  entries. It distinguishes 165 selection successes from the twenty-three modes with
   known-message audio and isolated-region round-trip evidence; other selectable modes
   remain explicitly decode-unverified, and three unselectable OFDM entries plus the
   RSID end marker retain their documented states. See
@@ -199,10 +199,9 @@ is resizable by pointer or keyboard, remembers its height, and stays within the 
   rate with candidate frequency, timing, tone-count and SNR evidence.
 - Receive-only Fldigi API/UI: connection status, catalog list, manual mode selection
   and incremental decoded-text polling. Transmit, rig and macro calls are not exposed.
-- Isolated end-to-end Fldigi loopbacks now recover the exact test payload through the
-  workbench API for BPSK31, RTTY, THOR16, MFSK16, and MT63-500S. Olivia-8/250 did not
-  produce a repeatable complete payload in the current two-instance audio setup and
-  remains outside the validated decode list.
+- Olivia-8/250 loopback now recovers the known payload through both the workbench API
+  and saved-region replay when given a repeated message and a longer clip. This resolves
+  the earlier short-capture failure for that mode; other Olivia variants remain unverified.
 - `sig-id-mix-scene` now combines 2–8 accepted synthetic captures with exact sample
   offsets, gains, optional deterministic carrier offsets, linear frequency drift, and
   smooth low-pass filtering and bounded sample-clock error. The manifest retains both
@@ -324,7 +323,7 @@ An isolated live Fldigi 4.2.13 process served the API with the documented receiv
 allow-list: 169 modes, THOR16 selection, and receive-buffer queries all worked. A
 separate, opt-in integration test passes: it creates two copied profiles with all
 rig/PTT paths disabled, routes BPSK31/63/F/125/250/500/1000, QPSK31/63/125/250/500, 8PSK125/250/500, RTTY,
-THOR8/16, MFSK16/32 and MT63-500S/1KS transmit audio through a temporary PulseAudio null sink, and
+THOR8/16, MFSK16/32, OLIVIA-8/250 and MT63-500S/1KS transmit audio through a temporary PulseAudio null sink, and
 verifies each complete payload arrives through
 the workbench API. Run it with
 `SIGID_TEST_FLDIGI_AUDIO=1 pytest tests/test_fldigi_audio_integration.py`. This is a
