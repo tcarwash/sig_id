@@ -37,7 +37,14 @@ to Fldigi remains an external setup and is not yet validated. The workbench also
 offers bounded Fldigi mode trials for live candidates. The “Auto-try accepted model IDs”
 checkbox opts into starting a sweep only after a track persists and the loaded model
 accepts a method; abstentions never start trials. Mode changes are receive-only and
-recovered text remains tentative until reviewed. Saved recordings
+recovered text remains tentative until reviewed. Saved recordings also let you select
+a region and replay it through a separate Fldigi process using a temporary
+PulseAudio/PipeWire loopback. The selected mode's output is stored with the exact
+capture window. “Tag region as selected mode” saves a human-reviewed label as a
+separate explicit action. This native-host feature requires Fldigi, its configured
+profile, `xvfb-run`, `pactl`, and `paplay`; it does not change the running receiver or
+transmit. It is not available in the default Compose container, which has no host audio
+server or Fldigi profile mounted. Saved recordings
 have a manual, protocol-independent 2-FSK demodulator that exposes uncoded bits,
 symbol timing and soft tone metrics; symbol rate and tone mapping are operator-supplied,
 with an optional 32-phase timing search. A corresponding M-FSK analyzer returns hard tone indices,

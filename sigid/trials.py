@@ -29,6 +29,7 @@ class DecoderTrialRunner:
         self,
         client: TextReceiveBackend,
         *,
+        run_store: Any | None = None,
         dwell_seconds: float = 6.0,
         max_trials_per_candidate: int = 3,
         max_starts_per_minute: int = 6,
@@ -37,6 +38,7 @@ class DecoderTrialRunner:
         if dwell_seconds <= 0 or max_trials_per_candidate < 1 or max_starts_per_minute < 1:
             raise ValueError("dwell and trial limits must be positive")
         self.client = client
+        self.run_store = run_store
         self.dwell_seconds = dwell_seconds
         self.max_trials_per_candidate = max_trials_per_candidate
         self.max_starts_per_minute = max_starts_per_minute
@@ -46,7 +48,11 @@ class DecoderTrialRunner:
         self._tried_tracks: dict[str, float] = {}
         self._state: dict[str, Any] = {"status": "idle"}
 
-    def start(self, *, track_id: str, modulation_hypothesis: str, live: bool) -> dict[str, Any]:
+    def start(
+        self, *, track_id: str, modulation_hypothesis: str, live: bool,
+        session_id: str | None = None, sample_start: int | None = None,
+        sample_count: int | None = None, sample_rate: int | None = None,
+    ) -> dict[str, Any]:
         if not live:
             raise ValueError("automatic decoder trials require an active live capture")
         if not track_id or len(track_id) > 128:
@@ -88,6 +94,15 @@ class DecoderTrialRunner:
                 "text": "",
                 "note": "Tentative receive trial; verify the audio route and review decoded text.",
             }
+            if self.run_store is not None and session_id is not None:
+                self._state["run_id"] = self.run_store.create_decoder_run(
+                    session_id=session_id, track_id=track_id,
+                    sample_start=sample_start, sample_count=sample_count,
+                    sample_rate=sample_rate, modulation_hypothesis=modulation_hypothesis,
+                    backend=getattr(self.client, "backend_name", type(self.client).__name__), modes=modes,
+                    attempted_modes=[selected], current_mode=selected,
+                    output_offset=baseline, status="running", note=self._state["note"],
+                )
             return dict(self._state)
 
     def advance(self) -> dict[str, Any]:
@@ -103,6 +118,7 @@ class DecoderTrialRunner:
                 state["text"] = raw.decode("utf-8", errors="replace")
                 state["output_end"] = offset + len(raw)
                 state["note"] = "New Fldigi text observed. Review it; no protocol label was assigned."
+                self._persist(state)
                 return dict(state)
 
             now = self.clock()
@@ -112,6 +128,7 @@ class DecoderTrialRunner:
             if not remaining:
                 state["status"] = "exhausted"
                 state["note"] = "No receive text observed in the bounded tested-mode sweep."
+                self._persist(state)
                 return dict(state)
 
             next_mode = remaining[0]
@@ -119,11 +136,13 @@ class DecoderTrialRunner:
             if selected != next_mode:
                 state["status"] = "failed"
                 state["note"] = f"Fldigi selected {selected!r} instead of {next_mode!r}."
+                self._persist(state)
                 return dict(state)
             state["current_mode"] = selected
             state["attempted_modes"].append(selected)
             state["mode_started_at"] = now
             state["output_offset"] = int(self.client.receive_text_length())
+            self._persist(state)
             return dict(state)
 
     def cancel(self) -> dict[str, Any]:
@@ -131,7 +150,13 @@ class DecoderTrialRunner:
             if self._state.get("status") == "running":
                 self._state["status"] = "cancelled"
                 self._state["note"] = "Decoder trial stopped by manual control."
+                self._persist(self._state)
             return dict(self._state)
+
+    def _persist(self, state: dict[str, Any]) -> None:
+        run_id = state.get("run_id")
+        if self.run_store is not None and run_id:
+            self.run_store.update_decoder_run(run_id, state)
 
 
 # Kept as an alias for callers that used the original Fldigi-specific name.

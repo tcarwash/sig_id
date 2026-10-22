@@ -142,6 +142,32 @@ try {
       .textContent.includes("Selected RTTY"),
   );
   assert.equal(modeChanges, 1);
+  let replayRequest = null;
+  await page.route("**/api/captures/*/decode", async (route) => {
+    replayRequest = JSON.parse(route.request().postData());
+    await route.fulfill({ json: { run_id: "region-run-01", status: "queued", mode: "RTTY" }, status: 202 });
+  });
+  await page.route("**/api/captures/*/decode-runs", async (route) => {
+    const captureId = new URL(route.request().url()).pathname.split("/")[3];
+    await route.fulfill({ json: [{
+      id: "region-run-01", capture_id: captureId, track_id: "saved-region",
+      sample_start: 1, sample_count: 100, sample_rate: 12000,
+      current_mode: "RTTY", status: "completed", note: "Isolated replay finished.",
+      output_text: "REGION DECODED", output_scope: "isolated_region_replay",
+      association: "exact_capture_window",
+    }] });
+  });
+  await page.locator("#decode-selection").click();
+  await page.waitForFunction(() => document.getElementById("replay-status").textContent.includes("COMPLETED"));
+  assert.ok(replayRequest.sample_start >= 0 && replayRequest.sample_count > 0);
+  assert.equal(replayRequest.mode, "RTTY");
+  assert.match(await page.locator("#decoded-text").textContent(), /REGION DECODED/);
+  await page.locator("#tag-as-mode").click();
+  await page.waitForFunction(() => document.getElementById("save-region").textContent === "Save region label");
+  const taggedRegions = await (await page.request.get(
+    new URL(`/api/captures/${lastCaptureId}/regions`, page.url()).href,
+  )).json();
+  assert.equal(taggedRegions[0].variant, "RTTY");
   // A result returning after a source change must not be exported as the new source.
   await page.locator('[data-inspector-tab="raw"]').click();
   await page.locator("#raw-tool").selectOption("qpsk");
@@ -174,6 +200,25 @@ try {
     await page.locator("#qpsk-output").textContent(),
     "Select a saved capture or region to analyze.",
   );
+  await page.route("**/api/captures/*/decode-runs", async route => {
+    const captureId=new URL(route.request().url()).pathname.split("/")[3];
+    await route.fulfill({json:[{
+      id:"saved-run-01", capture_id:captureId, track_id:"synthetic:track-1",
+      sample_start:1200, sample_count:4800, sample_rate:12000,
+      current_mode:"RTTY", status:"tentative_output", note:"Review this shared-input output.",
+      output_text:"TEST SAVED TRACK RUN", output_scope:"shared_live_input",
+      association:"track_window_tentative"
+    }]});
+  });
+  await page.locator("#show-library").click();
+  await page.locator("#capture-list .capture-row button").first().click();
+  await page.locator("#library-dialog").waitFor({state:"hidden"});
+  await page.locator("#show-signals").click();
+  await page.locator('[data-inspector-tab="decode"]').click();
+  await page.locator("#decode-runs .decode-run").waitFor();
+  await page.locator("#decode-runs .decode-run").click();
+  assert.match(await page.locator("#decoded-text").textContent(), /TEST SAVED TRACK RUN/);
+  assert.match(await page.locator("#output-context").textContent(), /shared_live_input/);
   if (process.env.SIGID_UI_LIVE === "1") {
     const devices = await (
       await page.request.get(

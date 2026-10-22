@@ -5,7 +5,11 @@ sample-indexed replay, live audio capture, FSK fixtures and SQLite dataset index
 are implemented. Receive-only Fldigi catalog selection and decoded-text display are
 implemented. Isolated BPSK31, RTTY, THOR16, MFSK16, and MT63-500S audio loopbacks pass
 through Fldigi into the workbench API; radio-input routing and independent-signal
-validation remain open.
+validation remain open. Saved-capture regions can be replayed in the selected mode
+through a separate Fldigi process and a private PulseAudio/PipeWire sink; output is
+persisted against the exact capture window. The inspector can also explicitly save
+that region with the selected mode as its variant label. This replay path is native
+Linux only and awaits direct end-to-end replay and UI smoke verification.
 
 ## Agreed scope
 
@@ -45,6 +49,12 @@ validation remain open.
   capture/sample ranges and received-image library products. Delayed raw results are
   discarded after source changes. Hover/focus details and collision leader lines keep
   measurements available on the waterfall without permanently expanding every signal.
+- Saved-region Fldigi replay runs persist selected mode, exact sample bounds, carrier,
+  status, notes and recovered text. Playback uses a private null sink and a copied
+  profile with audio set to PulseAudio and all known PTT paths forced off; it never
+  changes the operator's running Fldigi instance. The label action remains explicit and
+  saves the selected mode as the region variant. Run the dedicated RF-free replay
+  integration check before treating this feature as release-validated.
 - Graceful application shutdown finalizes an outstanding capture. Writer faults retain
   completed audio blocks and mark the indexed recording partial; metadata-index failures
   retain the readable WAV and report its path. Input close failures still drain the
@@ -187,6 +197,11 @@ validation remain open.
   three loopback-tested modes, with six-second dwell periods, per-track duplicate
   suppression and a six-starts-per-minute limit. New receive text stops the sweep as
   tentative output; trials require an active live capture and external audio routing.
+- Receive trials are now durable records. Each run retains its live session, candidate
+  track ID, captured sample window, sample rate, attempted modes, output offsets, text,
+  and final state. Stopping a recording links those runs to its saved capture; reopening
+  the capture lets the operator review the output. Records explicitly mark Fldigi's
+  input as shared and the track link as tentative because the audio path is not isolated.
 - Provisional automatic candidates from persistent spectral peaks, shown as amber
   dashed waterfall overlays with frequency/time, tone-count hypothesis, occupancy
   and peak SNR. Saved-capture track analysis adapts FFT size to sample rate and
@@ -218,12 +233,13 @@ validation remain open.
 
 ## Next action
 
-The core GUI overhaul and Linux Compose run path are implemented. Continue toward
-1.0 with track-scoped decoder input/replay, durable output association and broader
-Fldigi decode fixtures; shared external Fldigi routing does not establish independent
-decoding of every detected track. Keep the full-catalog issues, remote capture agent,
-job/review workflows, quotas and prolonged hardware/resource soak on the release gate.
-The classifier's clean-source coverage weakness also remains open, as detailed below.
+The core GUI overhaul, Linux Compose run path and durable tentative receive-run records
+are implemented. Continue toward 1.0 with track-scoped decoder audio input/replay and
+broader Fldigi decode fixtures; shared external Fldigi routing does not establish
+independent decoding of every detected track. Keep full-catalog issues, remote capture
+agent, job/review workflows, quotas and prolonged hardware/resource soak on the release
+gate. The classifier's clean-source coverage weakness also remains open, as detailed
+below.
 
 The reproducible historical multi-ASK calibration/evaluation report is saved at
 `reports/ask-ood-benchmark-2026-10-21.json`, with generation and training commands in

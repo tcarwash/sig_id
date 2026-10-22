@@ -93,6 +93,13 @@ class FldigiClient:
         """Select a receive mode through the generic backend contract."""
         return self.select_modem(name)
 
+    def set_carrier(self, frequency_hz: int) -> None:
+        """Tune the receive modem to an audio frequency without rig control."""
+        if not isinstance(frequency_hz, int) or isinstance(frequency_hz, bool) or not 0 <= frequency_hz <= 20_000:
+            raise ValueError("carrier frequency must be an integer from 0 to 20000 Hz")
+        with self._lock:
+            self._rpc.modem.set_carrier(frequency_hz)
+
     def receive_text(self, *, start: int = 0, length: int = 65536) -> bytes:
         if start < 0 or length < 0:
             raise ValueError("start and length must be non-negative")

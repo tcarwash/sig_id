@@ -175,14 +175,21 @@
                 <button id="fldigi-select" type="button" disabled>
                   Select receive mode
                 </button>
+                <div class="decode-actions">
+                  <button id="decode-selection" type="button" disabled>Replay selected region</button>
+                  <button id="tag-as-mode" type="button" disabled>Tag region as selected mode</button>
+                </div>
+                <p id="replay-status" class="subhead">Select a saved-capture region to replay it through an isolated Fldigi instance.</p>
 
                 <div class="decoder-evidence">
                   <span class="status-dot amber"></span
                   ><span
-                    >Audio must be routed into Fldigi. Unknown mode remains a
-                    valid result.</span
+                    >Replay uses a temporary PulseAudio/PipeWire loopback and isolated Fldigi profile. It does not change the running receiver or transmit.</span
                   >
                 </div>
+                <h3>Saved receive runs</h3>
+                <p class="subhead">Saved runs retain their exact input range and whether they used isolated clip replay or the shared live audio input.</p>
+                <div id="decode-runs" class="decode-runs"><p class="muted">Open a saved capture to review its receive runs.</p></div>
               </section>
             </div>
             <div data-inspector-view="raw" hidden>

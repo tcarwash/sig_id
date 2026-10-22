@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import pytest
 
+from sigid.dataset import CaptureStore
+from sigid.synthetic import generate_2fsk_wav
 from sigid.trials import FldigiTrialRunner
 
 
@@ -82,3 +84,40 @@ def test_trial_runner_is_live_only_catalog_scoped_and_rate_limited():
     now[0] = 61
     with pytest.raises(ValueError, match="already had"):
         runner.start(track_id="one", modulation_hypothesis="FSK-like", live=True)
+
+
+def test_decode_output_persists_with_track_window_and_links_to_saved_capture(tmp_path):
+    now = [100.0]
+    client = FakeFldigi()
+    store = CaptureStore(tmp_path / "dataset.sqlite3")
+    runner = FldigiTrialRunner(client, run_store=store, clock=lambda: now[0])
+    started = runner.start(
+        track_id="session:track-4",
+        modulation_hypothesis="FSK-like",
+        live=True,
+        session_id="session",
+        sample_start=3200,
+        sample_count=48000,
+        sample_rate=48000,
+    )
+    assert started["run_id"]
+    client.output += b"TRACK WINDOW OUTPUT"
+    received = runner.advance()
+    assert received["status"] == "tentative_output"
+
+    audio = tmp_path / "capture.wav"
+    generate_2fsk_wav(audio, "010101", sample_rate=8000, symbol_rate=100)
+    capture_id = store.add_wav_capture(audio, source_kind="live")
+    assert store.associate_decoder_runs("session", capture_id) == 1
+
+    reopened = CaptureStore(tmp_path / "dataset.sqlite3")
+    [run] = reopened.decoder_runs(capture_id=capture_id)
+    assert run["id"] == started["run_id"]
+    assert run["track_id"] == "session:track-4"
+    assert run["sample_start"] == 3200
+    assert run["sample_count"] == 48000
+    assert run["sample_rate"] == 48000
+    assert run["current_mode"] == "RTTY"
+    assert run["output_text"] == "TRACK WINDOW OUTPUT"
+    assert run["output_scope"] == "shared_live_input"
+    assert run["association"] == "track_window_tentative"

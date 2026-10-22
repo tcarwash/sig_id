@@ -53,6 +53,7 @@ async function refreshFldigiStatus() {
       el("fldigi-mode").disabled = true;
       el("fldigi-select").disabled = true;
       el("fldigi-check-wefax").disabled = true;
+      updateDecoderSelectionControls();
       return false;
     }
     label.textContent = `${status.name} ${status.version} · ${status.current_mode} · ${status.mode_count} modes · audio route not verified`;
@@ -71,9 +72,11 @@ async function refreshFldigiStatus() {
       ? "WEFAX image reception available · poll after image reception completes"
       : "This decoder backend does not expose WEFAX image output";
     await refreshReceivedImages();
+    updateDecoderSelectionControls();
     return true;
   } catch (error) {
     el("fldigi-status").textContent = `Fldigi unavailable · ${error.message}`;
+    updateDecoderSelectionControls();
     return false;
   }
 }
@@ -151,8 +154,8 @@ function watchDecoderTrial(result) {
   if (trialPoll || watchedTrialTrack === result.track_id) return;
   watchedTrialTrack = result.track_id;
   const generation = state.outputGeneration;
-  state.decoderTrial = {track_id:result.track_id,status:result.status,mode:result.current_mode};
-  state.textOutputContext = `Trial for ${result.track_id} · tentative · external audio route`;
+  state.decoderTrial = {track_id:result.track_id,status:result.status,mode:result.current_mode,run_id:result.run_id};
+  state.textOutputContext = `Saved receive run ${result.run_id?.slice(0,8) || "pending"} · track ${result.track_id} · tentative · shared audio input`;
   updateOutputContext();
   fldigiOffset = result.output_offset;
   el("fldigi-status").textContent = `Trying ${result.current_mode} for ${result.track_id} · receive only · audio routing is external`;
@@ -161,7 +164,7 @@ function watchDecoderTrial(result) {
     try {
       const trial = await request("/api/fldigi/trials/current");
       if (generation !== state.outputGeneration) return;
-      state.decoderTrial = {track_id:trial.track_id,status:trial.status,mode:trial.current_mode};
+      state.decoderTrial = {track_id:trial.track_id,status:trial.status,mode:trial.current_mode,run_id:trial.run_id};
       if (!state.frozen) renderSignalLabels();
       el("fldigi-status").textContent = `${trial.status} · ${trial.attempted_modes.join(" → ")} · ${trial.note}`;
       if (trial.status === "tentative_output") {
@@ -188,6 +191,8 @@ async function startDecoderTrial(track) {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         track_id: track.track_id,
+        sample_start: track.sample_start,
+        sample_count: track.sample_count,
         modulation_hypothesis: track.model_proposal?.available && !track.model_proposal.abstained
           ? track.model_proposal.family
           : track.modulation_hypothesis,
@@ -196,6 +201,73 @@ async function startDecoderTrial(track) {
     watchDecoderTrial(result);
   } catch (error) { showError(error.message); }
 }
+
+el("decode-selection").addEventListener("click", async () => {
+  const selection = state.selection;
+  const captureId = state.capture?.id;
+  const mode = el("fldigi-mode").value;
+  if (!selection || !captureId || state.liveView || !mode) return;
+  const button = el("decode-selection");
+  button.disabled = true;
+  el("replay-status").textContent = `Queuing ${mode} replay for ${(selection.sample_start / state.waterfall.sample_rate).toFixed(2)}–${((selection.sample_start + selection.sample_count) / state.waterfall.sample_rate).toFixed(2)} s…`;
+  try {
+    const result = await request(`/api/captures/${captureId}/decode`, {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({
+        mode,
+        sample_start: selection.sample_start,
+        sample_count: selection.sample_count,
+        track_id: state.selectedTrack?.track_id || null,
+        carrier_hz: Number.isFinite(selection.frequency_low_hz) && Number.isFinite(selection.frequency_high_hz)
+          ? (selection.frequency_low_hz + selection.frequency_high_hz) / 2 : null,
+      }),
+    });
+    el("replay-status").textContent = `Replay ${result.status} · ${mode} · isolated region input`;
+    pollSavedDecodeRun(captureId, result.run_id);
+  } catch (error) {
+    el("replay-status").textContent = `Replay could not start · ${error.message}`;
+  } finally {
+    updateDecoderSelectionControls();
+  }
+});
+
+async function pollSavedDecodeRun(captureId, runId) {
+  for (let attempt = 0; attempt < 240; attempt++) {
+    if (state.capture?.id !== captureId) return;
+    try {
+      const runs = await request(`/api/captures/${captureId}/decode-runs`);
+      if (state.capture?.id !== captureId) return;
+      state.decodeRuns = runs;
+      renderDecodeRuns();
+      const run = runs.find((item) => item.id === runId);
+      if (run && !["queued", "running"].includes(run.status)) {
+        el("replay-status").textContent = `${run.status.toUpperCase()} · ${run.current_mode} · ${run.note}`;
+        if (run.output_text) {
+          showOutput("text");
+          state.textOutputContext = `Isolated replay ${run.id.slice(0,8)} · exact selected region · tentative text`;
+          el("output-context").textContent = state.textOutputContext;
+          el("decoded-text").textContent = run.output_text;
+        }
+        updateDecoderSelectionControls();
+        return;
+      }
+    } catch (error) {
+      el("replay-status").textContent = `Replay status unavailable · ${error.message}`;
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  el("replay-status").textContent = "Replay is still running. Reopen this capture later to review its saved result.";
+}
+
+el("tag-as-mode").addEventListener("click", () => {
+  const mode = el("fldigi-mode").value;
+  if (!state.selection || !state.capture || state.liveView || !mode) return;
+  el("variant").value = mode;
+  el("label-state").textContent = `Saving ${mode} as an accepted human-reviewed mode label.`;
+  openInspector("label");
+  el("save-region").click();
+});
 
 el("fldigi-select").addEventListener("click", async () => {
   try {
@@ -208,6 +280,7 @@ el("fldigi-select").addEventListener("click", async () => {
     state.textOutputContext = `Shared Fldigi output · ${result.current_mode} · external audio route`;
     updateOutputContext();
     el("decoded-text").textContent = "Decoder mode changed. Waiting for receive output…";
+    updateDecoderSelectionControls();
   } catch (error) { showError(error.message); }
 });
 
@@ -491,6 +564,7 @@ async function loadCapture() {
   el("signal-labels")?.replaceChildren();
   state.view = null;
   state.selection = null;
+  updateDecoderSelectionControls();
   updateModelButton();
   el("demod-run").disabled = false;
   el("ook-run").disabled = false;
@@ -525,6 +599,13 @@ async function loadCapture() {
   state.regions = regions;
   renderRegions();
   try {
+    state.decodeRuns = await request(`/api/captures/${c.id}/decode-runs`);
+  } catch (error) {
+    state.decodeRuns = [];
+    el("decode-runs").textContent = `Saved receive runs unavailable · ${error.message}`;
+  }
+  if (generation === state.captureGeneration && !state.liveView) renderDecodeRuns();
+  try {
     const result = await request(`/api/captures/${c.id}/tracks`);
     if (generation !== state.captureGeneration || state.liveView) return;
     state.tracks = result.tracks;
@@ -536,6 +617,33 @@ async function loadCapture() {
   }
   renderTracks();
   el("waterfall-state").textContent = `${state.waterfall.db.length} spectrum rows · ${state.waterfall.fft_size}-point FFT`;
+}
+
+function renderDecodeRuns() {
+  const list = el("decode-runs");
+  list.replaceChildren();
+  const runs = state.decodeRuns || [];
+  if (!runs.length) {
+    list.textContent = "No saved Fldigi receive runs for this capture.";
+    return;
+  }
+  for (const run of runs) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "decode-run";
+    const interval = Number.isInteger(run.sample_start) && Number.isInteger(run.sample_count) && run.sample_rate
+      ? ` · ${(run.sample_start / run.sample_rate).toFixed(2)}–${((run.sample_start + run.sample_count) / run.sample_rate).toFixed(2)} s`
+      : " · track time unavailable";
+    button.textContent = `${run.current_mode || "Fldigi"} · ${run.status}${interval}`;
+    button.addEventListener("click", () => {
+      showOutput("text");
+      state.textOutputContext = `Saved run ${run.id.slice(0,8)} · ${run.output_scope} · ${run.association}`;
+      el("output-context").textContent = state.textOutputContext;
+      el("decoded-text").textContent = `${run.status.toUpperCase()} · ${run.current_mode || "Fldigi"}\n${run.note}\n\n${run.output_text || "No decoded text was recorded."}`;
+      el("decoded-text").scrollTop = 0;
+    });
+    list.append(button);
+  }
 }
 
 function colorFor(db, min, max) {
@@ -1227,6 +1335,13 @@ function openInspector(tab = "label") {
   el("inspector").classList.remove("hidden");
   for (const node of document.querySelectorAll("[data-inspector-view]")) node.hidden = node.dataset.inspectorView !== tab;
   for (const button of document.querySelectorAll("[data-inspector-tab]")) button.setAttribute("aria-pressed", String(button.dataset.inspectorTab === tab));
+  updateDecoderSelectionControls();
+}
+function updateDecoderSelectionControls() {
+  const validSelection = Boolean(state.capture && state.selection && !state.liveView);
+  const validMode = Boolean(el("fldigi-mode")?.value && !el("fldigi-mode").disabled);
+  if (el("decode-selection")) el("decode-selection").disabled = !validSelection || !validMode;
+  if (el("tag-as-mode")) el("tag-as-mode").disabled = !validSelection || !validMode;
 }
 function showOutput(tab) {
   state.outputTab = tab;

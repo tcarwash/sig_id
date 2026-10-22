@@ -158,7 +158,7 @@ def test_live_capture_api_flow(tmp_path, monkeypatch):
             assert again["tracks"][0]["track_observations"] == 1
             trial = await client.post(
                 "/api/fldigi/trials/start",
-                json={"track_id": track["track_id"], "modulation_hypothesis": "FSK-like"},
+                json={"track_id": track["track_id"], "sample_start": 0, "sample_count": 1024, "modulation_hypothesis": "FSK-like"},
             )
             assert trial.status_code == 200, trial.text
             assert trial.json()["current_mode"] == "RTTY"
@@ -171,6 +171,19 @@ def test_live_capture_api_flow(tmp_path, monkeypatch):
             capture = stopped.json()["capture"]
             assert capture["source_kind"] == "live"
             assert capture["sample_count"] == 1024
+            saved_runs = await client.get(f"/api/captures/{capture['id']}/decode-runs")
+            assert saved_runs.status_code == 200, saved_runs.text
+            assert len(saved_runs.json()) == 1
+            saved_run = saved_runs.json()[0]
+            assert saved_run["capture_id"] == capture["id"]
+            assert saved_run["track_id"] == track["track_id"]
+            assert saved_run["sample_start"] == 0
+            assert saved_run["sample_count"] == 1024
+            assert saved_run["sample_rate"] == 8000
+            assert saved_run["status"] == "cancelled"
+            assert saved_run["output_scope"] == "shared_live_input"
+            assert saved_run["association"] == "track_window_tentative"
+            assert (await client.get(f"/api/captures/missing/decode-runs")).status_code == 404
             assert (await client.get(f"/api/captures/{capture['id']}/waterfall", params={"fft_size": 64, "hop_size": 16})).status_code == 200
             assert (await client.get("/api/live/analysis")).status_code == 409
 

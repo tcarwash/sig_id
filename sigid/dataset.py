@@ -52,7 +52,7 @@ class CaptureStore:
     def _initialize(self) -> None:
         with self._connect() as db:
             version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1):
+            if version not in (0, 1, 2, 3):
                 raise RuntimeError(f"unsupported dataset schema version: {version}")
             db.executescript(
                 """
@@ -98,9 +98,42 @@ class CaptureStore:
                     UNIQUE(region_id, revision)
                 );
                 CREATE INDEX IF NOT EXISTS labels_by_region ON label_revisions(region_id, revision DESC);
-                PRAGMA user_version = 1;
+                CREATE TABLE IF NOT EXISTS decoder_runs (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    capture_id TEXT REFERENCES captures(id) ON DELETE SET NULL,
+                    track_id TEXT NOT NULL,
+                    sample_start INTEGER,
+                    sample_count INTEGER,
+                    sample_rate INTEGER,
+                    modulation_hypothesis TEXT NOT NULL,
+                    backend TEXT NOT NULL,
+                    modes_json TEXT NOT NULL,
+                    attempted_modes_json TEXT NOT NULL,
+                    current_mode TEXT,
+                    output_offset INTEGER NOT NULL,
+                    output_end INTEGER,
+                    output_text TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    note TEXT NOT NULL,
+                    output_scope TEXT NOT NULL DEFAULT 'shared_live_input',
+                    association TEXT NOT NULL DEFAULT 'track_window_tentative',
+                    created_utc TEXT NOT NULL,
+                    updated_utc TEXT NOT NULL,
+                    CHECK(sample_start IS NULL OR sample_start >= 0),
+                    CHECK(sample_count IS NULL OR sample_count > 0),
+                    CHECK(sample_rate IS NULL OR sample_rate > 0)
+                );
+                CREATE INDEX IF NOT EXISTS decoder_runs_by_capture ON decoder_runs(capture_id, created_utc DESC);
+                CREATE INDEX IF NOT EXISTS decoder_runs_by_session ON decoder_runs(session_id, created_utc DESC);
                 """
             )
+            columns = {row[1] for row in db.execute("PRAGMA table_info(decoder_runs)")}
+            if "output_scope" not in columns:
+                db.execute("ALTER TABLE decoder_runs ADD COLUMN output_scope TEXT NOT NULL DEFAULT 'shared_live_input'")
+            if "association" not in columns:
+                db.execute("ALTER TABLE decoder_runs ADD COLUMN association TEXT NOT NULL DEFAULT 'track_window_tentative'")
+            db.execute("PRAGMA user_version = 3")
 
     @staticmethod
     def _sha256(path: Path) -> str:
@@ -260,6 +293,82 @@ class CaptureStore:
         for row in rows:
             item = dict(row)
             item["source_metadata"] = json.loads(item.pop("source_metadata_json"))
+            result.append(item)
+        return result
+
+    def create_decoder_run(
+        self, *, session_id: str, track_id: str, sample_start: int | None,
+        sample_count: int | None, sample_rate: int | None,
+        modulation_hypothesis: str, backend: str, modes: list[str],
+        attempted_modes: list[str], current_mode: str, output_offset: int,
+        status: str, note: str, capture_id: str | None = None,
+        output_scope: str = "shared_live_input",
+        association: str = "track_window_tentative",
+    ) -> str:
+        if not session_id or not track_id:
+            raise ValueError("decoder run requires a live session and track")
+        if (sample_start is None) != (sample_count is None):
+            raise ValueError("decoder run sample bounds must be provided together")
+        run_id = str(uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        with self._connect() as db:
+            db.execute(
+                """INSERT INTO decoder_runs
+                   (id, session_id, capture_id, track_id, sample_start, sample_count, sample_rate,
+                    modulation_hypothesis, backend, modes_json, attempted_modes_json,
+                    current_mode, output_offset, output_end, output_text, status, note,
+                    output_scope, association, created_utc, updated_utc)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '', ?, ?, ?, ?, ?, ?)""",
+                (run_id, session_id, capture_id, track_id, sample_start, sample_count, sample_rate,
+                 modulation_hypothesis, backend, json.dumps(modes),
+                 json.dumps(attempted_modes), current_mode, output_offset, status,
+                 note, output_scope, association, now, now),
+            )
+        return run_id
+
+    def update_decoder_run(self, run_id: str, state: dict[str, Any]) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        with self._connect() as db:
+            cursor = db.execute(
+                """UPDATE decoder_runs SET attempted_modes_json = ?, current_mode = ?,
+                   output_offset = ?, output_end = ?, output_text = ?, status = ?, note = ?, updated_utc = ?
+                   WHERE id = ?""",
+                (json.dumps(state.get("attempted_modes", [])), state.get("current_mode"),
+                 state.get("output_offset", 0), state.get("output_end"), str(state.get("text", ""))[-65536:],
+                 state.get("status", "unknown"), state.get("note", ""), now, run_id),
+            )
+            if cursor.rowcount != 1:
+                raise KeyError(f"unknown decoder run: {run_id}")
+
+    def associate_decoder_runs(self, session_id: str, capture_id: str) -> int:
+        with self._connect() as db:
+            capture = db.execute("SELECT 1 FROM captures WHERE id = ?", (capture_id,)).fetchone()
+            if capture is None:
+                raise KeyError(f"unknown capture: {capture_id}")
+            cursor = db.execute(
+                "UPDATE decoder_runs SET capture_id = ?, updated_utc = ? WHERE session_id = ? AND capture_id IS NULL",
+                (capture_id, datetime.now(timezone.utc).isoformat(), session_id),
+            )
+            return cursor.rowcount
+
+    def decoder_runs(self, *, capture_id: str | None = None, session_id: str | None = None) -> list[dict[str, Any]]:
+        if (capture_id is None) == (session_id is None):
+            raise ValueError("provide exactly one of capture_id or session_id")
+        with self._connect() as db:
+            if capture_id is not None:
+                exists = db.execute("SELECT 1 FROM captures WHERE id = ?", (capture_id,)).fetchone()
+                if exists is None:
+                    raise KeyError(f"unknown capture: {capture_id}")
+                rows = db.execute("SELECT * FROM decoder_runs WHERE capture_id = ? ORDER BY created_utc", (capture_id,)).fetchall()
+            else:
+                rows = db.execute("SELECT * FROM decoder_runs WHERE session_id = ? ORDER BY created_utc", (session_id,)).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["modes"] = json.loads(item.pop("modes_json"))
+            item["attempted_modes"] = json.loads(item.pop("attempted_modes_json"))
+            # Scope and association are explicit so shared live audio can never
+            # be mistaken for an isolated decode of the candidate region.
             result.append(item)
         return result
 

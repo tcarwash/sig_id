@@ -423,6 +423,23 @@ textarea {
   align-items: center;
   gap: 8px;
 }
+.decode-runs {
+  display: grid;
+  gap: 6px;
+  max-height: 240px;
+  overflow: auto;
+}
+.decode-actions {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}
+.decode-run {
+  width: 100%;
+  text-align: left;
+  font: 10px ui-monospace, monospace;
+  color: var(--text);
+}
 .field {
   margin-top: 16px;
 }

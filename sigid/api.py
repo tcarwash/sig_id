@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import os
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 import logging
 from pathlib import Path
+import tempfile
 import wave
+from threading import Lock
 from typing import Any
 from uuid import uuid4
 
@@ -21,6 +24,7 @@ from .classifier import extract_features, load_model, propose
 from .demod import demodulate_2fsk, demodulate_bpsk, demodulate_mfsk, demodulate_ook, demodulate_qpsk
 from .detection import detect_tracks
 from .fldigi import FldigiClient
+from .fldigi_replay import IsolatedFldigiReplay
 from .live_audio import LiveCaptureManager
 from .live_spectrum import spectrum_packet
 from .receive_products import ReceiveProductStore
@@ -77,6 +81,16 @@ class FldigiModeSelect(BaseModel):
 class FldigiTrialStart(BaseModel):
     track_id: str = Field(min_length=1, max_length=128)
     modulation_hypothesis: str = Field(default="unknown", max_length=80)
+    sample_start: int | None = Field(default=None, ge=0)
+    sample_count: int | None = Field(default=None, gt=0, le=192_000 * 600)
+
+
+class FldigiReplayRequest(BaseModel):
+    mode: str = Field(min_length=1, max_length=80)
+    sample_start: int = Field(ge=0)
+    sample_count: int = Field(gt=0, le=192_000 * 600)
+    track_id: str | None = Field(default=None, max_length=128)
+    carrier_hz: float | None = Field(default=None, ge=0, le=20000)
 
 
 class FskDemodRequest(BaseModel):
@@ -143,6 +157,7 @@ def create_app(
     data_dir: str | Path | None = None,
     audio_backend: Any | None = None,
     fldigi_client: Any | None = None,
+    fldigi_replay_backend: Any | None = None,
     classifier_model_path: str | Path | None = None,
 ) -> FastAPI:
     root = Path(data_dir or os.environ.get("SIG_ID_DATA_DIR", "~/.local/share/sig-id")).expanduser()
@@ -155,6 +170,9 @@ def create_app(
         url=os.environ.get("SIG_ID_FLDIGI_URL", "http://127.0.0.1:7362/RPC2"),
         timeout=float(os.environ.get("SIG_ID_FLDIGI_TIMEOUT", "0.75")),
     )
+    fldigi_replay = fldigi_replay_backend or IsolatedFldigiReplay()
+    decode_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sig-id-fldigi-replay")
+    decode_job_lock = Lock()
     configured_model = classifier_model_path or os.environ.get("SIG_ID_MODEL_PATH")
     classifier = None
     classifier_error = None
@@ -171,8 +189,14 @@ def create_app(
             yield
         finally:
             application.state.fldigi_trials.cancel()
+            close_replay = getattr(fldigi_replay, "close", None)
+            if callable(close_replay):
+                close_replay()
+            decode_executor.shutdown(wait=True, cancel_futures=True)
             try:
-                await asyncio.to_thread(live_capture.shutdown)
+                stopped = await asyncio.to_thread(live_capture.shutdown)
+                if stopped and stopped.get("capture"):
+                    store.associate_decoder_runs(stopped["session_id"], stopped["capture"]["id"])
             except Exception:
                 logging.getLogger(__name__).exception("Could not finalize live capture during shutdown; inspect retained audio files")
 
@@ -183,10 +207,68 @@ def create_app(
     app.state.live_capture = live_capture
     app.state.receive_products = receive_products
     app.state.fldigi = fldigi
+    app.state.fldigi_replay = fldigi_replay
     app.state.classifier = classifier
     app.state.classifier_error = classifier_error
     app.state.live_track_registry = None
-    app.state.fldigi_trials = FldigiTrialRunner(fldigi)
+    app.state.fldigi_trials = FldigiTrialRunner(fldigi, run_store=store)
+
+    def run_saved_replay(
+        run_id: str, capture: dict[str, Any], settings: FldigiReplayRequest,
+    ) -> None:
+        temporary_audio: Path | None = None
+        try:
+            selected_start = settings.sample_start
+            selected_end = selected_start + settings.sample_count
+            samples: list[float] = []
+            for block in WavSource(capture["audio_path"]).blocks():
+                block_end = block.first_sample + block.sample_count
+                if block_end <= selected_start:
+                    continue
+                if block.first_sample >= selected_end:
+                    break
+                left = max(0, selected_start - block.first_sample)
+                right = min(block.sample_count, selected_end - block.first_sample)
+                samples.extend(block.samples[left:right])
+            if len(samples) != settings.sample_count:
+                raise ValueError("selected sample range could not be read from the capture")
+            temporary = tempfile.NamedTemporaryFile(prefix="sig-id-region-", suffix=".wav", delete=False)
+            temporary_audio = Path(temporary.name)
+            temporary.close()
+            pcm = np.clip(np.rint(np.asarray(samples, dtype=np.float64) * 32767.0), -32768, 32767).astype("<i2")
+            with wave.open(str(temporary_audio), "wb") as output:
+                output.setnchannels(1)
+                output.setsampwidth(2)
+                output.setframerate(int(capture["sample_rate"]))
+                output.writeframes(pcm.tobytes())
+            app.state.capture_store.update_decoder_run(run_id, {
+                "attempted_modes": [settings.mode], "current_mode": settings.mode,
+                "output_offset": 0, "output_end": None, "text": "",
+                "status": "running", "note": "Preparing the selected capture window for isolated receive replay.",
+            })
+            result = fldigi_replay.decode(
+                temporary_audio, mode=settings.mode, carrier_hz=settings.carrier_hz,
+            )
+            text = str(result.get("text", ""))
+            app.state.capture_store.update_decoder_run(run_id, {
+                "attempted_modes": [settings.mode], "current_mode": settings.mode,
+                "output_offset": 0, "output_end": len(text.encode("utf-8")), "text": text,
+                "status": result.get("status", "completed"), "note": result.get("note", ""),
+            })
+        except Exception as exc:
+            logging.getLogger(__name__).exception("Isolated Fldigi region replay failed")
+            try:
+                app.state.capture_store.update_decoder_run(run_id, {
+                    "attempted_modes": [settings.mode], "current_mode": settings.mode,
+                    "output_offset": 0, "output_end": None, "text": "",
+                    "status": "failed", "note": str(exc)[:2000],
+                })
+            except Exception:
+                logging.getLogger(__name__).exception("Could not persist Fldigi replay failure")
+        finally:
+            if temporary_audio is not None:
+                temporary_audio.unlink(missing_ok=True)
+            decode_job_lock.release()
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
@@ -369,6 +451,10 @@ def create_app(
                                 "PSK": "single-tone / unknown",
                             }.get(proposal["family"], proposal["family"]),
                             live=True,
+                            session_id=snapshot["session_id"],
+                            sample_start=int(track["sample_start"]),
+                            sample_count=int(track["sample_count"]),
+                            sample_rate=int(snapshot["sample_rate"]),
                         )
                         automatic_trial["trigger"] = "accepted_model_proposal"
                         track["decoder_trial"] = {
@@ -421,6 +507,7 @@ def create_app(
         try:
             result = live_capture.stop()
             app.state.fldigi_trials.cancel()
+            store.associate_decoder_runs(result["session_id"], result["capture"]["id"])
             return result
         except RuntimeError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -465,7 +552,8 @@ def create_app(
     @app.post("/api/fldigi/trials/start")
     def start_fldigi_trial(data: FldigiTrialStart) -> dict[str, Any]:
         try:
-            live = bool(live_capture.status().get("active"))
+            status = live_capture.status()
+            live = bool(status.get("active"))
             family = data.modulation_hypothesis.upper()
             trial_hint = {
                 "FSK": "FSK-like",
@@ -476,6 +564,10 @@ def create_app(
                 track_id=data.track_id,
                 modulation_hypothesis=trial_hint,
                 live=live,
+                session_id=status.get("session_id"),
+                sample_start=data.sample_start,
+                sample_count=data.sample_count,
+                sample_rate=status.get("sample_rate"),
             )
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -491,6 +583,51 @@ def create_app(
         except Exception as exc:
             app.state.fldigi_trials.cancel()
             raise HTTPException(status_code=503, detail=f"Fldigi trial failed: {exc}") from exc
+
+    @app.get("/api/captures/{capture_id}/decode-runs")
+    def capture_decode_runs(capture_id: str) -> list[dict[str, Any]]:
+        try:
+            return store.decoder_runs(capture_id=capture_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="capture not found") from exc
+
+    @app.get("/api/live/sessions/{session_id}/decode-runs")
+    def session_decode_runs(session_id: str) -> list[dict[str, Any]]:
+        return store.decoder_runs(session_id=session_id)
+
+    @app.post("/api/captures/{capture_id}/decode", status_code=202)
+    def replay_capture_region(capture_id: str, settings: FldigiReplayRequest) -> dict[str, Any]:
+        try:
+            capture = store.capture(capture_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="capture not found") from exc
+        if settings.sample_start + settings.sample_count > int(capture["sample_count"]):
+            raise HTTPException(status_code=422, detail="selected region exceeds the saved capture")
+        try:
+            modes = fldigi.mode_names()
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"Fldigi mode catalog unavailable: {exc}") from exc
+        if settings.mode not in modes:
+            raise HTTPException(status_code=422, detail="selected mode is not available in the Fldigi catalog")
+        if not decode_job_lock.acquire(blocking=False):
+            raise HTTPException(status_code=409, detail="an isolated Fldigi replay is already running")
+        track_id = settings.track_id or f"capture:{capture_id}:samples:{settings.sample_start}:{settings.sample_count}"
+        try:
+            run_id = store.create_decoder_run(
+                session_id=f"capture:{capture_id}", capture_id=capture_id,
+                track_id=track_id, sample_start=settings.sample_start,
+                sample_count=settings.sample_count, sample_rate=int(capture["sample_rate"]),
+                modulation_hypothesis="unknown", backend="fldigi-isolated-replay",
+                modes=[settings.mode], attempted_modes=[], current_mode=settings.mode,
+                output_offset=0, status="queued",
+                note="Waiting to replay the selected saved-capture region.",
+                output_scope="isolated_region_replay", association="exact_capture_window",
+            )
+            decode_executor.submit(run_saved_replay, run_id, capture, settings)
+            return {"run_id": run_id, "status": "queued", "mode": settings.mode}
+        except Exception as exc:
+            decode_job_lock.release()
+            raise HTTPException(status_code=503, detail=f"could not queue the selected-region replay: {exc}") from exc
 
     @app.get("/api/fldigi/output")
     def fldigi_output(start: int = Query(default=0, ge=0), limit: int = Query(default=8192, ge=1, le=65536)) -> dict[str, Any]:
