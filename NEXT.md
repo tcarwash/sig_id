@@ -9,7 +9,8 @@ validation remain open. Saved-capture regions can be replayed in the selected mo
 through a separate Fldigi process and a private PulseAudio/PipeWire sink; output is
 persisted against the exact capture window. The inspector can also explicitly save
 that region with the selected mode as its variant label. This replay path is native
-Linux only. A known-message audio round-trip now passes for BPSK31, RTTY and THOR16.
+Linux only. Known-message audio round-trips now pass for BPSK31, RTTY, THOR16, MFSK16
+and MT63-500S.
 
 ## Agreed scope
 
@@ -54,7 +55,7 @@ Linux only. A known-message audio round-trip now passes for BPSK31, RTTY and THO
   profile with audio set to PulseAudio and all known PTT paths forced off; it never
   changes the operator's running Fldigi instance. The label action remains explicit and
   saves the selected mode as the region variant. RF-free tests verify known-message
-  round-trips in BPSK31, RTTY and THOR16.
+  round-trips in BPSK31, RTTY, THOR16, MFSK16 and MT63-500S.
 - While recording, the inspector and accepted-model scheduler can replay a selected
   live candidate's exact sample window using isolated Fldigi processes. The bounded
   tested-mode sweep tries up to three modes in hypothesis order and stops at the first
@@ -278,7 +279,7 @@ Verified: Fldigi 4.2.13 and its XML-RPC method catalog are installed; unit tests
 cover receive-only client semantics, PCM WAV block indexing/normalization and
 synthetic 2-FSK/MFSK metadata, exact symbols/bits and tone frequencies, SQLite
 capture hashes/regions/label history, JSONL export, spectrogram peak detection, upload/region APIs, and Fldigi
-status/catalog/mode/output APIs, WEFAX product import and image delivery. Current full suite: 183 passed, 10 skipped;
+status/catalog/mode/output APIs, WEFAX product import and image delivery. Current full suite: 183 passed, 12 skipped;
 the opt-in isolated selection audit checks all 169 entries (165 selectable, four unresolved),
 and `node --test tests/test_waterfall_window.mjs`, module syntax validation, headless
 Chromium loading, and `git diff --check` pass. The generic text-backend
@@ -289,7 +290,7 @@ positions match completed-WAV waterfall calculations.
 An isolated live Fldigi 4.2.13 process served the API with the documented receive-only
 allow-list: 169 modes, THOR16 selection, and receive-buffer queries all worked. A
 separate, opt-in integration test passes: it creates two copied profiles with all
-rig/PTT paths disabled, routes BPSK31, RTTY and THOR16 transmit audio through a
+rig/PTT paths disabled, routes BPSK31, RTTY, THOR16, MFSK16 and MT63-500S transmit audio through a
 temporary PulseAudio null sink, and verifies each complete payload arrives through
 the workbench API. Run it with
 `SIGID_TEST_FLDIGI_AUDIO=1 pytest tests/test_fldigi_audio_integration.py`. This is a

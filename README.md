@@ -31,7 +31,8 @@ time/frequency selection and label export; blockwise PCM replay; deterministic
 capture/label dataset; and a receive-only Fldigi XML-RPC probe. Local device capture
 and the Fldigi path from audio input to recovered text are represented in the
 workbench: when a running Fldigi XML-RPC service is available, users can select a catalog mode and view its
-receive-text output. RF-free loopback tests decode BPSK31, RTTY and THOR16 payloads
+receive-text output. RF-free loopback tests decode BPSK31, RTTY, THOR16, MFSK16 and
+MT63-500S payloads
 through temporary virtual audio into the workbench API. Routing actual radio input
 to Fldigi remains an external setup and is not yet validated. The workbench also
 offers bounded Fldigi mode trials for live candidates. The “Auto-try accepted model IDs”
@@ -104,7 +105,8 @@ SIGID_TEST_FLDIGI_AUDIO=1 pytest tests/test_fldigi_audio_integration.py
 
 The saved-region replay worker has a separate end-to-end check. It captures a known
 transmission from a temporary null sink, then decodes that WAV through the same
-isolated replay path used by the inspector. BPSK31, RTTY and THOR16 are covered:
+isolated replay path used by the inspector. BPSK31, RTTY, THOR16, MFSK16 and MT63-500S
+are covered:
 
 ```sh
 SIGID_TEST_FLDIGI_REGION_REPLAY=1 pytest -s tests/test_fldigi_audio_integration.py -k known_fldigi_transmission
