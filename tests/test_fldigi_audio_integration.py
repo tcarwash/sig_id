@@ -136,7 +136,8 @@ def _stop_process(process: subprocess.Popen[bytes]) -> None:
 
 @pytest.mark.parametrize(
     "mode",
-    ["BPSK31", "RTTY", "THOR16", "MFSK16", "MT63-500S"],
+    ["BPSK31", "BPSK63", "RTTY", "THOR8", "THOR16",
+     "MFSK16", "MFSK32", "MT63-500S", "MT63-1KS"],
 )
 @pytest.mark.skipif(
     os.environ.get("SIGID_TEST_FLDIGI_AUDIO") != "1",
@@ -221,7 +222,11 @@ def test_fldigi_payload_reaches_workbench_api_through_virtual_audio(tmp_path, mo
     os.environ.get("SIGID_TEST_FLDIGI_REGION_REPLAY") != "1",
     reason="set SIGID_TEST_FLDIGI_REGION_REPLAY=1 for an RF-free saved-region decode",
 )
-@pytest.mark.parametrize("mode", ["BPSK31", "RTTY", "THOR16", "MFSK16", "MT63-500S"])
+@pytest.mark.parametrize(
+    "mode",
+    ["BPSK31", "BPSK63", "RTTY", "THOR8", "THOR16",
+     "MFSK16", "MFSK32", "MT63-500S", "MT63-1KS"],
+)
 def test_isolated_region_replay_decodes_a_known_fldigi_transmission(tmp_path, mode):
     """Transmit inside a null sink, save that audio, then decode it via the production replay worker."""
     for executable in ("fldigi", "xvfb-run", "pactl", "paplay", "parecord"):
@@ -260,7 +265,8 @@ def test_isolated_region_replay_decodes_a_known_fldigi_transmission(tmp_path, mo
         sender_rpc.text.clear_tx()
         sender_rpc.text.add_tx(payload)
         sender_rpc.main.tx()
-        time.sleep(40 if mode.startswith("MT63") else 20 if mode == "MFSK16" else 14)
+        dwell = 40 if mode.startswith(("MT63", "THOR")) else 20 if mode.startswith("MFSK") else 14
+        time.sleep(dwell)
         sender_rpc.main.rx()
         time.sleep(0.3)
         _stop_process(recorder)

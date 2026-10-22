@@ -3,10 +3,10 @@
 Status: implementation in progress. WAV replay, live capture, the manual dataset
 workflow, and the first provisional spectral candidate pass are implemented. Fldigi's
 receive-only UI/API is connected, with isolated audio-loopback evidence for BPSK31,
-RTTY and THOR16. A manual protocol-independent 2-FSK demodulator also exposes raw
-bits and soft tone metrics; see [NEXT.md](NEXT.md) for verified gates. Automatic
-protocol identification, model training and RF validation remain open. A BPSK31
-software audio loopback decodes through Fldigi; routing a real radio input remains open.
+BPSK63, RTTY, THOR8/16, MFSK16/32 and MT63-500S/1KS. A manual protocol-independent
+2-FSK demodulator also exposes raw bits and soft tone metrics; see [NEXT.md](NEXT.md)
+for verified gates. Automatic protocol identification, model quality validation and
+RF validation remain open; routing a real radio input remains open.
 
 ## Delivery strategy
 
@@ -68,11 +68,13 @@ Timebox the first investigation to 1-2 focused implementation days, then decide.
    configurable variants, output types, and validation status. Parameterized modes
    need explicit variant records, not just the returned modem name.
 2. Launch isolated Fldigi instances, select a mode, generate a known payload into its
-   input and retrieve text. BPSK31, RTTY, THOR16, MFSK16 and MT63-500S now pass this
-   audio loopback gate; continue with additional families and independent fixtures.
-3. The saved-region replay worker now passes a true WAV round-trip for BPSK31, RTTY,
-   THOR16, MFSK16 and MT63-500S: transmit to a temporary null sink, record the WAV,
-   and decode it in a separate isolated instance. Continue across remaining representative families.
+   input and retrieve text. BPSK31, BPSK63, RTTY, THOR8/16, MFSK16/32 and MT63-500S/1KS
+   now pass this audio loopback gate; continue with additional families and independent
+   fixtures.
+3. The saved-region replay worker now passes a true WAV round-trip for BPSK31, BPSK63,
+   RTTY, THOR8/16, MFSK16/32 and MT63-500S/1KS: transmit to a temporary null sink,
+   record the WAV, and decode it in a separate isolated instance. Continue across
+   remaining representative families.
    Measure startup/interleaver delay,
    input pacing, stale-output clearing, tune/selection behavior, and output latency.
 4. Capture offline generated audio for a known payload; decode it again. Store the

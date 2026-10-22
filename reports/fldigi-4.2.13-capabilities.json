@@ -6,7 +6,7 @@
   "source_audit_sha256": "03f17b851e468553db532063b3b413a1b33be7f6038a16d64488746d292bd3db",
   "catalog_count": 169,
   "selectable_count": 165,
-  "decode_validated_count": 5,
+  "decode_validated_count": 9,
   "modes": [
     {
       "backend_name": "NULL",
@@ -20,7 +20,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for NULL on Fldigi 4.2.13."
     },
     {
       "backend_name": "CW",
@@ -34,7 +34,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for CW on Fldigi 4.2.13."
     },
     {
       "backend_name": "CONTESTIA",
@@ -48,7 +48,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for CONTESTIA on Fldigi 4.2.13."
     },
     {
       "backend_name": "Cont-4/125",
@@ -62,7 +62,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for Cont-4/125 on Fldigi 4.2.13."
     },
     {
       "backend_name": "Cont-4/250",
@@ -76,7 +76,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for Cont-4/250 on Fldigi 4.2.13."
     },
     {
       "backend_name": "Cont-4/500",
@@ -90,7 +90,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for Cont-4/500 on Fldigi 4.2.13."
     },
     {
       "backend_name": "Cont-4/1K",
@@ -104,7 +104,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for Cont-4/1K on Fldigi 4.2.13."
     },
     {
       "backend_name": "Cont-4/2K",
@@ -118,7 +118,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for Cont-4/2K on Fldigi 4.2.13."
     },
     {
       "backend_name": "Cont-8/125",
@@ -132,7 +132,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for Cont-8/125 on Fldigi 4.2.13."
     },
     {
       "backend_name": "Cont-8/250",
@@ -146,7 +146,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for Cont-8/250 on Fldigi 4.2.13."
     },
     {
       "backend_name": "Cont-8/500",
@@ -160,7 +160,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for Cont-8/500 on Fldigi 4.2.13."
     },
     {
       "backend_name": "Cont-8/1K",
@@ -174,7 +174,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for Cont-8/1K on Fldigi 4.2.13."
     },
     {
       "backend_name": "Cont-8/2K",
@@ -188,7 +188,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for Cont-8/2K on Fldigi 4.2.13."
     },
     {
       "backend_name": "Cont-16/250",
@@ -202,7 +202,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for Cont-16/250 on Fldigi 4.2.13."
     },
     {
       "backend_name": "Cont-16/500",
@@ -216,7 +216,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for Cont-16/500 on Fldigi 4.2.13."
     },
     {
       "backend_name": "Cont-16/1K",
@@ -230,7 +230,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for Cont-16/1K on Fldigi 4.2.13."
     },
     {
       "backend_name": "Cont-16/2K",
@@ -244,7 +244,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for Cont-16/2K on Fldigi 4.2.13."
     },
     {
       "backend_name": "Cont-32/1K",
@@ -258,7 +258,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for Cont-32/1K on Fldigi 4.2.13."
     },
     {
       "backend_name": "Cont-32/2K",
@@ -272,7 +272,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for Cont-32/2K on Fldigi 4.2.13."
     },
     {
       "backend_name": "Cont-64/500",
@@ -286,7 +286,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for Cont-64/500 on Fldigi 4.2.13."
     },
     {
       "backend_name": "Cont-64/1K",
@@ -300,7 +300,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for Cont-64/1K on Fldigi 4.2.13."
     },
     {
       "backend_name": "Cont-64/2K",
@@ -314,7 +314,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for Cont-64/2K on Fldigi 4.2.13."
     },
     {
       "backend_name": "DOMEXM",
@@ -328,7 +328,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for DOMEXM on Fldigi 4.2.13."
     },
     {
       "backend_name": "DOMEX4",
@@ -342,7 +342,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for DOMEX4 on Fldigi 4.2.13."
     },
     {
       "backend_name": "DOMEX5",
@@ -356,7 +356,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for DOMEX5 on Fldigi 4.2.13."
     },
     {
       "backend_name": "DOMEX8",
@@ -370,7 +370,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for DOMEX8 on Fldigi 4.2.13."
     },
     {
       "backend_name": "DOMX11",
@@ -384,7 +384,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for DOMX11 on Fldigi 4.2.13."
     },
     {
       "backend_name": "DOMX16",
@@ -398,7 +398,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for DOMX16 on Fldigi 4.2.13."
     },
     {
       "backend_name": "DOMX22",
@@ -412,7 +412,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for DOMX22 on Fldigi 4.2.13."
     },
     {
       "backend_name": "DOMX44",
@@ -426,7 +426,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for DOMX44 on Fldigi 4.2.13."
     },
     {
       "backend_name": "DOMX88",
@@ -440,7 +440,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for DOMX88 on Fldigi 4.2.13."
     },
     {
       "backend_name": "FELDHELL",
@@ -454,7 +454,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for FELDHELL on Fldigi 4.2.13."
     },
     {
       "backend_name": "SLOWHELL",
@@ -468,7 +468,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for SLOWHELL on Fldigi 4.2.13."
     },
     {
       "backend_name": "HELLX5",
@@ -482,7 +482,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for HELLX5 on Fldigi 4.2.13."
     },
     {
       "backend_name": "HELLX9",
@@ -496,7 +496,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for HELLX9 on Fldigi 4.2.13."
     },
     {
       "backend_name": "FSKH245",
@@ -510,7 +510,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for FSKH245 on Fldigi 4.2.13."
     },
     {
       "backend_name": "FSKH105",
@@ -524,7 +524,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for FSKH105 on Fldigi 4.2.13."
     },
     {
       "backend_name": "HELL80",
@@ -538,7 +538,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for HELL80 on Fldigi 4.2.13."
     },
     {
       "backend_name": "MFSK8",
@@ -552,7 +552,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for MFSK8 on Fldigi 4.2.13."
     },
     {
       "backend_name": "MFSK16",
@@ -566,24 +566,27 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [
-        "tests/test_fldigi_audio_integration.py::test_payload_reaches_workbench",
-        "tests/test_fldigi_audio_integration.py::test_isolated_region_replay_decodes_a_known_fldigi_transmission"
+        "tests/test_fldigi_audio_integration.py::test_fldigi_payload_reaches_workbench_api_through_virtual_audio[MFSK16]",
+        "tests/test_fldigi_audio_integration.py::test_isolated_region_replay_decodes_a_known_fldigi_transmission[MFSK16]"
       ],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for MFSK16 on Fldigi 4.2.13."
     },
     {
       "backend_name": "MFSK32",
       "catalog_present": true,
       "selectable": true,
       "selection_latency_ms": 0,
-      "decode_validated": false,
-      "audio_routed": false,
-      "output_handled": false,
+      "decode_validated": true,
+      "audio_routed": true,
+      "output_handled": true,
       "generation_validated": false,
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
-      "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "evidence_tests": [
+        "tests/test_fldigi_audio_integration.py::test_fldigi_payload_reaches_workbench_api_through_virtual_audio[MFSK32]",
+        "tests/test_fldigi_audio_integration.py::test_isolated_region_replay_decodes_a_known_fldigi_transmission[MFSK32]"
+      ],
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for MFSK32 on Fldigi 4.2.13."
     },
     {
       "backend_name": "MFSK4",
@@ -597,7 +600,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for MFSK4 on Fldigi 4.2.13."
     },
     {
       "backend_name": "MFSK11",
@@ -611,7 +614,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for MFSK11 on Fldigi 4.2.13."
     },
     {
       "backend_name": "MFSK22",
@@ -625,7 +628,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for MFSK22 on Fldigi 4.2.13."
     },
     {
       "backend_name": "MFSK31",
@@ -639,7 +642,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for MFSK31 on Fldigi 4.2.13."
     },
     {
       "backend_name": "MFSK64",
@@ -653,7 +656,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for MFSK64 on Fldigi 4.2.13."
     },
     {
       "backend_name": "MFSK128",
@@ -667,7 +670,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for MFSK128 on Fldigi 4.2.13."
     },
     {
       "backend_name": "MFSK64L",
@@ -681,7 +684,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for MFSK64L on Fldigi 4.2.13."
     },
     {
       "backend_name": "MFSK128L",
@@ -695,7 +698,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for MFSK128L on Fldigi 4.2.13."
     },
     {
       "backend_name": "WEFAX576",
@@ -709,7 +712,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for WEFAX576 on Fldigi 4.2.13."
     },
     {
       "backend_name": "WEFAX288",
@@ -723,7 +726,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for WEFAX288 on Fldigi 4.2.13."
     },
     {
       "backend_name": "NAVTEX",
@@ -737,7 +740,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for NAVTEX on Fldigi 4.2.13."
     },
     {
       "backend_name": "SITORB",
@@ -751,7 +754,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for SITORB on Fldigi 4.2.13."
     },
     {
       "backend_name": "MT63-500S",
@@ -765,10 +768,10 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [
-        "tests/test_fldigi_audio_integration.py::test_payload_reaches_workbench",
-        "tests/test_fldigi_audio_integration.py::test_isolated_region_replay_decodes_a_known_fldigi_transmission"
+        "tests/test_fldigi_audio_integration.py::test_fldigi_payload_reaches_workbench_api_through_virtual_audio[MT63-500S]",
+        "tests/test_fldigi_audio_integration.py::test_isolated_region_replay_decodes_a_known_fldigi_transmission[MT63-500S]"
       ],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for MT63-500S on Fldigi 4.2.13."
     },
     {
       "backend_name": "MT63-500L",
@@ -782,21 +785,24 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for MT63-500L on Fldigi 4.2.13."
     },
     {
       "backend_name": "MT63-1KS",
       "catalog_present": true,
       "selectable": true,
       "selection_latency_ms": 0,
-      "decode_validated": false,
-      "audio_routed": false,
-      "output_handled": false,
+      "decode_validated": true,
+      "audio_routed": true,
+      "output_handled": true,
       "generation_validated": false,
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
-      "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "evidence_tests": [
+        "tests/test_fldigi_audio_integration.py::test_fldigi_payload_reaches_workbench_api_through_virtual_audio[MT63-1KS]",
+        "tests/test_fldigi_audio_integration.py::test_isolated_region_replay_decodes_a_known_fldigi_transmission[MT63-1KS]"
+      ],
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for MT63-1KS on Fldigi 4.2.13."
     },
     {
       "backend_name": "MT63-1KL",
@@ -810,7 +816,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for MT63-1KL on Fldigi 4.2.13."
     },
     {
       "backend_name": "MT63-2KS",
@@ -824,7 +830,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for MT63-2KS on Fldigi 4.2.13."
     },
     {
       "backend_name": "MT63-2KL",
@@ -838,7 +844,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for MT63-2KL on Fldigi 4.2.13."
     },
     {
       "backend_name": "BPSK31",
@@ -852,24 +858,27 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [
-        "tests/test_fldigi_audio_integration.py::test_payload_reaches_workbench",
-        "tests/test_fldigi_audio_integration.py::test_isolated_region_replay_decodes_a_known_fldigi_transmission"
+        "tests/test_fldigi_audio_integration.py::test_fldigi_payload_reaches_workbench_api_through_virtual_audio[BPSK31]",
+        "tests/test_fldigi_audio_integration.py::test_isolated_region_replay_decodes_a_known_fldigi_transmission[BPSK31]"
       ],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for BPSK31 on Fldigi 4.2.13."
     },
     {
       "backend_name": "BPSK63",
       "catalog_present": true,
       "selectable": true,
       "selection_latency_ms": 0,
-      "decode_validated": false,
-      "audio_routed": false,
-      "output_handled": false,
+      "decode_validated": true,
+      "audio_routed": true,
+      "output_handled": true,
       "generation_validated": false,
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
-      "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "evidence_tests": [
+        "tests/test_fldigi_audio_integration.py::test_fldigi_payload_reaches_workbench_api_through_virtual_audio[BPSK63]",
+        "tests/test_fldigi_audio_integration.py::test_isolated_region_replay_decodes_a_known_fldigi_transmission[BPSK63]"
+      ],
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for BPSK63 on Fldigi 4.2.13."
     },
     {
       "backend_name": "BPSK63F",
@@ -883,7 +892,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for BPSK63F on Fldigi 4.2.13."
     },
     {
       "backend_name": "BPSK125",
@@ -897,7 +906,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for BPSK125 on Fldigi 4.2.13."
     },
     {
       "backend_name": "BPSK250",
@@ -911,7 +920,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for BPSK250 on Fldigi 4.2.13."
     },
     {
       "backend_name": "BPSK500",
@@ -925,7 +934,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for BPSK500 on Fldigi 4.2.13."
     },
     {
       "backend_name": "BPSK1000",
@@ -939,7 +948,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for BPSK1000 on Fldigi 4.2.13."
     },
     {
       "backend_name": "PSK125C12",
@@ -953,7 +962,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for PSK125C12 on Fldigi 4.2.13."
     },
     {
       "backend_name": "PSK250C6",
@@ -967,7 +976,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for PSK250C6 on Fldigi 4.2.13."
     },
     {
       "backend_name": "PSK500C2",
@@ -981,7 +990,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for PSK500C2 on Fldigi 4.2.13."
     },
     {
       "backend_name": "PSK500C4",
@@ -995,7 +1004,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for PSK500C4 on Fldigi 4.2.13."
     },
     {
       "backend_name": "PSK800C2",
@@ -1009,7 +1018,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for PSK800C2 on Fldigi 4.2.13."
     },
     {
       "backend_name": "PSK1000C2",
@@ -1023,7 +1032,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for PSK1000C2 on Fldigi 4.2.13."
     },
     {
       "backend_name": "QPSK31",
@@ -1037,7 +1046,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "A reference workbench loopback attempt did not recover the full known payload."
     },
     {
       "backend_name": "QPSK63",
@@ -1051,7 +1060,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for QPSK63 on Fldigi 4.2.13."
     },
     {
       "backend_name": "QPSK125",
@@ -1065,7 +1074,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for QPSK125 on Fldigi 4.2.13."
     },
     {
       "backend_name": "QPSK250",
@@ -1079,7 +1088,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for QPSK250 on Fldigi 4.2.13."
     },
     {
       "backend_name": "QPSK500",
@@ -1093,7 +1102,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for QPSK500 on Fldigi 4.2.13."
     },
     {
       "backend_name": "8PSK125",
@@ -1107,7 +1116,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for 8PSK125 on Fldigi 4.2.13."
     },
     {
       "backend_name": "8PSK125FL",
@@ -1121,7 +1130,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for 8PSK125FL on Fldigi 4.2.13."
     },
     {
       "backend_name": "8PSK125F",
@@ -1135,7 +1144,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for 8PSK125F on Fldigi 4.2.13."
     },
     {
       "backend_name": "8PSK250",
@@ -1149,7 +1158,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for 8PSK250 on Fldigi 4.2.13."
     },
     {
       "backend_name": "8PSK250FL",
@@ -1163,7 +1172,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for 8PSK250FL on Fldigi 4.2.13."
     },
     {
       "backend_name": "8PSK250F",
@@ -1177,7 +1186,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for 8PSK250F on Fldigi 4.2.13."
     },
     {
       "backend_name": "8PSK500",
@@ -1191,7 +1200,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for 8PSK500 on Fldigi 4.2.13."
     },
     {
       "backend_name": "8PSK500F",
@@ -1205,7 +1214,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for 8PSK500F on Fldigi 4.2.13."
     },
     {
       "backend_name": "8PSK1000",
@@ -1219,7 +1228,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for 8PSK1000 on Fldigi 4.2.13."
     },
     {
       "backend_name": "8PSK1000F",
@@ -1233,7 +1242,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for 8PSK1000F on Fldigi 4.2.13."
     },
     {
       "backend_name": "8PSK1200F",
@@ -1247,7 +1256,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for 8PSK1200F on Fldigi 4.2.13."
     },
     {
       "backend_name": "OFDM500F",
@@ -1303,7 +1312,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for OLIVIA on Fldigi 4.2.13."
     },
     {
       "backend_name": "OLIVIA-4/125",
@@ -1317,7 +1326,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for OLIVIA-4/125 on Fldigi 4.2.13."
     },
     {
       "backend_name": "OLIVIA-4/250",
@@ -1331,7 +1340,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for OLIVIA-4/250 on Fldigi 4.2.13."
     },
     {
       "backend_name": "OLIVIA-4/500",
@@ -1345,7 +1354,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for OLIVIA-4/500 on Fldigi 4.2.13."
     },
     {
       "backend_name": "OLIVIA-4/1K",
@@ -1359,7 +1368,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for OLIVIA-4/1K on Fldigi 4.2.13."
     },
     {
       "backend_name": "OLIVIA-4/2K",
@@ -1373,7 +1382,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for OLIVIA-4/2K on Fldigi 4.2.13."
     },
     {
       "backend_name": "OLIVIA-8/125",
@@ -1387,7 +1396,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for OLIVIA-8/125 on Fldigi 4.2.13."
     },
     {
       "backend_name": "OLIVIA-8/250",
@@ -1401,7 +1410,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for OLIVIA-8/250 on Fldigi 4.2.13."
     },
     {
       "backend_name": "OLIVIA-8/500",
@@ -1415,7 +1424,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "A reference workbench loopback attempt returned only the trailing text 'K COMPLETE 123'; full-message decode remains unresolved."
     },
     {
       "backend_name": "OLIVIA-8/1K",
@@ -1429,7 +1438,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for OLIVIA-8/1K on Fldigi 4.2.13."
     },
     {
       "backend_name": "OLIVIA-8/2K",
@@ -1443,7 +1452,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for OLIVIA-8/2K on Fldigi 4.2.13."
     },
     {
       "backend_name": "OLIVIA-16/500",
@@ -1457,7 +1466,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for OLIVIA-16/500 on Fldigi 4.2.13."
     },
     {
       "backend_name": "OLIVIA-16/1K",
@@ -1471,7 +1480,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for OLIVIA-16/1K on Fldigi 4.2.13."
     },
     {
       "backend_name": "OLIVIA-16/2K",
@@ -1485,7 +1494,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for OLIVIA-16/2K on Fldigi 4.2.13."
     },
     {
       "backend_name": "OLIVIA-32/1K",
@@ -1499,7 +1508,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for OLIVIA-32/1K on Fldigi 4.2.13."
     },
     {
       "backend_name": "OLIVIA-32/2K",
@@ -1513,7 +1522,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for OLIVIA-32/2K on Fldigi 4.2.13."
     },
     {
       "backend_name": "OLIVIA-64/500",
@@ -1527,7 +1536,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for OLIVIA-64/500 on Fldigi 4.2.13."
     },
     {
       "backend_name": "OLIVIA-64/1K",
@@ -1541,7 +1550,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for OLIVIA-64/1K on Fldigi 4.2.13."
     },
     {
       "backend_name": "OLIVIA-64/2K",
@@ -1555,7 +1564,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for OLIVIA-64/2K on Fldigi 4.2.13."
     },
     {
       "backend_name": "RTTY",
@@ -1569,10 +1578,10 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [
-        "tests/test_fldigi_audio_integration.py::test_payload_reaches_workbench",
-        "tests/test_fldigi_audio_integration.py::test_isolated_region_replay_decodes_a_known_fldigi_transmission"
+        "tests/test_fldigi_audio_integration.py::test_fldigi_payload_reaches_workbench_api_through_virtual_audio[RTTY]",
+        "tests/test_fldigi_audio_integration.py::test_isolated_region_replay_decodes_a_known_fldigi_transmission[RTTY]"
       ],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for RTTY on Fldigi 4.2.13."
     },
     {
       "backend_name": "SCAMPFSK",
@@ -1586,7 +1595,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for SCAMPFSK on Fldigi 4.2.13."
     },
     {
       "backend_name": "SCAMPOOK",
@@ -1600,7 +1609,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for SCAMPOOK on Fldigi 4.2.13."
     },
     {
       "backend_name": "SCFSKFST",
@@ -1614,7 +1623,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for SCFSKFST on Fldigi 4.2.13."
     },
     {
       "backend_name": "SCFSKSLW",
@@ -1628,7 +1637,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for SCFSKSLW on Fldigi 4.2.13."
     },
     {
       "backend_name": "SCOOKSLW",
@@ -1642,7 +1651,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for SCOOKSLW on Fldigi 4.2.13."
     },
     {
       "backend_name": "SCFSKVSL",
@@ -1656,7 +1665,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for SCFSKVSL on Fldigi 4.2.13."
     },
     {
       "backend_name": "THORM",
@@ -1670,7 +1679,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for THORM on Fldigi 4.2.13."
     },
     {
       "backend_name": "THOR4",
@@ -1684,7 +1693,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for THOR4 on Fldigi 4.2.13."
     },
     {
       "backend_name": "THOR5",
@@ -1698,21 +1707,24 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for THOR5 on Fldigi 4.2.13."
     },
     {
       "backend_name": "THOR8",
       "catalog_present": true,
       "selectable": true,
       "selection_latency_ms": 0,
-      "decode_validated": false,
-      "audio_routed": false,
-      "output_handled": false,
+      "decode_validated": true,
+      "audio_routed": true,
+      "output_handled": true,
       "generation_validated": false,
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
-      "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "evidence_tests": [
+        "tests/test_fldigi_audio_integration.py::test_fldigi_payload_reaches_workbench_api_through_virtual_audio[THOR8]",
+        "tests/test_fldigi_audio_integration.py::test_isolated_region_replay_decodes_a_known_fldigi_transmission[THOR8]"
+      ],
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for THOR8 on Fldigi 4.2.13."
     },
     {
       "backend_name": "THOR11",
@@ -1726,7 +1738,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for THOR11 on Fldigi 4.2.13."
     },
     {
       "backend_name": "THOR16",
@@ -1740,10 +1752,10 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [
-        "tests/test_fldigi_audio_integration.py::test_payload_reaches_workbench",
-        "tests/test_fldigi_audio_integration.py::test_isolated_region_replay_decodes_a_known_fldigi_transmission"
+        "tests/test_fldigi_audio_integration.py::test_fldigi_payload_reaches_workbench_api_through_virtual_audio[THOR16]",
+        "tests/test_fldigi_audio_integration.py::test_isolated_region_replay_decodes_a_known_fldigi_transmission[THOR16]"
       ],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for THOR16 on Fldigi 4.2.13."
     },
     {
       "backend_name": "THOR22",
@@ -1757,7 +1769,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for THOR22 on Fldigi 4.2.13."
     },
     {
       "backend_name": "THOR25",
@@ -1771,7 +1783,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for THOR25 on Fldigi 4.2.13."
     },
     {
       "backend_name": "THOR32",
@@ -1785,7 +1797,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for THOR32 on Fldigi 4.2.13."
     },
     {
       "backend_name": "THOR44",
@@ -1799,7 +1811,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for THOR44 on Fldigi 4.2.13."
     },
     {
       "backend_name": "THOR56",
@@ -1813,7 +1825,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for THOR56 on Fldigi 4.2.13."
     },
     {
       "backend_name": "THOR25x4",
@@ -1827,7 +1839,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for THOR25x4 on Fldigi 4.2.13."
     },
     {
       "backend_name": "THOR50x1",
@@ -1841,7 +1853,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for THOR50x1 on Fldigi 4.2.13."
     },
     {
       "backend_name": "THOR50x2",
@@ -1855,7 +1867,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for THOR50x2 on Fldigi 4.2.13."
     },
     {
       "backend_name": "THOR100",
@@ -1869,7 +1881,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for THOR100 on Fldigi 4.2.13."
     },
     {
       "backend_name": "THROB1",
@@ -1883,7 +1895,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for THROB1 on Fldigi 4.2.13."
     },
     {
       "backend_name": "THROB2",
@@ -1897,7 +1909,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for THROB2 on Fldigi 4.2.13."
     },
     {
       "backend_name": "THROB4",
@@ -1911,7 +1923,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for THROB4 on Fldigi 4.2.13."
     },
     {
       "backend_name": "THRBX1",
@@ -1925,7 +1937,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for THRBX1 on Fldigi 4.2.13."
     },
     {
       "backend_name": "THRBX2",
@@ -1939,7 +1951,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for THRBX2 on Fldigi 4.2.13."
     },
     {
       "backend_name": "THRBX4",
@@ -1953,7 +1965,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for THRBX4 on Fldigi 4.2.13."
     },
     {
       "backend_name": "PSK125R",
@@ -1967,7 +1979,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for PSK125R on Fldigi 4.2.13."
     },
     {
       "backend_name": "PSK250R",
@@ -1981,7 +1993,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for PSK250R on Fldigi 4.2.13."
     },
     {
       "backend_name": "PSK500R",
@@ -1995,7 +2007,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for PSK500R on Fldigi 4.2.13."
     },
     {
       "backend_name": "PSK1000R",
@@ -2009,7 +2021,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for PSK1000R on Fldigi 4.2.13."
     },
     {
       "backend_name": "PSK63RC4",
@@ -2023,7 +2035,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for PSK63RC4 on Fldigi 4.2.13."
     },
     {
       "backend_name": "PSK63RC5",
@@ -2037,7 +2049,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for PSK63RC5 on Fldigi 4.2.13."
     },
     {
       "backend_name": "PSK63RC10",
@@ -2051,7 +2063,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for PSK63RC10 on Fldigi 4.2.13."
     },
     {
       "backend_name": "PSK63RC20",
@@ -2065,7 +2077,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for PSK63RC20 on Fldigi 4.2.13."
     },
     {
       "backend_name": "PSK63RC32",
@@ -2079,7 +2091,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for PSK63RC32 on Fldigi 4.2.13."
     },
     {
       "backend_name": "PSK125RC4",
@@ -2093,7 +2105,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for PSK125RC4 on Fldigi 4.2.13."
     },
     {
       "backend_name": "PSK125RC5",
@@ -2107,7 +2119,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for PSK125RC5 on Fldigi 4.2.13."
     },
     {
       "backend_name": "PSK125RC10",
@@ -2121,7 +2133,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for PSK125RC10 on Fldigi 4.2.13."
     },
     {
       "backend_name": "PSK125RC12",
@@ -2135,7 +2147,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for PSK125RC12 on Fldigi 4.2.13."
     },
     {
       "backend_name": "PSK125RC16",
@@ -2149,7 +2161,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for PSK125RC16 on Fldigi 4.2.13."
     },
     {
       "backend_name": "PSK250RC2",
@@ -2163,7 +2175,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for PSK250RC2 on Fldigi 4.2.13."
     },
     {
       "backend_name": "PSK250RC3",
@@ -2177,7 +2189,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for PSK250RC3 on Fldigi 4.2.13."
     },
     {
       "backend_name": "PSK250RC5",
@@ -2191,7 +2203,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for PSK250RC5 on Fldigi 4.2.13."
     },
     {
       "backend_name": "PSK250RC6",
@@ -2205,7 +2217,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for PSK250RC6 on Fldigi 4.2.13."
     },
     {
       "backend_name": "PSK250RC7",
@@ -2219,7 +2231,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for PSK250RC7 on Fldigi 4.2.13."
     },
     {
       "backend_name": "PSK500RC2",
@@ -2233,7 +2245,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for PSK500RC2 on Fldigi 4.2.13."
     },
     {
       "backend_name": "PSK500RC3",
@@ -2247,7 +2259,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for PSK500RC3 on Fldigi 4.2.13."
     },
     {
       "backend_name": "PSK500RC4",
@@ -2261,7 +2273,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for PSK500RC4 on Fldigi 4.2.13."
     },
     {
       "backend_name": "PSK800RC2",
@@ -2275,7 +2287,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for PSK800RC2 on Fldigi 4.2.13."
     },
     {
       "backend_name": "PSK1000RC2",
@@ -2289,7 +2301,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for PSK1000RC2 on Fldigi 4.2.13."
     },
     {
       "backend_name": "FSQ",
@@ -2303,7 +2315,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for FSQ on Fldigi 4.2.13."
     },
     {
       "backend_name": "IFKP",
@@ -2317,7 +2329,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for IFKP on Fldigi 4.2.13."
     },
     {
       "backend_name": "SSB",
@@ -2331,7 +2343,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for SSB on Fldigi 4.2.13."
     },
     {
       "backend_name": "WWV",
@@ -2345,7 +2357,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for WWV on Fldigi 4.2.13."
     },
     {
       "backend_name": "ANALYSIS",
@@ -2359,7 +2371,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for ANALYSIS on Fldigi 4.2.13."
     },
     {
       "backend_name": "FMT",
@@ -2373,7 +2385,7 @@
       "automatic_id_validated": false,
       "validation_state": "selection_validated_decode_unverified",
       "evidence_tests": [],
-      "unresolved_issue": "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+      "unresolved_issue": "No known-message end-to-end decode evidence has been recorded for FMT on Fldigi 4.2.13."
     },
     {
       "backend_name": "RSID_EOT",

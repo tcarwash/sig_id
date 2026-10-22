@@ -20,10 +20,11 @@ def test_reference_registry_covers_catalog_without_overclaiming_decode_support()
 
     assert report["catalog_count"] == 169 == len(modes)
     assert report["selectable_count"] == 165
-    assert report["decode_validated_count"] == 5
+    assert report["decode_validated_count"] == 9
     assert all(mode["catalog_present"] for mode in modes.values())
     assert {name for name, mode in modes.items() if mode["decode_validated"]} == {
-        "BPSK31", "RTTY", "THOR16", "MFSK16", "MT63-500S",
+        "BPSK31", "BPSK63", "RTTY", "THOR8", "THOR16", "MFSK16",
+        "MFSK32", "MT63-500S", "MT63-1KS",
     }
     for name, mode in modes.items():
         assert mode["output_handled"] == mode["decode_validated"]
@@ -32,6 +33,13 @@ def test_reference_registry_covers_catalog_without_overclaiming_decode_support()
         assert not mode["automatic_id_validated"]
         if mode["selectable"] and not mode["decode_validated"]:
             assert mode["unresolved_issue"]
+    source = (ROOT / "tests" / "test_fldigi_audio_integration.py").read_text()
+    assert "def test_fldigi_payload_reaches_workbench_api_through_virtual_audio" in source
+    assert "def test_isolated_region_replay_decodes_a_known_fldigi_transmission" in source
+    for name in ("BPSK31", "BPSK63", "RTTY", "THOR8", "THOR16", "MFSK16", "MFSK32", "MT63-500S", "MT63-1KS"):
+        assert len(modes[name]["evidence_tests"]) == 2
+    assert "full known payload" in modes["QPSK31"]["unresolved_issue"]
+    assert "trailing text" in modes["OLIVIA-8/500"]["unresolved_issue"]
     assert modes["RSID_EOT"]["validation_state"] == "not_a_receive_mode"
     for name in ("OFDM500F", "OFDM750F", "OFDM3500"):
         assert not modes[name]["selectable"]

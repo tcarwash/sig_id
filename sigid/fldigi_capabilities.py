@@ -13,16 +13,17 @@ REFERENCE_BACKEND = "fldigi"
 REFERENCE_VERSION = "4.2.13"
 NON_MODE_ENTRIES = {"RSID_EOT"}
 KNOWN_AUDIO_ROUND_TRIPS = {
-    "BPSK31": ("tests/test_fldigi_audio_integration.py::test_payload_reaches_workbench", "tests/test_fldigi_audio_integration.py::test_isolated_region_replay_decodes_a_known_fldigi_transmission"),
-    "RTTY": ("tests/test_fldigi_audio_integration.py::test_payload_reaches_workbench", "tests/test_fldigi_audio_integration.py::test_isolated_region_replay_decodes_a_known_fldigi_transmission"),
-    "THOR16": ("tests/test_fldigi_audio_integration.py::test_payload_reaches_workbench", "tests/test_fldigi_audio_integration.py::test_isolated_region_replay_decodes_a_known_fldigi_transmission"),
-    "MFSK16": ("tests/test_fldigi_audio_integration.py::test_payload_reaches_workbench", "tests/test_fldigi_audio_integration.py::test_isolated_region_replay_decodes_a_known_fldigi_transmission"),
-    "MT63-500S": ("tests/test_fldigi_audio_integration.py::test_payload_reaches_workbench", "tests/test_fldigi_audio_integration.py::test_isolated_region_replay_decodes_a_known_fldigi_transmission"),
+    "BPSK31", "BPSK63", "RTTY", "THOR8", "THOR16", "MFSK16", "MFSK32",
+    "MT63-500S", "MT63-1KS",
 }
 KNOWN_UNAVAILABLE = {
     "OFDM500F": "The reference backend lists this name but returns to BPSK31 when selection is requested.",
     "OFDM750F": "The reference backend lists this name but returns to BPSK31 when selection is requested.",
     "OFDM3500": "The reference backend lists this name but returns to BPSK31 when selection is requested.",
+}
+DECODE_LIMITATIONS = {
+    "QPSK31": "A reference workbench loopback attempt did not recover the full known payload.",
+    "OLIVIA-8/500": "A reference workbench loopback attempt returned only the trailing text 'K COMPLETE 123'; full-message decode remains unresolved.",
 }
 
 
@@ -44,7 +45,13 @@ def build_registry(audit: dict[str, Any], audit_bytes: bytes) -> dict[str, Any]:
         seen.add(name)
         failure = failed_by_mode.get(name)
         selected = bool(row.get("selectable")) and failure is None
-        round_trip_tests = KNOWN_AUDIO_ROUND_TRIPS.get(name, ())
+        round_trip_tests = (
+            (
+                f"tests/test_fldigi_audio_integration.py::test_fldigi_payload_reaches_workbench_api_through_virtual_audio[{name}]",
+                f"tests/test_fldigi_audio_integration.py::test_isolated_region_replay_decodes_a_known_fldigi_transmission[{name}]",
+            )
+            if name in KNOWN_AUDIO_ROUND_TRIPS else ()
+        )
         if name in NON_MODE_ENTRIES:
             state = "not_a_receive_mode"
             issue = "Catalog marker, not a selectable receive modem."
@@ -56,7 +63,10 @@ def build_registry(audit: dict[str, Any], audit_bytes: bytes) -> dict[str, Any]:
             issue = None
         else:
             state = "selection_validated_decode_unverified"
-            issue = "Selection passed; payload decode, routing, and output behavior have not been validated for this mode."
+            issue = DECODE_LIMITATIONS.get(
+                name,
+                f"No known-message end-to-end decode evidence has been recorded for {name} on Fldigi {REFERENCE_VERSION}.",
+            )
         modes.append({
             "backend_name": name,
             "catalog_present": True,

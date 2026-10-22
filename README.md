@@ -30,10 +30,11 @@ time/frequency selection and label export; blockwise PCM replay; deterministic
 2-FSK and generic MFSK fixture generators; verified synthetic import into the SQLite
 capture/label dataset; and a receive-only Fldigi XML-RPC probe. Local device capture
 and the Fldigi path from audio input to recovered text are represented in the
-workbench: when a running Fldigi XML-RPC service is available, users can select a catalog mode and view its
-receive-text output. RF-free loopback tests decode BPSK31, RTTY, THOR16, MFSK16 and
-MT63-500S payloads
-through temporary virtual audio into the workbench API. Routing actual radio input
+workbench: when a running Fldigi XML-RPC service is available, users can select a
+catalog mode and view its receive-text output. RF-free loopback tests decode BPSK31,
+BPSK63, RTTY, THOR8, THOR16, MFSK16, MFSK32, MT63-500S and MT63-1KS payloads through
+temporary virtual audio into the workbench API and isolated saved-region replay.
+Routing actual radio input
 to Fldigi remains an external setup and is not yet validated. The workbench also
 offers bounded Fldigi mode trials for live candidates. The “Auto-try accepted model IDs”
 checkbox opts into starting a sweep only after a track persists and the loaded model
@@ -95,8 +96,9 @@ sig-id-serve
 Local audio capture also needs the platform PortAudio runtime (`libportaudio2` on
 Debian/Ubuntu). Select the radio input in Settings before starting live capture.
 
-The opt-in, RF-free Fldigi audio loopback tests exercise BPSK31, RTTY, THOR16, MFSK16,
-and MT63-500S using isolated profiles and a temporary PulseAudio/PipeWire null sink.
+The opt-in, RF-free Fldigi audio loopback tests exercise BPSK31, BPSK63, RTTY, THOR8,
+THOR16, MFSK16, MFSK32, MT63-500S and MT63-1KS using isolated profiles and a temporary
+PulseAudio/PipeWire null sink.
 They require a configured `~/.fldigi`, `xvfb-run`, and `pactl`:
 
 ```sh
@@ -105,12 +107,16 @@ SIGID_TEST_FLDIGI_AUDIO=1 pytest tests/test_fldigi_audio_integration.py
 
 The saved-region replay worker has a separate end-to-end check. It captures a known
 transmission from a temporary null sink, then decodes that WAV through the same
-isolated replay path used by the inspector. BPSK31, RTTY, THOR16, MFSK16 and MT63-500S
-are covered:
+isolated replay path used by the inspector. BPSK31, BPSK63, RTTY, THOR8, THOR16,
+MFSK16, MFSK32, MT63-500S and MT63-1KS are covered:
 
 ```sh
 SIGID_TEST_FLDIGI_REGION_REPLAY=1 pytest -s tests/test_fldigi_audio_integration.py -k known_fldigi_transmission
 ```
+
+The reference per-mode capability registry distinguishes catalog presence, successful
+selection and verified decoding. Its generated evidence for Fldigi 4.2.13 is in
+[`reports/fldigi-4.2.13-capabilities.json`](reports/fldigi-4.2.13-capabilities.json).
 
 To audit selection of every mode in an isolated Fldigi profile (without changing
 the operator's running Fldigi mode), run:
