@@ -1690,11 +1690,21 @@ function renderDecodeRuns() {
       showOutput("text");
       state.textOutputContext = `Saved run ${run.id.slice(0,8)}${run.region_id ? ` · region ${run.region_id.slice(0,8)}` : ""}${run.classifier_evidence?.model_sha256 ? ` · classifier ${run.classifier_evidence.model_sha256.slice(0,8)}` : ""} · ${run.output_scope} · ${run.association}`;
       el("output-context").textContent = state.textOutputContext;
-      el("decoded-text").textContent = `${run.status.toUpperCase()} · ${run.current_mode || "Fldigi"}\n${run.note}\n\n${run.output_text || "No decoded text was recorded."}`;
+      const classifierSummary = classifierEvidenceSummary(run.classifier_evidence);
+      el("decoded-text").textContent = `${run.status.toUpperCase()} · ${run.current_mode || "Fldigi"}\n${run.note}${classifierSummary ? `\n\n${classifierSummary}` : ""}\n\n${run.output_text || "No decoded text was recorded."}`;
       el("decoded-text").scrollTop = 0;
     });
     list.append(button);
   }
+}
+
+function classifierEvidenceSummary(evidence) {
+  if (!evidence?.model_sha256) return null;
+  const proposal = evidence.method
+    ? `method ${evidence.method} (${(100 * evidence.confidence).toFixed(1)}%)`
+    : `method abstained${evidence.top_candidate ? ` · top candidate ${evidence.top_candidate} (${(100 * evidence.confidence).toFixed(1)}%)` : ""}`;
+  const family = evidence.family ? ` · family ${evidence.family} (${(100 * evidence.family_confidence).toFixed(1)}%)` : "";
+  return `Classifier evidence: ${proposal}${family} · model ${evidence.model_sha256} · samples ${evidence.sample_start}–${evidence.sample_start + evidence.sample_count}`;
 }
 
 function colorFor(db, min, max) {
@@ -2701,7 +2711,8 @@ function renderRegions() {
       main.textContent = [region.family, region.method].filter(Boolean).join(" · ") || "Unknown signal";
       const detail = document.createElement("div");
       detail.className = "region-detail";
-      detail.textContent = `${(region.sample_start / state.capture.sample_rate).toFixed(2)} s · ${(region.sample_count / state.capture.sample_rate).toFixed(2)} s duration${region.lineage_state === "superseded" ? " · superseded by split/merge" : ""}`;
+      const classifierSummary = classifierEvidenceSummary(region.evidence?.classifier_proposal);
+      detail.textContent = `${(region.sample_start / state.capture.sample_rate).toFixed(2)} s · ${(region.sample_count / state.capture.sample_rate).toFixed(2)} s duration${region.lineage_state === "superseded" ? " · superseded by split/merge" : ""}${classifierSummary ? ` · ${classifierSummary}` : ""}`;
       const left = document.createElement("div");
       left.append(main, detail);
       const protocol = document.createElement("div");
