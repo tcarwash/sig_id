@@ -96,6 +96,27 @@ docker compose -f compose.yaml -f compose.rocm.yaml exec workbench \
 Then set `SIG_ID_CV_MODEL_PATH=/data/models/cv/signal.pt` in `.env` and recreate the
 ROCm service. Keep the adjacent `.pt.json` metadata file beside the weights.
 
+### Similarity search for reviewed regions
+
+Similarity search is optional and uses normalized YOLO image embeddings with an
+exact cosine scan over a compact local NumPy index. It is intended to retrieve
+reviewed examples when a selection is marginal or unfamiliar; the nearest match is
+a candidate for human review, not an identity claim. Build or rebuild the index
+after changing the detector weights or reviewed labels:
+
+```sh
+docker compose -f compose.yaml -f compose.rocm.yaml exec workbench \
+  sig-id-build-cv-embedding-index --data-dir /data \
+  --model /data/models/cv/signal.pt \
+  --output /data/cv/embeddings.npz
+```
+
+Set `SIG_ID_CV_EMBEDDING_INDEX=/data/cv/embeddings.npz` in `.env` and recreate the
+service. The index is bound to the detector model hash and is rejected if it was
+built with different weights. This simple exact scan avoids operating a separate
+vector database while the catalog is small; revisit approximate indexing if the
+catalog grows enough that measured query latency warrants it.
+
 The optional **Auto ID with Laya** action sends the selected region's derived spectral
 and envelope feature vector to a Laya System One endpoint; it does not send the WAV
 audio or automatically save a label. Set `LAYA_ENDPOINT` to the full endpoint URL and,

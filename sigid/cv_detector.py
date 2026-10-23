@@ -165,6 +165,21 @@ class YoloSignalDetector:
             })
         return found
 
+    def embed_image(self, image: np.ndarray) -> np.ndarray:
+        """Extract a normalized second-to-last-layer image embedding."""
+        with self._lock:
+            extracted = self._model.embed(image, imgsz=IMAGE_HEIGHT, verbose=False)
+        value = extracted[0] if isinstance(extracted, (list, tuple)) else extracted
+        if hasattr(value, "detach"):
+            vector = value.detach().cpu().numpy()
+        else:
+            vector = np.asarray(value)
+        vector = np.asarray(vector, dtype=np.float32).reshape(-1)
+        norm = float(np.linalg.norm(vector))
+        if not np.isfinite(norm) or norm <= 1e-12:
+            raise ValueError("detector returned an invalid image embedding")
+        return vector / norm
+
     def detect_capture(self, path: str | Path, *, confidence: float = 0.25) -> list[dict[str, Any]]:
         detections: list[dict[str, Any]] = []
         for start, samples, sample_rate in audio_windows(path):

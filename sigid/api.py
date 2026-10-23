@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 from .dataset import CaptureStore, SignalLabel, LabelRevisionConflict
 from .classifier import FEATURE_VERSION, extract_features, load_model, propose
 from .cv_detector import PREPROCESSING_VERSION, WINDOW_SECONDS, YoloSignalDetector
+from .cv_embeddings import load_embedding_index, read_audio_range, region_image
 from .laya import LayaError, classify as classify_with_laya, configured as laya_configured, load_reference_examples
 from .demod import demodulate_2fsk, demodulate_bpsk, demodulate_mfsk, demodulate_ook, demodulate_qpsk
 from .detection import detect_tracks
@@ -59,6 +60,15 @@ class DetectorProposalEvidence(BaseModel):
     window_sample_start: int = Field(ge=0)
     window_sample_count: int = Field(gt=0)
     sample_rate: int = Field(gt=0)
+
+
+class CVSimilarRegionsRequest(BaseModel):
+    sample_start: int = Field(ge=0)
+    sample_count: int = Field(gt=0, le=10_000_000)
+    frequency_low_hz: float = Field(ge=0, le=3000)
+    frequency_high_hz: float = Field(gt=0, le=3000)
+    exclude_region_id: str | None = Field(default=None, max_length=80)
+    limit: int = Field(default=8, ge=1, le=20)
 
 
 class RegionCreate(BaseModel):
@@ -339,6 +349,21 @@ def create_app(
         except Exception as exc:
             cv_detector_error = str(exc)
 
+    configured_cv_index = os.environ.get("SIG_ID_CV_EMBEDDING_INDEX")
+    cv_embedding_vectors = None
+    cv_embedding_entries = None
+    cv_embedding_error = None
+    if configured_cv_index:
+        if cv_detector is None:
+            cv_embedding_error = "configure a valid SIG_ID_CV_MODEL_PATH before loading its embedding index"
+        else:
+            try:
+                cv_embedding_vectors, cv_embedding_entries = load_embedding_index(
+                    configured_cv_index, model_sha256=cv_detector.model_sha256,
+                )
+            except Exception as exc:
+                cv_embedding_error = str(exc)
+
     @asynccontextmanager
     async def lifespan(application: FastAPI):
         try:
@@ -369,6 +394,10 @@ def create_app(
     app.state.cv_detector = cv_detector
     app.state.cv_detector_error = cv_detector_error
     app.state.cv_model_path = configured_cv_model
+    app.state.cv_embedding_vectors = cv_embedding_vectors
+    app.state.cv_embedding_entries = cv_embedding_entries
+    app.state.cv_embedding_index_path = configured_cv_index
+    app.state.cv_embedding_error = cv_embedding_error
     app.state.laya_references = load_reference_examples()
     app.state.live_track_registry = None
     app.state.fldigi_trials = FldigiTrialRunner(fldigi, run_store=store)
@@ -612,6 +641,8 @@ def create_app(
             "model_path": app.state.cv_model_path,
             "error": app.state.cv_detector_error,
             "compute_backend": app.state.cv_detector.compute_backend if app.state.cv_detector else None,
+            "similarity_search_available": app.state.cv_embedding_vectors is not None,
+            "similarity_search_error": app.state.cv_embedding_error,
             "preprocessing_version": PREPROCESSING_VERSION,
             "window_seconds": WINDOW_SECONDS,
             "class_agnostic": True,
@@ -1255,6 +1286,52 @@ def create_app(
             "preprocessing_version": PREPROCESSING_VERSION,
             "window_seconds": WINDOW_SECONDS,
             "detections": detections,
+        }
+
+    @app.post("/api/captures/{capture_id}/cv-similar-regions")
+    def find_similar_cv_regions(capture_id: str, settings: CVSimilarRegionsRequest) -> dict[str, Any]:
+        detector = app.state.cv_detector
+        vectors = app.state.cv_embedding_vectors
+        entries = app.state.cv_embedding_entries
+        if detector is None or vectors is None or entries is None:
+            detail = app.state.cv_embedding_error or "CV similarity index is unavailable; configure SIG_ID_CV_EMBEDDING_INDEX"
+            raise HTTPException(status_code=503, detail=detail)
+        try:
+            capture = store.capture(capture_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="capture not found") from exc
+        end = settings.sample_start + settings.sample_count
+        if end > int(capture["sample_count"]):
+            raise HTTPException(status_code=422, detail="selected audio range exceeds the capture")
+        if settings.frequency_low_hz >= settings.frequency_high_hz:
+            raise HTTPException(status_code=422, detail="frequency_low_hz must be below frequency_high_hz")
+        try:
+            sample_rate, samples = read_audio_range(capture["audio_path"], settings.sample_start, settings.sample_count)
+            image = region_image(samples, sample_rate, settings.frequency_low_hz, settings.frequency_high_hz)
+            query_vector = detector.embed_image(image)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        scores = vectors @ query_vector
+        ordered = np.argsort(scores)[::-1]
+        neighbors = []
+        for index in ordered:
+            entry = entries[int(index)]
+            if entry["capture_id"] == capture_id and entry["region_id"] == settings.exclude_region_id:
+                continue
+            neighbors.append({
+                **entry,
+                "similarity": float(scores[index]),
+                "label": " / ".join(value for value in (entry["family"], entry["method"], entry["protocol"], entry["variant"]) if value) or "Unknown signal",
+            })
+            if len(neighbors) >= settings.limit:
+                break
+        return {
+            "capture_id": capture_id,
+            "model_sha256": detector.model_sha256,
+            "index_path": app.state.cv_embedding_index_path,
+            "count": len(neighbors),
+            "neighbors": neighbors,
+            "interpretation": "Nearest image embeddings are review candidates, not identifications.",
         }
 
     @app.get("/api/captures/{capture_id}/tracks")

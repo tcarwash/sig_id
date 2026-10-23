@@ -35,11 +35,18 @@ The initial detector should be **class-agnostic**: it finds signal-shaped region
 
 ## Implementation phases
 
-Implementation is underway. The optional inference contract, batch capture API,
-waterfall overlays, reviewed-window dataset export, training command, and CPU/ROCm
-container choices are being added in separate commits. Live detection, richer
-annotation editing, embedding retrieval integration, and end-to-end downstream
-evaluation remain later work.
+The first implementation slice is in place: optional class-agnostic YOLO inference
+over 10-second spectrogram windows, capture-level proposals and overlays, human
+review into existing regions, lineage-aware dataset export and training commands,
+evaluation on held-out capture groups, optional ROCm Compose support, and an
+embedding index for reviewed regions. The base classifier/manual workflow remains
+available without the CV extra. Current commits are `37cd4f6` (detector and ROCm
+container) and `d5dfc0b` (proposal review evidence); the embedding retrieval slice
+is being finalized.
+
+The first slice does not yet provide a dedicated arbitrary box editor, live YOLO
+scanning, overlapping-window tracking, real-capture quality evidence, or
+end-to-end detector-to-decoder evaluation. Those remain explicit follow-up work.
 
 ### 1. Define the detection contract
 
@@ -51,7 +58,9 @@ evaluation remain later work.
 
 ### 2. Build the training-data path
 
-- Add a way to draw, revise, and review signal boxes over full spectrogram windows, including overlapping signals and explicit no-signal windows.
+- Use existing accepted signal-region annotations as detector boxes and fresh,
+  complete scene reviews as evidence for no-signal windows. A dedicated arbitrary
+  box editor and annotation-focused revision workflow remain follow-up work.
 - Store box geometry in sample and frequency coordinates, not display pixels. Preserve capture/session lineage and annotation revision history.
 - Export the reviewed data to the detector's training format. Generate images and labels from the same versioned spectrogram preprocessing used at inference.
 - Split by source capture or recording session before generating windows or augmentations. Keep all derived windows from a source in one split to avoid leakage.
@@ -62,7 +71,7 @@ evaluation remain later work.
 - Add a reproducible training command, configuration, and versioned model artifact.
 - Start with class-agnostic boxes. Evaluate class-labeled detection only if measurements show a clear benefit.
 - Report box precision/recall at defined overlap thresholds, temporal/frequency localization error, and false detections per unit of audio.
-- Break results down by signal strength/SNR, signal type, overlap, drift, noise, and boundary truncation.
+- Break results down by signal strength/SNR, signal type, overlap, drift, noise, and boundary truncation. The initial evaluator reports held-out box metrics and false detections per audio hour; condition-level breakdowns remain follow-up work.
 - Compare against the existing heuristic detector where both apply.
 - Separately evaluate the full downstream flow: detection recall, classifier coverage/accuracy on detected regions, unknown/abstention behavior, and successful decoder outcomes. Detector confidence alone must not establish identity.
 
@@ -80,7 +89,7 @@ evaluation remain later work.
 - Render boxes as provisional overlays on the waterfall and let users accept, reject, or adjust them.
 - Convert accepted boxes into the existing exact time/frequency selection contract and fetch/replay the matching audio range.
 - Run the existing classifier on each accepted region. Keep classifier proposals reviewable and preserve its abstention behavior.
-- When the classifier is uncertain, offer embedding-based nearest examples and an unknown label. Treat embeddings as candidate retrieval, not proof of identity.
+- When the classifier is uncertain, offer embedding-based nearest examples and an unknown label. The initial UI exposes candidate retrieval for an active selection; classifier abstention does not yet automatically launch retrieval. Treat embeddings as candidate retrieval, not proof of identity.
 - Offer decoder choices based on supported classifier results, but keep decoder execution explicit initially. Store the exact region, classifier evidence, selected decoder, and decode output together.
 - Deduplicate boxes from overlapping windows and track a detection across windows without losing its source-window lineage.
 
@@ -95,6 +104,8 @@ evaluation remain later work.
 ## Initial acceptance criteria
 
 - The base application installs and runs without CV dependencies or a CV model.
+- ROCm is an opt-in Compose override with device pass-through; actual GPU support still depends on the host driver and GPU compatibility with the chosen AMD image.
+- Similarity search uses a model-hash-bound index of reviewed regions and clearly labels results as candidates rather than identifications.
 - With CV enabled, a 10-second window produces boxes that map back to the correct sample and frequency ranges.
 - Users can correct or reject boxes, and reviewed labels export reproducibly with preprocessing and source metadata.
 - Evaluation uses source/session-held-out data and reports detection misses and false detections, including empty/no-signal windows.

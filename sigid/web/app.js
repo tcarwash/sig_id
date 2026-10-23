@@ -6,7 +6,7 @@ import { narrowKnownModes } from "/mode-candidates.mjs";
 import { layoutSignalLabels, signalCaption, hitSignal } from "/signal-overlays.mjs";
 
 const el = (id) => document.getElementById(id);
-const state = { capture: null, waterfall: null, drag: null, selection: null, regions: [], tracks: [], cvDetections: [], cvAvailable: false, bitAnnotations: [], protocolStencils: [], liveView: false, liveSessionId: null, modelAvailable: false, view: null, demodExports: {}, selectedTrack: null, frozen: false, labelModeId: null, modeSearchResults: [], modeSearchRequest: 0, applyingMode: false, adjustingGeometry: false, geometryDraft: false, splitMode: false, splitChildren: [], splitParentSelection: null, mergeRegionIds: new Set(), modeProposalRegion: null, proposalCaptureRequest: 0, proposalEvidenceCaptures: [] };
+const state = { capture: null, waterfall: null, drag: null, selection: null, regions: [], tracks: [], cvDetections: [], cvAvailable: false, cvSimilarAvailable: false, bitAnnotations: [], protocolStencils: [], liveView: false, liveSessionId: null, modelAvailable: false, view: null, demodExports: {}, selectedTrack: null, frozen: false, labelModeId: null, modeSearchResults: [], modeSearchRequest: 0, applyingMode: false, adjustingGeometry: false, geometryDraft: false, splitMode: false, splitChildren: [], splitParentSelection: null, mergeRegionIds: new Set(), modeProposalRegion: null, proposalCaptureRequest: 0, proposalEvidenceCaptures: [] };
 state.layaAvailable = false;
 state.coverageWindow = null;
 state.coverageMasks = { ignore_regions: [], uncertain_regions: [] };
@@ -663,14 +663,18 @@ async function refreshCvStatus() {
   try {
     const status = await request("/api/cv/status");
     state.cvAvailable = Boolean(status.available);
+    state.cvSimilarAvailable = Boolean(status.similarity_search_available);
     el("cv-status").textContent = status.available
       ? `YOLO signal detector ready · ${status.window_seconds}s windows · class agnostic`
       : `Optional CV detector unavailable${status.error ? ` · ${status.error}` : " · install the cv extra and configure SIG_ID_CV_MODEL_PATH"}`;
     updateCvButton();
+    updateCvSimilarButton();
   } catch (error) {
     state.cvAvailable = false;
+    state.cvSimilarAvailable = false;
     el("cv-status").textContent = `CV status unavailable · ${error.message}`;
     updateCvButton();
+    updateCvSimilarButton();
   }
 }
 refreshCvStatus();
@@ -678,6 +682,85 @@ refreshCvStatus();
 function updateCvButton() {
   const button = el("cv-scan");
   if (button) button.disabled = !state.cvAvailable || !state.capture || state.liveView;
+}
+
+function updateCvSimilarButton() {
+  const button = el("cv-similar-search");
+  if (!button) return;
+  button.hidden = !state.cvSimilarAvailable || !state.selection || state.liveView;
+  button.disabled = button.hidden || (state.selection?.sample_count ?? 0) < 4096;
+  el("cv-similar-status").textContent = state.cvSimilarAvailable
+    ? "Nearest saved signal patches · candidates only"
+    : "Build and configure a CV embedding index to retrieve similar saved signals.";
+}
+
+el("cv-similar-search").addEventListener("click", async () => {
+  const capture = state.capture;
+  const selection = state.selection;
+  if (!capture || !selection || state.liveView || !state.cvSimilarAvailable) return;
+  const button = el("cv-similar-search");
+  button.disabled = true;
+  el("cv-similar-status").textContent = "Searching reviewed signal examples…";
+  try {
+    const result = await request(`/api/captures/${encodeURIComponent(capture.id)}/cv-similar-regions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sample_start: selection.sample_start,
+        sample_count: selection.sample_count,
+        frequency_low_hz: selection.frequency_low_hz,
+        frequency_high_hz: selection.frequency_high_hz,
+        exclude_region_id: state.editRegion?.id || null,
+        limit: 8,
+      }),
+    });
+    if (state.capture !== capture || state.selection !== selection) return;
+    renderCvSimilarResults(result.neighbors);
+    el("cv-similar-status").textContent = result.count
+      ? `Nearest ${result.count} saved patch${result.count === 1 ? "" : "es"} · similarity is not an identification`
+      : "No other reviewed regions are in the embedding index.";
+  } catch (error) {
+    if (state.capture === capture) el("cv-similar-status").textContent = `Similarity search failed · ${error.message}`;
+  } finally {
+    updateCvSimilarButton();
+  }
+});
+
+function renderCvSimilarResults(neighbors) {
+  const list = el("cv-similar-results");
+  list.replaceChildren();
+  for (const neighbor of neighbors) {
+    const row = document.createElement("div");
+    row.className = "track-row";
+    const summary = document.createElement("div");
+    summary.className = "track-summary";
+    summary.textContent = `${neighbor.label} · ${(100 * neighbor.similarity).toFixed(1)}% cosine similarity`;
+    const detail = document.createElement("div");
+    detail.className = "region-detail";
+    detail.textContent = `${neighbor.frequency_low_hz.toFixed(0)}–${neighbor.frequency_high_hz.toFixed(0)} Hz · ${(neighbor.sample_start / neighbor.sample_rate).toFixed(2)}–${((neighbor.sample_start + neighbor.sample_count) / neighbor.sample_rate).toFixed(2)} s · ${neighbor.review_state} reference`;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = "Open saved example";
+    button.addEventListener("click", async () => {
+      try {
+        const captures = await request("/api/captures");
+        const capture = captures.find((item) => item.id === neighbor.capture_id);
+        if (!capture) throw new Error("source capture is no longer in the catalog");
+        state.capture = capture;
+        await loadCapture();
+        const region = state.regions.find((item) => item.id === neighbor.region_id);
+        if (region) selectSavedRegion(region);
+      } catch (error) { showError(`Could not open similar example · ${error.message}`); }
+    });
+    row.append(summary, detail, button);
+    list.append(row);
+  }
+  if (!neighbors.length) {
+    const empty = document.createElement("p");
+    empty.className = "subhead";
+    empty.textContent = "No similar reviewed examples found.";
+    list.append(empty);
+  }
 }
 
 el("cv-scan").addEventListener("click", async () => {
@@ -779,6 +862,7 @@ function updateModelButton() {
   const tooShort = (state.selection?.sample_count ?? 0) < 1024;
   el("model-propose").disabled = !state.modelAvailable || !state.capture || !state.selection || state.liveView || tooShort;
   el("model-propose").title = tooShort ? "The classifier needs at least 1024 audio samples in this selection." : "Suggest a modulation method for this selection.";
+  updateCvSimilarButton();
   updateLayaButton();
 }
 
@@ -1304,10 +1388,13 @@ async function loadCapture() {
   state.view = null;
   state.selection = null;
   state.cvDetections = [];
+  el("cv-similar-results")?.replaceChildren();
+  el("cv-similar-status").textContent = "";
   renderCvDetections();
   updateDecoderSelectionControls();
   updateModelButton();
   updateCvButton();
+  updateCvSimilarButton();
   el("demod-run").disabled = false;
   el("ook-run").disabled = false;
   el("mfsk-run").disabled = false;
