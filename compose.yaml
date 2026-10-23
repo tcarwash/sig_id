@@ -11,6 +11,9 @@ services:
       SIG_ID_PORT: ${SIG_ID_PORT:-8010}
       SIG_ID_FLDIGI_URL: ${SIG_ID_FLDIGI_URL:-http://127.0.0.1:7362/RPC2}
       SIG_ID_MODEL_PATH: ${SIG_ID_MODEL_PATH:-}
+      LAYA_ENDPOINT: ${LAYA_ENDPOINT:-}
+      LAYA_API_KEY: ${LAYA_API_KEY:-}
+      SIG_ID_LAYA_REFERENCE_SET: ${SIG_ID_LAYA_REFERENCE_SET:-}
     volumes:
       - captures:/data
     read_only: true

@@ -22,7 +22,8 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
 from .dataset import CaptureStore, SignalLabel, LabelRevisionConflict
-from .classifier import extract_features, load_model, propose
+from .classifier import FEATURE_VERSION, extract_features, load_model, propose
+from .laya import LayaError, classify as classify_with_laya, configured as laya_configured, load_reference_examples
 from .demod import demodulate_2fsk, demodulate_bpsk, demodulate_mfsk, demodulate_ook, demodulate_qpsk
 from .detection import detect_tracks
 from .fldigi import FldigiClient
@@ -279,6 +280,13 @@ class ClassifyRequest(BaseModel):
     sample_count: int = Field(default=120_000, ge=1024, le=1_000_000)
 
 
+class LayaClassifyRequest(BaseModel):
+    sample_start: int = Field(ge=0)
+    sample_count: int = Field(ge=1024, le=1_000_000)
+    frequency_low_hz: float | None = Field(default=None, ge=0, le=96000)
+    frequency_high_hz: float | None = Field(default=None, ge=0, le=96000)
+
+
 def create_app(
     data_dir: str | Path | None = None,
     audio_backend: Any | None = None,
@@ -336,6 +344,7 @@ def create_app(
     app.state.fldigi_replay = fldigi_replay
     app.state.classifier = classifier
     app.state.classifier_error = classifier_error
+    app.state.laya_references = load_reference_examples()
     app.state.live_track_registry = None
     app.state.fldigi_trials = FldigiTrialRunner(fldigi, run_store=store)
 
@@ -568,6 +577,13 @@ def create_app(
             "noise_class_trained": metadata.get("noise_class_trained", False),
             "noise_class_validated": metadata.get("noise_class_validated", False),
             "model_sha256": metadata["model_sha256"],
+        }
+
+    @app.get("/api/laya/status")
+    def laya_status() -> dict[str, Any]:
+        return {
+            "available": laya_configured(),
+            "reference_examples": len(app.state.laya_references),
         }
 
     @app.get("/api/captures")
@@ -1258,6 +1274,80 @@ def create_app(
             }
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/captures/{capture_id}/classify/laya")
+    def classify_capture_region_with_laya(capture_id: str, settings: LayaClassifyRequest) -> dict[str, Any]:
+        if not laya_configured():
+            raise HTTPException(status_code=503, detail="Laya is not configured; set LAYA_ENDPOINT")
+        try:
+            capture = store.capture(capture_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="capture not found") from exc
+        start = settings.sample_start
+        if start >= int(capture["sample_count"]):
+            raise HTTPException(status_code=422, detail="sample_start is outside the capture")
+        end = min(int(capture["sample_count"]), start + settings.sample_count)
+        values: list[float] = []
+        for block in WavSource(capture["audio_path"]).blocks():
+            block_end = block.first_sample + block.sample_count
+            if block_end <= start:
+                continue
+            if block.first_sample >= end:
+                break
+            left = max(0, start - block.first_sample)
+            right = min(block.sample_count, end - block.first_sample)
+            values.extend(block.samples[left:right])
+        if (settings.frequency_low_hz is None) != (settings.frequency_high_hz is None):
+            raise HTTPException(status_code=422, detail="frequency bounds must be supplied together")
+        if settings.frequency_low_hz is not None and settings.frequency_high_hz is not None:
+            if settings.frequency_high_hz <= settings.frequency_low_hz or settings.frequency_high_hz > int(capture["sample_rate"]) / 2:
+                raise HTTPException(status_code=422, detail="selected frequency bounds are invalid for this capture")
+        try:
+            features = extract_features(values, int(capture["sample_rate"]))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        state = {
+            "task": "radio modulation method identification",
+            "scope": "one selected time window; protocol and variant identification are out of scope",
+            "sample_rate_hz": int(capture["sample_rate"]),
+            "sample_count": len(values),
+            "duration_seconds": len(values) / int(capture["sample_rate"]),
+            "selected_frequency_range_hz": [settings.frequency_low_hz, settings.frequency_high_hz],
+            "feature_scope": "unfiltered selected time crop; same extraction as synthetic corpus training",
+            "feature_version": FEATURE_VERSION,
+            "feature_layout": {
+                "0:128": "mean normalized log spectral power, evenly spaced from 200 to 3800 Hz",
+                "128:256": "temporal variation of normalized log spectral power on the same bins",
+                "256:260": ["spectral_centroid_normalized", "spectral_spread_normalized", "spectral_entropy_normalized", "temporal_activity_normalized"],
+                "260:266": ["envelope_rms_p10", "envelope_rms_p50", "envelope_rms_p90", "envelope_rms_std", "envelope_active_fraction", "envelope_lag1_correlation"],
+            },
+            "features": [float(value) for value in features],
+        }
+        try:
+            mode, metadata = classify_with_laya(state, reference_examples=app.state.laya_references)
+        except LayaError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        methods = {
+            "2fsk": ("FSK", "binary frequency shift keying"),
+            "4fsk": ("MFSK", "4-ary frequency shift keying"),
+            "8fsk": ("MFSK", "8-ary frequency shift keying"),
+            "16fsk": ("MFSK", "16-ary frequency shift keying"),
+            "bpsk": ("PSK", "binary phase-shift keying"),
+            "qpsk": ("PSK", "quadrature phase-shift keying"),
+        }
+        family, method = methods.get(mode, (None, None))
+        return {
+            "choice": mode,
+            "family": family,
+            "method": method,
+            "provider": "Laya System One",
+            "model": metadata.get("model"),
+            "capture_id": capture_id,
+            "sample_start": start,
+            "sample_count": len(values),
+            "feature_version": FEATURE_VERSION,
+            "frequency_isolation": "none",
+        }
 
     @app.post("/api/captures/{capture_id}/demod/2fsk")
     def demodulate_capture_2fsk(capture_id: str, settings: FskDemodRequest) -> dict[str, Any]:

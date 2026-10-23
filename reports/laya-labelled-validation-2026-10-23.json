@@ -1,0 +1,388 @@
+{
+  "calls": [
+    {
+      "capture_id": "cb64086f-baec-43ad-a1ab-fc6f839c0c8d",
+      "choice": "unknown",
+      "error": null,
+      "expected_choice": "8fsk",
+      "family_correct": null,
+      "family_score_eligible": false,
+      "features_sha256": "0808d539eaed718c8a4943f8cd8842085431f7d8a2c8f9b48291680d29ceafd4",
+      "method_correct": false,
+      "model": "laya-rl-agent",
+      "predicted_family": null,
+      "region_id": "33a6cb18-d796-4af2-978c-6c9ba76e8eb2",
+      "round": 1,
+      "score_level": "method"
+    },
+    {
+      "capture_id": "5a9fa40f-d409-4a7a-80f9-cc3fd39a8460",
+      "choice": "unknown",
+      "error": null,
+      "expected_choice": "8fsk",
+      "family_correct": false,
+      "family_score_eligible": true,
+      "features_sha256": "fe20160595ec2acf3c8abe6ccc4e65cd29266421e46d42b4d5b07c70c1802904",
+      "method_correct": false,
+      "model": "laya-rl-agent",
+      "predicted_family": null,
+      "region_id": "9f484c76-35a1-4fc7-99e0-79c3186abe6a",
+      "round": 1,
+      "score_level": "method"
+    },
+    {
+      "capture_id": "5a9fa40f-d409-4a7a-80f9-cc3fd39a8460",
+      "choice": "unknown",
+      "error": null,
+      "expected_choice": "8fsk",
+      "family_correct": false,
+      "family_score_eligible": true,
+      "features_sha256": "4343e7dc3b5a63b1c744c3ea721202923b42b619509551b818c6346dfae4e554",
+      "method_correct": false,
+      "model": "laya-rl-agent",
+      "predicted_family": null,
+      "region_id": "d0f175fa-c422-4717-aa99-5439a087e200",
+      "round": 1,
+      "score_level": "method"
+    },
+    {
+      "capture_id": "4d918f1e-c0f8-4154-9ec7-0580f37dfe9a",
+      "choice": "unknown",
+      "error": null,
+      "expected_choice": null,
+      "family_correct": false,
+      "family_score_eligible": true,
+      "features_sha256": "864e91bff8ea3123e57f21061a8c3e227f1500ad1bbb5e59fa7ee631c54be389",
+      "method_correct": null,
+      "model": "laya-rl-agent",
+      "predicted_family": null,
+      "region_id": "a8150702-9ba3-4335-b861-d4f0a3e0f982",
+      "round": 1,
+      "score_level": "family"
+    },
+    {
+      "capture_id": "cb64086f-baec-43ad-a1ab-fc6f839c0c8d",
+      "choice": "unknown",
+      "error": null,
+      "expected_choice": "8fsk",
+      "family_correct": null,
+      "family_score_eligible": false,
+      "features_sha256": "0808d539eaed718c8a4943f8cd8842085431f7d8a2c8f9b48291680d29ceafd4",
+      "method_correct": false,
+      "model": "laya-rl-agent",
+      "predicted_family": null,
+      "region_id": "33a6cb18-d796-4af2-978c-6c9ba76e8eb2",
+      "round": 2,
+      "score_level": "method"
+    },
+    {
+      "capture_id": "5a9fa40f-d409-4a7a-80f9-cc3fd39a8460",
+      "choice": "unknown",
+      "error": null,
+      "expected_choice": "8fsk",
+      "family_correct": false,
+      "family_score_eligible": true,
+      "features_sha256": "fe20160595ec2acf3c8abe6ccc4e65cd29266421e46d42b4d5b07c70c1802904",
+      "method_correct": false,
+      "model": "laya-rl-agent",
+      "predicted_family": null,
+      "region_id": "9f484c76-35a1-4fc7-99e0-79c3186abe6a",
+      "round": 2,
+      "score_level": "method"
+    },
+    {
+      "capture_id": "5a9fa40f-d409-4a7a-80f9-cc3fd39a8460",
+      "choice": "unknown",
+      "error": null,
+      "expected_choice": "8fsk",
+      "family_correct": false,
+      "family_score_eligible": true,
+      "features_sha256": "4343e7dc3b5a63b1c744c3ea721202923b42b619509551b818c6346dfae4e554",
+      "method_correct": false,
+      "model": "laya-rl-agent",
+      "predicted_family": null,
+      "region_id": "d0f175fa-c422-4717-aa99-5439a087e200",
+      "round": 2,
+      "score_level": "method"
+    },
+    {
+      "capture_id": "4d918f1e-c0f8-4154-9ec7-0580f37dfe9a",
+      "choice": "unknown",
+      "error": null,
+      "expected_choice": null,
+      "family_correct": false,
+      "family_score_eligible": true,
+      "features_sha256": "864e91bff8ea3123e57f21061a8c3e227f1500ad1bbb5e59fa7ee631c54be389",
+      "method_correct": null,
+      "model": "laya-rl-agent",
+      "predicted_family": null,
+      "region_id": "a8150702-9ba3-4335-b861-d4f0a3e0f982",
+      "round": 2,
+      "score_level": "family"
+    },
+    {
+      "capture_id": "cb64086f-baec-43ad-a1ab-fc6f839c0c8d",
+      "choice": "unknown",
+      "error": null,
+      "expected_choice": "8fsk",
+      "family_correct": null,
+      "family_score_eligible": false,
+      "features_sha256": "0808d539eaed718c8a4943f8cd8842085431f7d8a2c8f9b48291680d29ceafd4",
+      "method_correct": false,
+      "model": "laya-rl-agent",
+      "predicted_family": null,
+      "region_id": "33a6cb18-d796-4af2-978c-6c9ba76e8eb2",
+      "round": 3,
+      "score_level": "method"
+    },
+    {
+      "capture_id": "5a9fa40f-d409-4a7a-80f9-cc3fd39a8460",
+      "choice": "unknown",
+      "error": null,
+      "expected_choice": "8fsk",
+      "family_correct": false,
+      "family_score_eligible": true,
+      "features_sha256": "fe20160595ec2acf3c8abe6ccc4e65cd29266421e46d42b4d5b07c70c1802904",
+      "method_correct": false,
+      "model": "laya-rl-agent",
+      "predicted_family": null,
+      "region_id": "9f484c76-35a1-4fc7-99e0-79c3186abe6a",
+      "round": 3,
+      "score_level": "method"
+    },
+    {
+      "capture_id": "5a9fa40f-d409-4a7a-80f9-cc3fd39a8460",
+      "choice": "unknown",
+      "error": null,
+      "expected_choice": "8fsk",
+      "family_correct": false,
+      "family_score_eligible": true,
+      "features_sha256": "4343e7dc3b5a63b1c744c3ea721202923b42b619509551b818c6346dfae4e554",
+      "method_correct": false,
+      "model": "laya-rl-agent",
+      "predicted_family": null,
+      "region_id": "d0f175fa-c422-4717-aa99-5439a087e200",
+      "round": 3,
+      "score_level": "method"
+    },
+    {
+      "capture_id": "4d918f1e-c0f8-4154-9ec7-0580f37dfe9a",
+      "choice": "unknown",
+      "error": null,
+      "expected_choice": null,
+      "family_correct": false,
+      "family_score_eligible": true,
+      "features_sha256": "864e91bff8ea3123e57f21061a8c3e227f1500ad1bbb5e59fa7ee631c54be389",
+      "method_correct": null,
+      "model": "laya-rl-agent",
+      "predicted_family": null,
+      "region_id": "a8150702-9ba3-4335-b861-d4f0a3e0f982",
+      "round": 3,
+      "score_level": "family"
+    }
+  ],
+  "calls_failed": 0,
+  "calls_requested": 12,
+  "calls_succeeded": 12,
+  "created_utc": "2026-10-23T22:09:18.876267+00:00",
+  "dataset_database_sha256": "689fe8dc1ead2170ea36fb4056d492060575916f21fb56324b541069f6463d69",
+  "eligible_regions": [
+    {
+      "capture_id": "cb64086f-baec-43ad-a1ab-fc6f839c0c8d",
+      "capture_sha256": "67439e48a370f84b9b84aab22b1594b36861aa80c236d9f02ba829b99aa552cd",
+      "expected_family": "FSK",
+      "expected_method": "8-FSK",
+      "expected_protocol": "PixelQSO",
+      "expected_variant": "E-Major",
+      "family_correct_by_round": [
+        null,
+        null,
+        null
+      ],
+      "family_score_eligible": false,
+      "features_sha256": "0808d539eaed718c8a4943f8cd8842085431f7d8a2c8f9b48291680d29ceafd4",
+      "frequency_isolation": "fourth_order_butterworth",
+      "frequency_range_hz": [
+        0.0,
+        1359.375
+      ],
+      "label_revision": 1,
+      "method_correct_by_round": [
+        false,
+        false,
+        false
+      ],
+      "region_id": "33a6cb18-d796-4af2-978c-6c9ba76e8eb2",
+      "round_choices": [
+        "unknown",
+        "unknown",
+        "unknown"
+      ],
+      "sample_count_evaluated": 1000000,
+      "sample_count_original": 2089984,
+      "sample_start": 76800,
+      "scored_at": "method",
+      "source_kind": "wav"
+    },
+    {
+      "capture_id": "5a9fa40f-d409-4a7a-80f9-cc3fd39a8460",
+      "capture_sha256": "e8c61a564e180ee3b896fa2fb272be3a09c00f2bcc0911101560bc4a5d1898dc",
+      "expected_family": "MFSK",
+      "expected_method": "8FSK",
+      "expected_protocol": "FT8",
+      "expected_variant": null,
+      "family_correct_by_round": [
+        false,
+        false,
+        false
+      ],
+      "family_score_eligible": true,
+      "features_sha256": "fe20160595ec2acf3c8abe6ccc4e65cd29266421e46d42b4d5b07c70c1802904",
+      "frequency_isolation": "fourth_order_butterworth",
+      "frequency_range_hz": [
+        2402.34375,
+        2507.8125
+      ],
+      "label_revision": 1,
+      "method_correct_by_round": [
+        false,
+        false,
+        false
+      ],
+      "region_id": "9f484c76-35a1-4fc7-99e0-79c3186abe6a",
+      "round_choices": [
+        "unknown",
+        "unknown",
+        "unknown"
+      ],
+      "sample_count_evaluated": 641536,
+      "sample_count_original": 641536,
+      "sample_start": 611840,
+      "scored_at": "method",
+      "source_kind": "live"
+    },
+    {
+      "capture_id": "5a9fa40f-d409-4a7a-80f9-cc3fd39a8460",
+      "capture_sha256": "e8c61a564e180ee3b896fa2fb272be3a09c00f2bcc0911101560bc4a5d1898dc",
+      "expected_family": "MFSK",
+      "expected_method": "8FSK",
+      "expected_protocol": "FT8",
+      "expected_variant": null,
+      "family_correct_by_round": [
+        false,
+        false,
+        false
+      ],
+      "family_score_eligible": true,
+      "features_sha256": "4343e7dc3b5a63b1c744c3ea721202923b42b619509551b818c6346dfae4e554",
+      "frequency_isolation": "fourth_order_butterworth",
+      "frequency_range_hz": [
+        2238.28125,
+        2343.75
+      ],
+      "label_revision": 1,
+      "method_correct_by_round": [
+        false,
+        false,
+        false
+      ],
+      "region_id": "d0f175fa-c422-4717-aa99-5439a087e200",
+      "round_choices": [
+        "unknown",
+        "unknown",
+        "unknown"
+      ],
+      "sample_count_evaluated": 672256,
+      "sample_count_original": 672256,
+      "sample_start": 614400,
+      "scored_at": "method",
+      "source_kind": "live"
+    },
+    {
+      "capture_id": "4d918f1e-c0f8-4154-9ec7-0580f37dfe9a",
+      "capture_sha256": "83e59f3c47a5e796ff45882257435de29871faaab46e1ea25e06b4f484ae72d5",
+      "expected_family": "PSK",
+      "expected_method": "PSK",
+      "expected_protocol": "PSK31",
+      "expected_variant": "BPSK31",
+      "family_correct_by_round": [
+        false,
+        false,
+        false
+      ],
+      "family_score_eligible": true,
+      "features_sha256": "864e91bff8ea3123e57f21061a8c3e227f1500ad1bbb5e59fa7ee631c54be389",
+      "frequency_isolation": "fourth_order_butterworth",
+      "frequency_range_hz": [
+        1968.75,
+        2039.0625
+      ],
+      "label_revision": 1,
+      "method_correct_by_round": [
+        null,
+        null,
+        null
+      ],
+      "region_id": "a8150702-9ba3-4335-b861-d4f0a3e0f982",
+      "round_choices": [
+        "unknown",
+        "unknown",
+        "unknown"
+      ],
+      "sample_count_evaluated": 312320,
+      "sample_count_original": 312320,
+      "sample_start": 12945408,
+      "scored_at": "family",
+      "source_kind": "live"
+    }
+  ],
+  "evaluation_policy": "No fitting, prompt tuning, or selection used these labels. Repeated calls measure response repeatability; rows from the same capture are not independent. No calibration or threshold tuning was performed; the run measures the current prompt and feature representation as implemented.",
+  "family_accuracy": 0.0,
+  "family_correct": 0,
+  "family_metrics": {
+    "accuracy_among_answered": null,
+    "answered_calls": 0,
+    "correct_among_answered": 0,
+    "correct_per_all_scored_calls": 0,
+    "coverage": 0.0,
+    "effective_accuracy_including_abstentions": 0.0,
+    "eligible_regions": 3,
+    "independent_capture_groups": 2,
+    "scored_calls": 9,
+    "unknown_calls": 9
+  },
+  "family_scored_calls": 9,
+  "input_policy": "Only selected-region-derived spectral/envelope features and non-label signal metadata were sent. Ground-truth labels, capture IDs, and WAV audio were not included in provider requests.",
+  "method_accuracy": 0.0,
+  "method_correct": 0,
+  "method_metrics": {
+    "accuracy_among_answered": null,
+    "answered_calls": 0,
+    "correct_among_answered": 0,
+    "correct_per_all_scored_calls": 0,
+    "coverage": 0.0,
+    "effective_accuracy_including_abstentions": 0.0,
+    "eligible_regions": 3,
+    "independent_capture_groups": 2,
+    "scored_calls": 9,
+    "unknown_calls": 9
+  },
+  "method_repeat_agreement": 1.0,
+  "method_scored_calls": 9,
+  "metric_interpretation": "Coverage is the fraction of eligible calls that returned a modulation choice. Accuracy among answered calls is null when Laya abstains on every example. Effective accuracy counts abstentions as not correctly classified.",
+  "model_ids": [
+    "laya-rl-agent"
+  ],
+  "provider": "Laya System One",
+  "rounds": 3,
+  "schema_version": 1,
+  "scope_limits": [
+    "Small exploratory sample only",
+    "Three exact-method 8-FSK regions span only two independent captures",
+    "One PSK region is scored only at family level",
+    "CW labels are outside Laya choices",
+    "The Olivia label has no method and its family taxonomy conflicts with the current method registry, so it was excluded",
+    "The long 8-FSK WAV region was evaluated on the first 1,000,000 samples to match the UI request cap"
+  ],
+  "task": "blind Laya System One classification check against accepted human labels"
+}

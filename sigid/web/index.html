@@ -113,6 +113,7 @@
                 <p id="selection-details" class="subhead">
                   Drag over the waterfall to mark a signal.
                 </p>
+                <button id="start-scene-review" type="button" disabled>Review scene coverage</button>
                 <label class="notes-label">Known mode (search by name or alias)<input id="mode-search" list="mode-results" autocomplete="off" placeholder="Type e.g. PSK31, BPSK31, RTTY"><datalist id="mode-results"></datalist></label>
                 <p id="mode-resolution" class="subhead">Choose a known mode to fill its family and protocol, or leave blank for an unknown/partial label.</p>
                 <details id="mode-proposal-details">
@@ -187,12 +188,54 @@
                   >
                 </div>
                 <div class="save-row">
+                  <button id="laya-propose" type="button" disabled>Auto ID with Laya</button>
+                  <span id="laya-status" class="muted" aria-live="polite">Checking Laya System One…</span>
+                </div>
+                <div class="save-row">
                   <span id="label-state" class="muted"
                     >Partial labels are welcome.</span
                   ><button id="save-region" class="primary" disabled>
                     Save region label
                   </button>
                 </div>
+                <section id="coverage-panel" class="panel" hidden>
+                  <p class="eyebrow">SCENE REVIEW</p>
+                  <p class="subhead">Record whether this exact waterfall window was fully reviewed. Later label or bound changes mark this review stale.</p>
+                  <div class="form-grid">
+                    <label>Review task<select id="coverage-task">
+                      <option value="detection">Signal detection</option>
+                      <option value="modulation">Modulation identity</option>
+                      <option value="protocol">Protocol identity</option>
+                      <option value="decoder">Decoder outcome</option>
+                    </select></label>
+                    <label>Coverage state<select id="coverage-state">
+                      <option value="complete">Complete</option>
+                      <option value="partial">Partial / uncertain</option>
+                    </select></label>
+                  </div>
+                  <label class="notes-label">Taxonomy scope (comma-separated, optional)<input id="coverage-scope" maxlength="500" placeholder="e.g. PSK, FSK"></label>
+                  <fieldset class="coverage-masks"><legend>Ignore and uncertain subregions</legend>
+                    <label class="notes-label">Reason for the next marked area<input id="coverage-mask-reason" maxlength="200" placeholder="e.g. weak overlap, receiver artifact"></label>
+                    <div class="save-row">
+                      <button id="mark-coverage-uncertain" type="button" disabled>Draw uncertain area</button>
+                      <button id="mark-coverage-ignore" type="button" disabled>Draw ignored artifact</button>
+                      <button id="cancel-coverage-mask" type="button" hidden>Cancel area draw</button>
+                    </div>
+                    <p id="coverage-mask-status" class="muted" aria-live="polite">Start a scene review to mark bounded subregions.</p>
+                    <div id="coverage-mask-list"></div>
+                  </fieldset>
+                  <label class="notes-label">Review notes<textarea id="coverage-notes" rows="2" maxlength="2000" placeholder="What was checked? Note uncertainty or capture-edge limitations."></textarea></label>
+                  <div class="save-row">
+                    <button id="save-coverage" class="primary" type="button">Record reviewed window</button>
+                    <button id="refresh-coverage" type="button">Refresh reviews</button>
+                    <button id="cancel-coverage" type="button">Exit scene review</button>
+                  </div>
+                  <p id="coverage-status" class="muted" aria-live="polite"></p>
+                  <details id="coverage-history">
+                    <summary>Scene review history</summary>
+                    <div id="coverage-list"></div>
+                  </details>
+                </section>
                 <section id="bounds-panel" class="panel" hidden>
                   <p class="eyebrow">SIGNAL EXTENT</p>
                   <div class="save-row">

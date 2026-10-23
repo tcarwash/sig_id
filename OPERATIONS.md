@@ -35,6 +35,17 @@ using `/data` for their output paths, then set `SIG_ID_MODEL_PATH=/data/models/m
 in `.env` and recreate the service. Leave this setting blank for manual operation.
 A missing or invalid model leaves capture and manual analysis usable.
 
+The optional **Auto ID with Laya** action sends the selected region's derived spectral
+and envelope feature vector to a Laya System One endpoint; it does not send the WAV
+audio or automatically save a label. Set `LAYA_ENDPOINT` to the full endpoint URL and,
+when required, `LAYA_API_KEY` in `.env`, then recreate the service. The button appears
+for a valid saved-capture selection when the endpoint is configured. Review the
+suggested modulation method before saving it as a label. The request also includes a
+small bundled set of labeled synthetic examples selected from a lineage-safe training
+split, including noise-only negatives. Set `SIG_ID_LAYA_REFERENCE_SET` only to replace
+that bundled reference file with another validated train-only set. Validation and test
+examples must never be included in the prompt.
+
 ## Update
 
 ```sh

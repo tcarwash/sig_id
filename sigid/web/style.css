@@ -710,6 +710,24 @@ textarea {
   border-top: 1px solid var(--line);
   font-size: 11px;
 }
+.coverage-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+  font-size: 10px;
+}
+.coverage-row span {
+  min-width: 0;
+  line-height: 1.5;
+}
+.coverage-row button {
+  flex: 0 0 auto;
+  font-size: 10px;
+  padding: 5px 8px;
+}
 .region-main {
   font-weight: 600;
 }

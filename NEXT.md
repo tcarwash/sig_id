@@ -88,8 +88,11 @@ is resizable by pointer or keyboard, remembers its height, and stays within the 
   sample/frequency window, task/taxonomy scope, complete/partial state, and bounded
   ignore/uncertain subregions. Each revision snapshots a digest of overlapping active
   annotation revisions; GET reports when later label, geometry, split, or merge changes
-  have made that review stale. API and dataset tests cover revisions, stale conflicts,
-  scope bounds, and mask containment; waterfall review controls remain to be wired.
+  have made that review stale. The waterfall UI now creates and revises a review for a
+  selected exact time/frequency window, with task, taxonomy scope, notes, and stale
+  history. Reviewers can draw, reason-tag, remove, and revise bounded ignore/uncertain
+  subregions; out-of-window masks are rejected. API, dataset, and browser tests cover
+  revisions, stale conflicts, bounds, and both mask types. Hub peer review remains open.
   Output context distinguishes shared Fldigi text, tentative track trials, raw-analysis
   capture/sample ranges and received-image library products. Delayed raw results are
   discarded after source changes. Hover/focus details and collision leader lines keep
@@ -304,8 +307,8 @@ is resizable by pointer or keyboard, remembers its height, and stays within the 
 The staged near-live product sequence is in
 [NEAR_LIVE_PRODUCT_PLAN.md](NEAR_LIVE_PRODUCT_PLAN.md). Canonical mode resolution,
 user-added-missed-signal provenance, revision-bound identity feedback, geometry
-correction, split/merge lineage, evidence-backed local mode proposals, and the scene
-coverage API are implemented. Next add waterfall scene-review controls and integrate
+correction, split/merge lineage, evidence-backed local mode proposals, and waterfall
+scene review with ignore/uncertain masks are implemented. Next integrate
 coverage/mode/lineage decisions with hub peer review, then add retained source history
 and track-aware decoding. Trusted dataset releases follow; streaming Fldigi catch-up
 needs a measured feasibility gate.

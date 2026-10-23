@@ -389,8 +389,10 @@ Scene coverage now has a local append-only API contract for exact sample/frequen
 windows, task and taxonomy scope, complete/partial review state, and bounded ignore and
 uncertain masks. Every saved revision snapshots the digest of active overlapping label
 and geometry revisions; later annotation or lineage changes make the coverage visibly
-stale rather than silently reusing an obsolete completeness claim. UI scene-review
-controls and hub synchronization remain open.
+stale rather than silently reusing an obsolete completeness claim. The waterfall UI can
+create and revise a selected window's task/scope/completeness decision, record review
+notes, draw reason-tagged ignore/uncertain subregion masks, and display stale history.
+Hub synchronization and peer consensus remain open.
 
 Users can propose a new mode with a canonical ID, taxonomy, aliases, a written
 identification rationale, distinguishing evidence, and exact saved-region citations

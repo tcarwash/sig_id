@@ -170,6 +170,60 @@ try {
   await page.locator("#library-dialog").waitFor({ state: "hidden" });
   await page.waitForFunction(() => document.getElementById("saved-bit-annotations").textContent.includes("likely header"));
   lastCaptureId = taggedCaptureId;
+  if (!(await page.locator("#inspector").isHidden())) await page.locator("#close-inspector").click();
+  const sceneBox = await page.locator("#overlay").boundingBox();
+  await page.mouse.move(sceneBox.x + sceneBox.width * 0.08, sceneBox.y + sceneBox.height * 0.12);
+  await page.mouse.down();
+  await page.mouse.move(sceneBox.x + sceneBox.width * 0.92, sceneBox.y + sceneBox.height * 0.88, { steps: 5 });
+  await page.mouse.up();
+  await page.locator("#start-scene-review").click();
+  await page.locator("#coverage-panel").waitFor({ state: "visible" });
+  await page.locator("#coverage-task").selectOption("detection");
+  await page.locator("#coverage-state").selectOption("partial");
+  await page.locator("#coverage-scope").fill("PSK, FSK");
+  await page.locator("#coverage-mask-reason").fill("Weak overlapping burst cannot be assigned confidently.");
+  await page.locator("#mark-coverage-uncertain").click();
+  const maskBox = await page.locator("#overlay").boundingBox();
+  await page.mouse.move(maskBox.x + maskBox.width * 0.30, maskBox.y + maskBox.height * 0.30);
+  await page.mouse.down();
+  await page.mouse.move(maskBox.x + maskBox.width * 0.45, maskBox.y + maskBox.height * 0.45, { steps: 4 });
+  await page.mouse.up();
+  await page.waitForFunction(() => document.getElementById("coverage-mask-list").textContent.includes("Weak overlapping burst"));
+  await page.locator("#coverage-mask-reason").fill("Known receiver spur outside the signal occupancy.");
+  await page.locator("#mark-coverage-ignore").click();
+  await page.mouse.move(maskBox.x + maskBox.width * 0.55, maskBox.y + maskBox.height * 0.55);
+  await page.mouse.down();
+  await page.mouse.move(maskBox.x + maskBox.width * 0.68, maskBox.y + maskBox.height * 0.68, { steps: 4 });
+  await page.mouse.up();
+  await page.waitForFunction(() => document.getElementById("coverage-mask-list").textContent.includes("Known receiver spur"));
+  await page.locator("#coverage-notes").fill("Reviewed the visible waterfall window; no additional in-scope transmissions were missed.");
+  await page.locator("#save-coverage").click();
+  await page.waitForFunction(() => document.getElementById("coverage-status").textContent.includes("review saved"));
+  const sceneReviews = await (await page.request.get(new URL(`/api/captures/${taggedCaptureId}/coverage`, page.url()).href)).json();
+  assert.equal(sceneReviews.length, 1);
+  assert.equal(sceneReviews[0].task, "detection");
+  assert.equal(sceneReviews[0].state, "partial");
+  assert.deepEqual(sceneReviews[0].taxonomy_scope, ["PSK", "FSK"]);
+  assert.equal(sceneReviews[0].uncertain_regions.length, 1);
+  assert.match(sceneReviews[0].uncertain_regions[0].reason, /Weak overlapping burst/);
+  assert.equal(sceneReviews[0].ignore_regions.length, 1);
+  assert.match(sceneReviews[0].ignore_regions[0].reason, /Known receiver spur/);
+  assert.match(sceneReviews[0].notes, /no additional in-scope transmissions/);
+  assert.ok(sceneReviews[0].sample_count > 0 && !sceneReviews[0].is_stale);
+  await page.locator("#coverage-history > summary").click();
+  await page.locator("#coverage-list button").first().click();
+  await page.locator("#coverage-state").selectOption("partial");
+  await page.locator("#coverage-notes").fill("Reopened the scene review; part of the window remains uncertain.");
+  await page.locator("#save-coverage").click();
+  await page.waitForFunction(() => document.getElementById("coverage-status").textContent.includes("revision 2"));
+  const revisedSceneReviews = await (await page.request.get(new URL(`/api/captures/${taggedCaptureId}/coverage`, page.url()).href)).json();
+  assert.equal(revisedSceneReviews[0].revision, 2);
+  assert.equal(revisedSceneReviews[0].state, "partial");
+  assert.equal(revisedSceneReviews[0].notes, "Reopened the scene review; part of the window remains uncertain.");
+  assert.equal(revisedSceneReviews[0].uncertain_regions.length, 1);
+  assert.equal(revisedSceneReviews[0].ignore_regions.length, 1);
+  await page.locator("#cancel-coverage").click();
+  assert.ok(await page.locator("#coverage-panel").isHidden());
   // Manual labeling and direct saved-annotation selection.
   await page.locator("#show-signals").click();
   await page.locator('[data-inspector-tab="raw"]').click();
@@ -310,11 +364,18 @@ try {
     "Select a saved capture or region to analyze.",
   );
   useSavedRunFixture = true;
+  const freshReplayCapture = await page.request.post(new URL("/api/captures", page.url()).href, {
+    multipart: {
+      file: {
+        name: "saved-run-fresh.wav",
+        mimeType: "audio/wav",
+        buffer: await readFile(join(root, "qpsk.wav")),
+      },
+    },
+  });
+  assert.equal(freshReplayCapture.status(), 200);
   await page.locator("#show-library").click();
-  await page.locator("#capture-list .capture-row").filter({ hasText: "qpsk.wav" }).first().getByRole("button", { name: "Open" }).click();
-  await page.locator("#library-dialog").waitFor({state:"hidden"});
-  await page.locator("#show-library").click();
-  await page.locator("#capture-list .capture-row").filter({ hasText: "2fsk.wav" }).first().getByRole("button", { name: "Open" }).click();
+  await page.locator("#capture-list .capture-row").filter({ hasText: "saved-run-fresh.wav" }).getByRole("button", { name: "Open" }).click();
   await page.locator("#library-dialog").waitFor({state:"hidden"});
   await page.locator("#show-signals").click();
   await page.locator('[data-inspector-tab="decode"]').click();
@@ -386,6 +447,27 @@ try {
   await page.locator('#library-dialog [data-close-dialog]').click();
   await page.locator("#merge-regions").click();
   await page.waitForFunction(() => document.getElementById("merge-status").textContent.includes("Merge recorded"));
+  await page.locator("#start-scene-review").click();
+  await page.locator("#coverage-task").selectOption("detection");
+  await page.locator("#coverage-state").selectOption("complete");
+  await page.locator("#coverage-scope").fill("PSK, FSK");
+  const coverageCountBefore = (await (await page.request.get(new URL(`/api/captures/${taggedCaptureId}/coverage`, page.url()).href)).json()).length;
+  await page.locator("#save-coverage").click();
+  await page.waitForFunction(() => document.getElementById("coverage-status").textContent.includes("review saved"));
+  const coverageRecords = await (await page.request.get(new URL(`/api/captures/${taggedCaptureId}/coverage`, page.url()).href)).json();
+  assert.equal(coverageRecords.length, coverageCountBefore + 1);
+  assert.equal(coverageRecords.at(-1).taxonomy_scope.join(","), "PSK,FSK");
+  await page.request.post(new URL(`/api/captures/${taggedCaptureId}/regions`, page.url()).href, {
+    data: {
+      sample_start: coverageRecords[0].sample_start,
+      sample_count: coverageRecords[0].sample_count,
+      frequency_low_hz: coverageRecords[0].frequency_low_hz,
+      frequency_high_hz: coverageRecords[0].frequency_high_hz,
+      mode_id: "rtty",
+    },
+  });
+  await page.locator("#refresh-coverage").click();
+  await page.waitForFunction(() => document.getElementById("coverage-list").textContent.includes("STALE"));
   const capturesForRegistry = await (await page.request.get(new URL("/api/captures", page.url()).href)).json();
   const independentCapture = capturesForRegistry.find((capture) => capture.id !== taggedCaptureId && capture.sha256 !== captureInfo.sha256);
   assert.ok(independentCapture, "mode proposals need a second independent audio recording");

@@ -39,7 +39,7 @@ sig-id-serve = "sigid.server:main"
 sig-id-hub = "sigid.hub:main"
 
 [tool.setuptools.package-data]
-sigid = ["web/*.html", "web/*.js", "web/*.mjs", "web/*.css"]
+sigid = ["web/*.html", "web/*.js", "web/*.mjs", "web/*.css", "laya_reference_examples.json"]
 
 [tool.setuptools.packages.find]
 include = ["sigid*"]

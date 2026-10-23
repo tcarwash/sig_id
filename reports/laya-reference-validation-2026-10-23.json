@@ -1,0 +1,248 @@
+{
+  "accuracy_among_answered": null,
+  "calls_failed": 0,
+  "calls_requested": 14,
+  "calls_succeeded": 14,
+  "corpus_manifest_sha256": "812152245eef8f0cc3930ee72ff2ca319662c2b674ca17d88a603117055a57b5",
+  "created_utc": "2026-10-23T22:23:54.241706+00:00",
+  "elapsed_seconds": 86.72,
+  "feature_policy": "Full-waveform unfiltered feature extraction matching sigid.training._features_for; 266 values per waveform.",
+  "input_policy": "Each request included one validation waveform feature vector plus 14 labeled synthetic references from train only. Validation labels, validation keys, lineage IDs, raw WAV audio, and test-split examples were not included in provider requests.",
+  "method_accuracy_including_unknown_as_incorrect": 0.0,
+  "method_correct": 0,
+  "method_coverage": 0.0,
+  "method_examples": 12,
+  "model_ids": [
+    "laya-rl-agent"
+  ],
+  "noise_correct_abstentions": 2,
+  "noise_examples": 2,
+  "noise_false_accepts": 0,
+  "per_mode": {
+    "16fsk": {
+      "choices": {
+        "unknown": 2
+      },
+      "correct": 0,
+      "examples": 2
+    },
+    "2fsk": {
+      "choices": {
+        "unknown": 2
+      },
+      "correct": 0,
+      "examples": 2
+    },
+    "4fsk": {
+      "choices": {
+        "unknown": 2
+      },
+      "correct": 0,
+      "examples": 2
+    },
+    "8fsk": {
+      "choices": {
+        "unknown": 2
+      },
+      "correct": 0,
+      "examples": 2
+    },
+    "bpsk": {
+      "choices": {
+        "unknown": 2
+      },
+      "correct": 0,
+      "examples": 2
+    },
+    "qpsk": {
+      "choices": {
+        "unknown": 2
+      },
+      "correct": 0,
+      "examples": 2
+    }
+  },
+  "provider": "Laya System One",
+  "reference_examples": 14,
+  "reference_examples_by_method": {
+    "16fsk": 2,
+    "2fsk": 2,
+    "4fsk": 2,
+    "8fsk": 2,
+    "bpsk": 2,
+    "qpsk": 2,
+    "unknown": 2
+  },
+  "reference_set_sha256": "a4155be250e34c1ca923f49e1874fae03cb69d8f3c24dc0b6e6f8117d946e5cf",
+  "request_bytes": 44740,
+  "results": [
+    {
+      "choice": "unknown",
+      "correct": false,
+      "error": null,
+      "features_sha256": "2b41af900c179dfa0da32aad81638be2391c7a23d9ef169ce9f98d55801c3716",
+      "index": 1,
+      "key": "2fsk/0000/clean",
+      "lineage_group": "dc512e61-b80f-4922-8fe4-9944f7fa2070",
+      "mode": "2fsk",
+      "model": "laya-rl-agent"
+    },
+    {
+      "choice": "unknown",
+      "correct": false,
+      "error": null,
+      "features_sha256": "3dd542f9c9c7101f6ef72bc9db1d9eeea2839a8b14826f0e525d98f04499748e",
+      "index": 2,
+      "key": "2fsk/0006/clean",
+      "lineage_group": "76f1a3b2-3b9d-4058-a312-9c3511585a42",
+      "mode": "2fsk",
+      "model": "laya-rl-agent"
+    },
+    {
+      "choice": "unknown",
+      "correct": false,
+      "error": null,
+      "features_sha256": "a72441b829f0d58a6dce8124504d747867fa42da305595decf26f426ade1ae3e",
+      "index": 3,
+      "key": "4fsk/0005/clean",
+      "lineage_group": "cac51268-ade9-4d41-ac51-43fcd2ec04cd",
+      "mode": "4fsk",
+      "model": "laya-rl-agent"
+    },
+    {
+      "choice": "unknown",
+      "correct": false,
+      "error": null,
+      "features_sha256": "2d96768ed477dd86fecf728c3e9df7037ac0a3229bca1c52b8686641f6a3c7fe",
+      "index": 4,
+      "key": "4fsk/0009/clean",
+      "lineage_group": "2ae5c4fb-ddd7-4e80-aeaf-aa68066a3cbb",
+      "mode": "4fsk",
+      "model": "laya-rl-agent"
+    },
+    {
+      "choice": "unknown",
+      "correct": false,
+      "error": null,
+      "features_sha256": "6f28c75536dc92ad7c061a0b26ef79d887e7c561f2da01a9a3c1b78199b12d1a",
+      "index": 5,
+      "key": "8fsk/0002/clean",
+      "lineage_group": "1846ea18-f7e9-420f-a0fe-a0353bddb2b2",
+      "mode": "8fsk",
+      "model": "laya-rl-agent"
+    },
+    {
+      "choice": "unknown",
+      "correct": false,
+      "error": null,
+      "features_sha256": "34f7462afca8771db032efefa6a0bc5500a0bc736f28f9315c8dcc9ab8634805",
+      "index": 6,
+      "key": "8fsk/0004/clean",
+      "lineage_group": "44419bd2-bd36-4229-af2f-4822b7c0087f",
+      "mode": "8fsk",
+      "model": "laya-rl-agent"
+    },
+    {
+      "choice": "unknown",
+      "correct": false,
+      "error": null,
+      "features_sha256": "a827165f75760a399587cd3c9f378b32a96d0cd36b9a2dc3df790ef91ebb8241",
+      "index": 7,
+      "key": "16fsk/0002/clean",
+      "lineage_group": "1449dfb8-5b77-4984-be39-4d72d723f7da",
+      "mode": "16fsk",
+      "model": "laya-rl-agent"
+    },
+    {
+      "choice": "unknown",
+      "correct": false,
+      "error": null,
+      "features_sha256": "b76a66e06153eadb8cea2e9770abca4d2247b77b0bb385fb85d5fc38ef0891d3",
+      "index": 8,
+      "key": "16fsk/0010/clean",
+      "lineage_group": "adc2e24e-1138-4fd8-9f21-e44c72eb939f",
+      "mode": "16fsk",
+      "model": "laya-rl-agent"
+    },
+    {
+      "choice": "unknown",
+      "correct": false,
+      "error": null,
+      "features_sha256": "621387a5ec0a6692a152c995c85dee3d884c46ce30b75d7e3ab3ed32567a5188",
+      "index": 9,
+      "key": "bpsk/0010/clean",
+      "lineage_group": "006bbb48-dc27-43b5-b6b8-b2dc0de78e93",
+      "mode": "bpsk",
+      "model": "laya-rl-agent"
+    },
+    {
+      "choice": "unknown",
+      "correct": false,
+      "error": null,
+      "features_sha256": "e4ae4393d23340552af8239870eb9d84e41892d8f46fad29f0e75d20212ae188",
+      "index": 10,
+      "key": "bpsk/0011/clean",
+      "lineage_group": "cffd4dfc-a163-4693-99d5-216b776696ca",
+      "mode": "bpsk",
+      "model": "laya-rl-agent"
+    },
+    {
+      "choice": "unknown",
+      "correct": false,
+      "error": null,
+      "features_sha256": "799f98e38e4fb6cd1df44723c6629363e9c89621660822e35920ed5d3f4a9e11",
+      "index": 11,
+      "key": "qpsk/0006/clean",
+      "lineage_group": "86cabf20-8a25-498a-bbbf-cc55317ab492",
+      "mode": "qpsk",
+      "model": "laya-rl-agent"
+    },
+    {
+      "choice": "unknown",
+      "correct": false,
+      "error": null,
+      "features_sha256": "2ef735a3d7acfd95a7a698c4a5cb3a1361ea7a2001283334aa2b49d8a6757124",
+      "index": 12,
+      "key": "qpsk/0010/clean",
+      "lineage_group": "4d34edab-1ba0-4489-9a67-360060703590",
+      "mode": "qpsk",
+      "model": "laya-rl-agent"
+    },
+    {
+      "choice": "unknown",
+      "correct": true,
+      "error": null,
+      "features_sha256": "facd3ee7287fda3982269783e4f6bcc2aad7f545ad86a20e5e235c066b3beffd",
+      "index": 13,
+      "key": "noise/0002/noise-only",
+      "lineage_group": "fb957bb9-c7db-44ae-92b2-470f917e0c0f",
+      "mode": "noise",
+      "model": "laya-rl-agent"
+    },
+    {
+      "choice": "unknown",
+      "correct": true,
+      "error": null,
+      "features_sha256": "e978f3b4e7cf7fed6f41c413471fbb896a0ff1cbb308a787ddc0eef459da6cc3",
+      "index": 14,
+      "key": "noise/0003/noise-only",
+      "lineage_group": "e16af7b7-903b-4856-818d-18bce81ba3b1",
+      "mode": "noise",
+      "model": "laya-rl-agent"
+    }
+  ],
+  "schema_version": 1,
+  "scope_limits": [
+    "Only two independent validation source groups per modulation method",
+    "Two noise validation examples",
+    "Synthetic data does not establish on-air generalization",
+    "One fixed prompt/context pass; no prompt or model tuning; test split remains untouched"
+  ],
+  "split_manifest_sha256": "4fd21a9d421dacd0ba85b1be655b06dbf191dc0c61dadca417a5ab98b544325f",
+  "split_seed": 79,
+  "task": "few-shot Laya classification against the synthetic corpus validation split",
+  "test_split_used": false,
+  "train_validation_lineage_overlap": false,
+  "validation_examples": 14,
+  "validation_lineage_groups": 14
+}

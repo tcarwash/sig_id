@@ -7,6 +7,10 @@ import { layoutSignalLabels, signalCaption, hitSignal } from "/signal-overlays.m
 
 const el = (id) => document.getElementById(id);
 const state = { capture: null, waterfall: null, drag: null, selection: null, regions: [], tracks: [], bitAnnotations: [], protocolStencils: [], liveView: false, liveSessionId: null, modelAvailable: false, view: null, demodExports: {}, selectedTrack: null, frozen: false, labelModeId: null, modeSearchResults: [], modeSearchRequest: 0, applyingMode: false, adjustingGeometry: false, geometryDraft: false, splitMode: false, splitChildren: [], splitParentSelection: null, mergeRegionIds: new Set(), modeProposalRegion: null, proposalCaptureRequest: 0, proposalEvidenceCaptures: [] };
+state.layaAvailable = false;
+state.coverageWindow = null;
+state.coverageMasks = { ignore_regions: [], uncertain_regions: [] };
+state.coverageMaskMode = null;
 let lastExpandedOutputHeight = 180;
 const baseCanvas = el("waterfall");
 const overlayCanvas = el("overlay");
@@ -655,9 +659,68 @@ async function refreshModelStatus() {
 }
 refreshModelStatus();
 
+async function refreshLayaStatus() {
+  try {
+    const provider = await request("/api/laya/status");
+    state.layaAvailable = Boolean(provider.available);
+    el("laya-status").textContent = state.layaAvailable
+      ? `Laya System One ready · ${provider.reference_examples} labeled synthetic train references · sends selected-region features when clicked`
+      : "Laya unavailable · configure LAYA_ENDPOINT";
+  } catch (error) {
+    state.layaAvailable = false;
+    el("laya-status").textContent = `Laya status unavailable · ${error.message}`;
+  }
+  updateLayaButton();
+}
+refreshLayaStatus();
+
 function updateModelButton() {
   el("model-propose").disabled = !state.modelAvailable || !state.capture || !state.selection || state.liveView;
+  updateLayaButton();
 }
+
+function updateLayaButton() {
+  el("laya-propose").disabled = !state.layaAvailable || !state.capture || !state.selection || (state.selection.sample_count ?? 0) < 1024 || state.liveView || state.coverageOnly || state.adjustingGeometry;
+}
+
+el("laya-propose").addEventListener("click", async () => {
+  if (!state.capture || !state.selection || state.liveView || !state.layaAvailable || state.coverageOnly) return;
+  const selection = state.selection;
+  const sourceCapture = state.capture;
+  const button = el("laya-propose");
+  button.disabled = true;
+  button.textContent = "Asking Laya…";
+  el("label-state").textContent = "Sending selected-region measurements to Laya for a provisional method judgment…";
+  try {
+    const result = await request(`/api/captures/${sourceCapture.id}/classify/laya`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sample_start: selection.sample_start,
+        sample_count: Math.min(1_000_000, selection.sample_count),
+        frequency_low_hz: selection.frequency_low_hz ?? null,
+        frequency_high_hz: selection.frequency_high_hz ?? null,
+      }),
+    });
+    if (state.capture !== sourceCapture || state.selection !== selection) return;
+    if (result.choice === "unknown") {
+      el("label-state").textContent = "Laya abstained · insufficient or mixed evidence; no label changed";
+    } else {
+      el("family").value = result.family || "";
+      el("method").value = result.method || "";
+      el("protocol").value = "";
+      el("variant").value = "";
+      const evidence = `Laya System One proposed ${result.method} from selected-region measurements. Protocol and variant remain unknown; review before saving.`;
+      el("notes").value = [el("notes").value.trim(), evidence].filter(Boolean).join(" ");
+      el("label-state").textContent = `Laya proposed ${result.method} · review then save to accept`;
+    }
+  } catch (error) {
+    el("label-state").textContent = `Laya identification failed · ${error.message}`;
+  } finally {
+    button.textContent = "Auto ID with Laya";
+    updateLayaButton();
+  }
+});
 
 el("model-propose").addEventListener("click", async () => {
   if (!state.capture || !state.selection || state.liveView || !state.modelAvailable) return;
@@ -1118,6 +1181,16 @@ async function loadCapture() {
   state.liveView = false;
   state.liveSessionId = null;
   resetOutputSession();
+  state.coverageRecords = [];
+  state.coverageEdit = null;
+  state.coverageOnly = false;
+  state.coverageWindow = null;
+  state.coverageMasks = { ignore_regions: [], uncertain_regions: [] };
+  state.coverageMaskMode = null;
+  el("coverage-panel").hidden = true;
+  state.editRegion = null;
+  el("start-scene-review").disabled = true;
+  updateCoverageMaskControls();
   state.waterfall = null;
   baseCanvas.getContext("2d").clearRect(0, 0, baseCanvas.width, baseCanvas.height);
   overlayCanvas.getContext("2d").clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
@@ -1158,6 +1231,7 @@ async function loadCapture() {
   if (generation !== state.captureGeneration || state.liveView) return;
   state.regions = regions;
   renderRegions();
+  await refreshSceneCoverage(c.id);
   try { await refreshBitAnnotations(c.id); }
   catch (error) { el("saved-bit-annotations").textContent = `Saved bit tags unavailable · ${error.message}`; }
   try { state.protocolStencils = await request("/api/protocol-stencils"); }
@@ -1181,6 +1255,199 @@ async function loadCapture() {
   }
   renderTracks();
   el("waterfall-state").textContent = `${state.waterfall.db.length} spectrum rows · ${state.waterfall.fft_size}-point FFT`;
+}
+
+async function refreshSceneCoverage(captureId = state.capture?.id) {
+  if (!captureId) return;
+  try {
+    const records = await request(`/api/captures/${captureId}/coverage`);
+    if (state.capture?.id !== captureId) return;
+    state.coverageRecords = records;
+    renderSceneCoverage();
+  } catch (error) {
+    if (state.capture?.id === captureId) {
+      el("coverage-list").textContent = `Scene reviews unavailable · ${error.message}`;
+    }
+  }
+}
+
+function updateSceneReviewAvailability() {
+  const selection = state.selection;
+  const valid = Boolean(state.capture && !state.liveView && !state.coverageOnly && selection && Number.isInteger(selection.sample_start) && Number.isInteger(selection.sample_count) && selection.sample_count > 0 && !state.adjustingGeometry && !state.splitMode);
+  el("start-scene-review").disabled = !valid;
+}
+
+function updateCoverageMaskControls() {
+  const canMark = Boolean(state.coverageOnly && state.coverageWindow && !state.liveView);
+  const busy = Boolean(state.coverageMaskMode);
+  el("mark-coverage-uncertain").disabled = !canMark || busy || state.coverageMasks.uncertain_regions.length >= 64;
+  el("mark-coverage-ignore").disabled = !canMark || busy || state.coverageMasks.ignore_regions.length >= 64;
+  el("cancel-coverage-mask").hidden = !state.coverageMaskMode;
+}
+
+function renderSceneCoverageMasks() {
+  const list = el("coverage-mask-list");
+  list.replaceChildren();
+  for (const [field, label] of [["uncertain_regions", "Uncertain"], ["ignore_regions", "Ignored"]]) {
+    for (const [index, mask] of state.coverageMasks[field].entries()) {
+      const item = document.createElement("div");
+      item.className = "coverage-row";
+      const start = (mask.sample_start / state.capture.sample_rate).toFixed(2);
+      const end = ((mask.sample_start + mask.sample_count) / state.capture.sample_rate).toFixed(2);
+      const frequency = mask.frequency_low_hz === null
+        ? "frequency follows scene scope"
+        : `${mask.frequency_low_hz.toFixed(0)}–${mask.frequency_high_hz.toFixed(0)} Hz`;
+      const detail = document.createElement("span");
+      detail.textContent = `${label} · ${start}–${end} s · ${frequency}${mask.reason ? ` · ${mask.reason}` : ""}`;
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.textContent = "Remove";
+      remove.addEventListener("click", () => {
+        state.coverageMasks[field].splice(index, 1);
+        renderSceneCoverageMasks();
+        drawOverlays();
+      });
+      item.append(detail, remove);
+      list.append(item);
+    }
+  }
+  if (!state.coverageMasks.ignore_regions.length && !state.coverageMasks.uncertain_regions.length) {
+    list.textContent = "No subregions marked.";
+  }
+}
+
+function beginCoverageMask(mode) {
+  if (!state.coverageOnly || !state.coverageWindow) return;
+  if (!el("coverage-mask-reason").value.trim()) {
+    el("coverage-mask-status").textContent = "Enter a short reason before drawing this subregion.";
+    return;
+  }
+  if (state.coverageMasks[mode].length >= 64) {
+    el("coverage-mask-status").textContent = "This review already has 64 areas of this type.";
+    return;
+  }
+  state.coverageMaskMode = mode;
+  el("coverage-mask-status").textContent = `Draw a ${mode === "uncertain_regions" ? "uncertain" : "ignored"} rectangle within the reviewed window.`;
+  updateCoverageMaskControls();
+}
+
+function cancelCoverageMask() {
+  state.coverageMaskMode = null;
+  el("coverage-mask-status").textContent = "Area drawing cancelled.";
+  updateCoverageMaskControls();
+}
+
+function startSceneCoverageReview() {
+  if (el("start-scene-review").disabled) return;
+  state.coverageEdit = null;
+  state.coverageOnly = true;
+  updateSceneReviewAvailability();
+  state.coverageWindow = { ...state.selection };
+  state.coverageMasks = { ignore_regions: [], uncertain_regions: [] };
+  state.coverageMaskMode = null;
+  renderSceneCoverageMasks();
+  updateCoverageMaskControls();
+  el("coverage-panel").hidden = false;
+  el("coverage-notes").value = "";
+  el("save-coverage").textContent = "Record reviewed window";
+  el("save-region").disabled = true;
+  const selection = state.selection;
+  const start = selection.sample_start / state.capture.sample_rate;
+  const end = (selection.sample_start + selection.sample_count) / state.capture.sample_rate;
+  const low = selection.frequency_low_hz;
+  const high = selection.frequency_high_hz;
+  el("selection-summary").textContent = "Scene coverage review";
+  el("selection-details").textContent = `Review this exact window · ${start.toFixed(2)}–${end.toFixed(2)} s · ${Number.isFinite(low) && Number.isFinite(high) ? `${low.toFixed(0)}–${high.toFixed(0)} Hz` : "frequency scope unknown"}`;
+  el("coverage-status").textContent = "Check for all in-scope signals; choose Partial / uncertain when the window does not support a complete claim.";
+  openInspector("label");
+}
+
+function exitSceneCoverageReview() {
+  const wasEditing = Boolean(state.coverageEdit);
+  state.coverageEdit = null;
+  state.coverageOnly = false;
+  state.coverageWindow = null;
+  state.coverageMasks = { ignore_regions: [], uncertain_regions: [] };
+  state.coverageMaskMode = null;
+  el("coverage-panel").hidden = true;
+  el("save-coverage").textContent = "Record reviewed window";
+  if (wasEditing) {
+    state.selection = null;
+    beginNewRegion();
+    el("selection-summary").textContent = "No region selected";
+    el("selection-details").textContent = "Drag over the waterfall to mark a signal.";
+    drawOverlays();
+  }
+  el("save-region").disabled = !state.selection || !state.capture || state.liveView || Boolean(state.editRegion?.lineage_state === "superseded");
+  updateSceneReviewAvailability();
+  renderSceneCoverageMasks();
+  updateCoverageMaskControls();
+}
+
+function renderSceneCoverage() {
+  const list = el("coverage-list");
+  list.replaceChildren();
+  for (const record of state.coverageRecords) {
+    const item = document.createElement("div");
+    item.className = "coverage-row";
+    const start = (record.sample_start / state.capture.sample_rate).toFixed(2);
+    const end = ((record.sample_start + record.sample_count) / state.capture.sample_rate).toFixed(2);
+    const frequency = record.frequency_low_hz === null
+      ? "frequency unknown"
+      : `${record.frequency_low_hz.toFixed(0)}–${record.frequency_high_hz.toFixed(0)} Hz`;
+    const label = document.createElement("span");
+    label.textContent = `${record.task} · ${record.state} · ${start}–${end} s · ${frequency} · r${record.revision}${record.is_stale ? " · STALE" : ""}`;
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.textContent = record.is_stale ? "Review again" : "Open review";
+    edit.addEventListener("click", () => selectSceneCoverage(record));
+    item.append(label, edit);
+    list.append(item);
+  }
+  if (!state.coverageRecords.length) list.textContent = "No scene reviews for this capture yet.";
+}
+
+function selectSceneCoverage(record) {
+  if (!state.waterfall || !state.capture || state.liveView) return;
+  state.selection = {
+    sample_start: record.sample_start,
+    sample_count: record.sample_count,
+    frequency_low_hz: record.frequency_low_hz ?? 0,
+    frequency_high_hz: record.frequency_high_hz ?? Math.min(3000, state.waterfall.sample_rate / 2),
+  };
+  beginNewRegion();
+  state.coverageEdit = {
+    id: record.id, revision: record.revision,
+    frequencyUnknown: record.frequency_low_hz === null,
+  };
+  state.coverageOnly = true;
+  updateSceneReviewAvailability();
+  el("coverage-panel").hidden = false;
+  state.coverageWindow = { ...state.selection };
+  state.coverageMasks = {
+    ignore_regions: (record.ignore_regions || []).map((item) => ({ ...item })),
+    uncertain_regions: (record.uncertain_regions || []).map((item) => ({ ...item })),
+  };
+  state.coverageMaskMode = null;
+  updateCoverageMaskControls();
+  renderSceneCoverageMasks();
+  el("coverage-task").value = record.task;
+  el("coverage-state").value = record.state;
+  el("coverage-scope").value = record.taxonomy_scope.join(", ");
+  el("coverage-notes").value = record.notes || "";
+  el("save-coverage").textContent = `Save review revision ${record.revision + 1}`;
+  el("coverage-status").textContent = record.is_stale
+    ? "This scene review is stale because overlapping annotations changed. Review this window again before saving."
+    : `Reviewing ${record.state} scene window · annotation digest ${record.annotation_set_digest.slice(0, 12)}…`;
+  el("save-region").disabled = true;
+  el("save-region").textContent = "Review window selected";
+  updateCarrierFromSelection(state.selection);
+  reprojectSelection();
+  state.coverageWindow = { ...state.selection };
+  el("selection-summary").textContent = "Scene review window";
+  el("selection-details").textContent = `Samples ${record.sample_start.toLocaleString()}–${(record.sample_start + record.sample_count).toLocaleString()} · ${record.task} review`;
+  openInspector("label");
+  drawOverlays();
 }
 
 function renderDecodeRuns() {
@@ -1376,6 +1643,30 @@ function drawOverlays() {
     const top = Math.max(0, rowA);
     ctx.strokeRect(left, top, Math.max(2, Math.min(bins - 1, right) - left), Math.max(2, Math.min(overlayCanvas.height - 1, rowB) - top));
   }
+  if (state.coverageOnly && state.coverageWindow) {
+    for (const [field, color] of [["uncertain_regions", "#f1be69"], ["ignore_regions", "#ee796f"]]) {
+      for (const mask of state.coverageMasks[field]) {
+        const low = mask.frequency_low_hz ?? state.coverageWindow.frequency_low_hz ?? 0;
+        const high = mask.frequency_high_hz ?? state.coverageWindow.frequency_high_hz ?? data.sample_rate / 2;
+        const x = visibleX(low);
+        const right = visibleX(high);
+        const rowA = visibleRow(mask.sample_start);
+        const rowB = visibleRow(mask.sample_start + mask.sample_count);
+        if (rowB < 0 || rowA >= overlayCanvas.height || right < 0 || x >= bins) continue;
+        const left = Math.max(0, x);
+        const top = Math.max(0, rowA);
+        const width = Math.max(2, Math.min(bins - 1, right) - left);
+        const height = Math.max(2, Math.min(overlayCanvas.height - 1, rowB) - top);
+        ctx.fillStyle = color;
+        ctx.globalAlpha = 0.2;
+        ctx.fillRect(left, top, width, height);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(left, top, width, height);
+      }
+    }
+  }
   if (state.selection) {
     const { x1, y1, x2, y2 } = state.selection;
     ctx.strokeStyle = "#72fff0";
@@ -1412,6 +1703,7 @@ function selectTrack(track) {
   openInspector("label");
   el("selection-summary").textContent = `${state.selection.frequency_low_hz.toFixed(0)}–${state.selection.frequency_high_hz.toFixed(0)} Hz · ${track.modulation_hypothesis}`;
   el("selection-details").textContent = `Provisional candidate · ${(track.time_start_seconds).toFixed(2)}–${track.time_end_seconds.toFixed(2)} s · ${track.tone_count_candidate} tone centers · protocol unknown`;
+  updateSceneReviewAvailability();
   el("family").value = "";
   el("method").value = "";
   el("protocol").value = "";
@@ -1502,7 +1794,7 @@ function canvasPoint(event) {
 }
 
 overlayCanvas.addEventListener("pointerdown", (event) => {
-  if (!state.waterfall) return;
+  if (!state.waterfall || (state.coverageOnly && !state.coverageMaskMode)) return;
   stopSelectedAudioPlayback(null);
   overlayCanvas.setPointerCapture(event.pointerId);
   const point = canvasPoint(event);
@@ -1528,7 +1820,7 @@ overlayCanvas.addEventListener("pointerup", (event) => {
   const view = waterfallViewBounds();
   const rect = overlayCanvas.getBoundingClientRect();
   const moved = Math.hypot((state.drag.x - point.x) * rect.width / overlayCanvas.width, (state.drag.y - point.y) * rect.height / overlayCanvas.height);
-  if (moved < 5 && !state.splitMode) {
+  if (moved < 5 && !state.splitMode && !state.coverageMaskMode) {
     const sample = sampleAtCanvasRow(point.y);
     const frequency = data.frequency_hz[Math.min(view.frequencyEnd - 1, view.frequencyStart + point.x)];
     const track = hitSignal(state.tracks, sample, frequency);
@@ -1560,8 +1852,41 @@ overlayCanvas.addEventListener("pointerup", (event) => {
     frequency_high_hz: frequencyHigh,
     x1: state.drag.x, y1: state.drag.y, x2: point.x, y2: point.y,
   };
+  if (state.coverageMaskMode && state.coverageWindow) {
+    const mask = {
+      sample_start: state.selection.sample_start,
+      sample_count: state.selection.sample_count,
+      frequency_low_hz: state.selection.frequency_low_hz,
+      frequency_high_hz: state.selection.frequency_high_hz,
+      reason: el("coverage-mask-reason").value.trim(),
+    };
+    const window = state.coverageWindow;
+    const withinWindow = mask.sample_start >= window.sample_start
+      && mask.sample_start + mask.sample_count <= window.sample_start + window.sample_count
+      && mask.frequency_low_hz >= window.frequency_low_hz
+      && mask.frequency_high_hz <= window.frequency_high_hz;
+    const target = state.coverageMasks[state.coverageMaskMode];
+    if (!mask.reason) {
+      el("coverage-mask-status").textContent = "Add a short reason before drawing an ignore or uncertain subregion.";
+    } else if (!withinWindow) {
+      el("coverage-mask-status").textContent = "Mask bounds must stay inside the reviewed scene window.";
+    } else {
+      target.push(mask);
+      el("coverage-mask-status").textContent = `${state.coverageMaskMode === "uncertain_regions" ? "Uncertain" : "Ignored"} subregion added.`;
+      renderSceneCoverageMasks();
+    }
+    state.coverageMaskMode = null;
+    state.selection = { ...window };
+    state.drag = null;
+    updateCoverageMaskControls();
+    updateSceneReviewAvailability();
+    reprojectSelection();
+    drawOverlays();
+    return;
+  }
   updateCarrierFromSelection(state.selection);
   state.drag = null;
+
   if (state.splitMode && state.editRegion) {
     const { x1, y1, x2, y2, ...bounds } = state.selection;
     state.splitChildren.push(bounds);
@@ -1628,7 +1953,9 @@ el("save-region").addEventListener("click", async () => {
     state.regions = regions;
     beginNewRegion();
     renderRegions();
+    await refreshSceneCoverage(captureId);
     state.selection = null;
+    el("coverage-panel").hidden = true;
     updateModelButton();
     el("selection-summary").textContent = "No region selected";
     el("selection-details").textContent = "Drag over the waterfall to mark a signal.";
@@ -1641,6 +1968,7 @@ el("save-region").addEventListener("click", async () => {
     if (error.status === 409) {
       state.regions = await request(`/api/captures/${captureId}/regions`);
       renderRegions();
+      await refreshSceneCoverage(captureId);
       el("label-state").textContent = "A newer label exists. Reopen its marker to review it; your draft is retained here.";
     }
     button.disabled = false;
@@ -1672,6 +2000,7 @@ async function submitAnnotationFeedback(action) {
     if (state.capture?.id !== captureId) return;
     state.regions = await request(`/api/captures/${captureId}/regions`);
     renderRegions();
+    await refreshSceneCoverage(captureId);
     const updated = state.regions.find((region) => region.id === edit.id);
     const message = `${action.replaceAll("_", " ")} recorded · label revision ${result.resulting_revision}`;
     if (updated) selectSavedRegion(updated);
@@ -1721,6 +2050,7 @@ el("save-region-bounds").addEventListener("click", async () => {
     if (state.capture?.id !== captureId) return;
     state.regions = await request(`/api/captures/${captureId}/regions`);
     renderRegions();
+    await refreshSceneCoverage(captureId);
     const updated = state.regions.find((region) => region.id === edit.id);
     if (updated) selectSavedRegion(updated);
     el("geometry-status").textContent = `Bounds saved as geometry revision ${result.geometry_revision}; previous bounds remain in history.`;
@@ -1775,6 +2105,7 @@ el("save-split").addEventListener("click", async () => {
     state.splitMode = false;
     state.regions = await request(`/api/captures/${captureId}/regions`);
     renderRegions();
+    await refreshSceneCoverage(captureId);
     const firstChild = state.regions.find((region) => region.id === operation.result_region_ids[0]);
     if (firstChild) selectSavedRegion(firstChild);
     el("split-status").textContent = `Split recorded · ${operation.result_region_ids.length} new regions · parent retained as superseded history.`;
@@ -1807,6 +2138,7 @@ el("merge-regions").addEventListener("click", async () => {
     state.mergeRegionIds.clear();
     state.regions = await request(`/api/captures/${captureId}/regions`);
     renderRegions();
+    await refreshSceneCoverage(captureId);
     const merged = state.regions.find((region) => region.id === operation.result_region_id);
     if (merged) selectSavedRegion(merged);
     el("merge-status").textContent = "Merge recorded. Source labels remain unchanged; review the new unknown region separately.";
@@ -1816,6 +2148,66 @@ el("merge-regions").addEventListener("click", async () => {
       : `Merge failed: ${error.message}`;
   } finally {
     updateMergeControls();
+  }
+});
+
+el("start-scene-review").addEventListener("click", startSceneCoverageReview);
+el("cancel-coverage").addEventListener("click", exitSceneCoverageReview);
+el("mark-coverage-uncertain").addEventListener("click", () => beginCoverageMask("uncertain_regions"));
+el("mark-coverage-ignore").addEventListener("click", () => beginCoverageMask("ignore_regions"));
+el("cancel-coverage-mask").addEventListener("click", cancelCoverageMask);
+el("refresh-coverage").addEventListener("click", () => refreshSceneCoverage());
+el("save-coverage").addEventListener("click", async () => {
+  const captureId = state.capture?.id;
+  const selection = state.selection;
+  if (!captureId || !selection || state.liveView) return;
+  const button = el("save-coverage");
+  button.disabled = true;
+  el("coverage-status").textContent = "Saving scene review…";
+  const payload = {
+    sample_start: selection.sample_start,
+    sample_count: selection.sample_count,
+    frequency_low_hz: state.coverageEdit?.frequencyUnknown ? null : selection.frequency_low_hz,
+    frequency_high_hz: state.coverageEdit?.frequencyUnknown ? null : selection.frequency_high_hz,
+    task: el("coverage-task").value,
+    taxonomy_scope: el("coverage-scope").value.split(",").map((item) => item.trim()).filter(Boolean),
+    state: el("coverage-state").value,
+    ignore_regions: state.coverageMasks.ignore_regions,
+    uncertain_regions: state.coverageMasks.uncertain_regions,
+    notes: el("coverage-notes").value.trim(),
+  };
+  try {
+    const edit = state.coverageEdit;
+    const url = edit
+      ? `/api/captures/${captureId}/coverage/${edit.id}`
+      : `/api/captures/${captureId}/coverage`;
+    const result = await request(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(edit ? { ...payload, expected_revision: edit.revision } : payload),
+    });
+    if (state.capture?.id !== captureId) return;
+    state.coverageEdit = {
+      id: result.id, revision: result.revision,
+      frequencyUnknown: result.frequency_low_hz === null,
+    };
+    state.coverageWindow = { ...state.selection };
+    state.coverageMasks = {
+      ignore_regions: result.ignore_regions || [],
+      uncertain_regions: result.uncertain_regions || [],
+    };
+    renderSceneCoverageMasks();
+    state.coverageRecords = await request(`/api/captures/${captureId}/coverage`);
+    renderSceneCoverage();
+    button.textContent = `Save review revision ${result.revision + 1}`;
+    el("coverage-status").textContent = `${result.state} ${result.task} review saved · revision ${result.revision} · ${result.annotation_set_digest.slice(0, 12)}…`;
+  } catch (error) {
+    if (state.capture?.id !== captureId) return;
+    el("coverage-status").textContent = error.status === 409
+      ? "This review changed elsewhere. Refresh scene reviews before editing it."
+      : `Scene review failed: ${error.message}`;
+  } finally {
+    button.disabled = !state.capture || state.liveView || !state.selection;
   }
 });
 
@@ -2299,9 +2691,22 @@ function selectSavedRegion(region) {
   stopSelectedAudioPlayback(null);
   const data = state.waterfall;
   if (!data) return;
+  state.coverageEdit = null;
+  state.coverageOnly = false;
+  el("coverage-panel").hidden = true;
+  el("coverage-task").value = "detection";
+  el("coverage-state").value = "complete";
+  el("coverage-scope").value = "";
+  el("save-coverage").textContent = "Record reviewed window";
+  el("coverage-status").textContent = "";
   clearError();
   state.selection = {sample_start:region.sample_start, sample_count:region.sample_count,
     frequency_low_hz:region.frequency_low_hz ?? 0, frequency_high_hz:region.frequency_high_hz ?? Math.min(3000,data.sample_rate/2)};
+  state.coverageEdit = null;
+  state.coverageOnly = false;
+  el("coverage-panel").hidden = true;
+  el("save-coverage").textContent = "Record reviewed window";
+  updateSceneReviewAvailability();
   updateCarrierFromSelection(state.selection);
   state.selectedTrack = null;
   state.editRegion = {id:region.id, revision:region.revision, geometry_revision:region.geometry_revision};
@@ -2494,6 +2899,24 @@ function startSpectrumStream(generation,sessionId) {
 
 function beginNewRegion() {
   state.editRegion = null;
+  state.coverageEdit = null;
+  state.coverageOnly = false;
+  state.coverageWindow = null;
+  state.coverageMasks = { ignore_regions: [], uncertain_regions: [] };
+  state.coverageMaskMode = null;
+  el("coverage-panel").hidden = true;
+  el("coverage-task").value = "detection";
+  el("coverage-state").value = "complete";
+  el("coverage-scope").value = "";
+  el("coverage-notes").value = "";
+  el("save-coverage").textContent = "Record reviewed window";
+  el("coverage-status").textContent = "";
+  el("coverage-mask-reason").value = "";
+  el("coverage-mask-status").textContent = "Start a scene review to mark bounded subregions.";
+  renderSceneCoverageMasks();
+  updateCoverageMaskControls();
+  el("save-region").disabled = state.liveView || !state.capture;
+  el("save-region").textContent = "Save region label";
   setModeProposalSource(null);
   state.labelModeId = null;
   el("mode-search").value = "";
@@ -2519,6 +2942,7 @@ function beginNewRegion() {
   el("label-history-list").replaceChildren();
   el("label-state").textContent = "Partial labels are welcome.";
   for(const id of ["family","method","protocol","variant","notes"]) el(id).value = "";
+  updateSceneReviewAvailability();
 }
 async function loadLabelHistory(region,captureId) {
   el("label-history").hidden = false;
