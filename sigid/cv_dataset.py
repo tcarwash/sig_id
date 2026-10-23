@@ -66,13 +66,13 @@ def _lineage_groups(captures: list[dict[str, Any]]) -> dict[str, str]:
 def _splits(
     groups: set[str], seed: int, group_strata: dict[str, set[str]] | None = None,
 ) -> dict[str, str]:
-    if len(groups) < 3:
-        raise ValueError("CV export needs at least three independent capture/lineage groups")
+    if len(groups) < 7:
+        raise ValueError("CV export needs at least seven independent groups to reserve three each for validation and test")
     count = len(groups)
-    test_count = max(1, int(round(count * 0.15)))
-    val_count = max(1, int(round(count * 0.15)))
+    test_count = max(3, int(round(count * 0.15)))
+    val_count = max(3, int(round(count * 0.15)))
     if test_count + val_count >= count:
-        test_count = val_count = 1
+        raise ValueError("CV export must leave at least one independent group in training after reserving validation and test groups")
     split_counts = {"test": test_count, "validation": val_count, "train": count - test_count - val_count}
     split_weights = {name: value / count for name, value in split_counts.items()}
     buckets: dict[tuple[str, ...], list[str]] = {}

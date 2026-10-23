@@ -329,6 +329,19 @@ def train_cv_detector(
         raise ValueError("unsupported CV dataset report schema")
     if report.get("preprocessing_version") != PREPROCESSING_VERSION:
         raise ValueError("dataset preprocessing version does not match this trainer")
+    manifest_path = dataset / "windows.jsonl"
+    if not manifest_path.is_file():
+        raise FileNotFoundError("dataset is missing its source-lineage windows.jsonl manifest")
+    manifest_rows = [json.loads(line) for line in manifest_path.read_text(encoding="utf-8").splitlines() if line]
+    groups_by_split = {
+        split: {
+            str(row.get("lineage_group") or row["capture_id"])
+            for row in manifest_rows if row.get("split") == split
+        }
+        for split in ("train", "validation", "test")
+    }
+    if len(groups_by_split["validation"]) < 3 or len(groups_by_split["test"]) < 3:
+        raise ValueError("CV validation and test splits each need at least three independent capture/lineage groups")
     if report.get("split_images", {}).get("train", 0) < 1 or report.get("split_images", {}).get("validation", 0) < 1:
         raise ValueError("training and validation splits must both contain reviewed images")
     for split in ("train", "validation", "test"):

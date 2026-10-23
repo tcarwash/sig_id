@@ -6,6 +6,124 @@
     "runtime_wrapper_detections_on_sample_window": 0,
     "sha256": "6e13b7b138d55b9b688375f83784067a8c43bdcafde8cfdc4726458ddd92f5e8"
   },
+  "burst_scene_follow_up_run": {
+    "conclusion": "The detector learned burst-in-noise boxes, with 27/36 held-out recall at IoU 0.50 and 12 false detections across 17 reviewed negative windows. This remains synthetic-only and the false alarm rate is too high for unattended use.",
+    "dataset": {
+      "builder": "sig-id-build-cv-scene-corpus",
+      "negative_images_by_split": {
+        "test": 17,
+        "train": 78,
+        "validation": 17
+      },
+      "overlap_rate": 0.25,
+      "positive_images_by_split": {
+        "test": 32,
+        "train": 150,
+        "validation": 30
+      },
+      "scene_lineage_groups": 112,
+      "seed": 4202026,
+      "skipped_windows": {
+        "unreviewed_window": 0,
+        "unsupported_region": 0
+      },
+      "source_signal_captures": 120,
+      "split_groups": {
+        "test": 17,
+        "train": 78,
+        "validation": 17
+      }
+    },
+    "held_out_test": {
+      "false_detections_per_audio_hour": 120.91356918943124,
+      "metrics": {
+        "iou_0.25": {
+          "false_negative": 9,
+          "false_positive": 12,
+          "precision": 0.6923076923076923,
+          "recall": 0.75,
+          "true_positive": 27
+        },
+        "iou_0.50": {
+          "false_negative": 9,
+          "false_positive": 12,
+          "precision": 0.6923076923076923,
+          "recall": 0.75,
+          "true_positive": 27
+        }
+      },
+      "reviewed_audio_seconds": 357.28000000000003,
+      "reviewed_windows": 49,
+      "runtime_measurements": {
+        "accelerator_memory_measured": true,
+        "inference_windows": 49,
+        "mean_latency_ms_per_window": 10.893101860978167,
+        "p50_latency_ms_per_window": 10.727130982559174,
+        "p95_latency_ms_per_window": 11.958150635473428,
+        "peak_accelerator_allocated_mb": 76.224609375,
+        "peak_accelerator_reserved_mb": 132.0,
+        "prediction_confidence_floor": 0.25,
+        "process_rss_mb_after_evaluation": 2886.859375,
+        "throughput_windows_per_second": 91.80121628920517
+      },
+      "signal_type_recall_iou_0_50": {
+        "16-ary frequency shift keying": {
+          "ground_truth_boxes": 8,
+          "matched_boxes": 7,
+          "missed_boxes": 1,
+          "recall": 0.875
+        },
+        "4-ary frequency shift keying": {
+          "ground_truth_boxes": 4,
+          "matched_boxes": 4,
+          "missed_boxes": 0,
+          "recall": 1.0
+        },
+        "8-ary frequency shift keying": {
+          "ground_truth_boxes": 6,
+          "matched_boxes": 6,
+          "missed_boxes": 0,
+          "recall": 1.0
+        },
+        "binary frequency shift keying": {
+          "ground_truth_boxes": 10,
+          "matched_boxes": 10,
+          "missed_boxes": 0,
+          "recall": 1.0
+        },
+        "binary phase-shift keying": {
+          "ground_truth_boxes": 6,
+          "matched_boxes": 0,
+          "missed_boxes": 6,
+          "recall": 0.0
+        },
+        "quadrature phase-shift keying": {
+          "ground_truth_boxes": 2,
+          "matched_boxes": 0,
+          "missed_boxes": 2,
+          "recall": 0.0
+        }
+      }
+    },
+    "scope": "Ten-epoch controlled synthetic burst-in-noise experiment split by source lineage; not validated on real recordings or for decoder interoperability.",
+    "training": {
+      "accelerator": "AMD Radeon RX 6700 XT",
+      "accelerator_backend": "ROCm",
+      "artifact_kept_outside_repository": true,
+      "base_model": "yolo11n.pt",
+      "batch": 8,
+      "confidence_threshold_selected": 0.25,
+      "confidence_threshold_source": "validation_iou_0.50_f1_then_precision_then_higher_threshold",
+      "epochs": 10,
+      "model_sha256": "85eb25c6a843b16cd9cd12a44a4f657034a5236cf7251ce2bdbf602fc83d6661",
+      "model_size_bytes": 5447571,
+      "project_pinned_ultralytics_version": "8.4.184",
+      "runtime_note": "hipBLASLt reported unsupported architecture and fell back to hipBLAS.",
+      "seed": 4202026,
+      "torch": "2.5.1+rocm6.2",
+      "ultralytics_runtime_version": "8.3.180"
+    }
+  },
   "dataset": {
     "builder": "sig-id-build-corpus",
     "independent_capture_lineage_groups": 140,

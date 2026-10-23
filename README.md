@@ -486,13 +486,32 @@ SIG_ID_INSTALL_CV=1 SIG_ID_CV_MODEL_PATH=/data/cv/signal.pt docker compose up --
 
 To export reviewed windows and train inside the running container, provide fresh,
 complete detection coverage reviews and accepted signal-region annotations across
-at least three independent capture/lineage groups. Export and train into `/data`
-so outputs survive container rebuilds:
+at least seven independent capture/lineage groups. The exporter reserves at least
+three groups each for validation and test, leaving at least one training group.
+Export and train into `/data` so outputs survive container rebuilds:
 
 ```sh
 docker compose exec workbench sig-id-export-cv-dataset --output /data/cv/dataset
 docker compose exec workbench sig-id-train-cv-detector --dataset /data/cv/dataset --output-model /data/cv/signal.pt
 ```
+
+For a reproducible controlled-synthetic starting corpus, use a separate data
+directory. The scene builder places short portions of accepted synthetic signals
+at varied positions over independently generated 10-second noise backgrounds,
+sometimes with two overlapping signals. It records complete detection coverage
+from the validated synthetic component manifests and keeps each source lineage
+within one split:
+
+```sh
+sig-id-build-corpus --output-dir data/cv-seed/corpus --data-dir data/cv-seed/store --examples-per-mode 20 --snr-db --seed 4192026
+sig-id-build-cv-scene-corpus --data-dir data/cv-seed/store --output-dir data/cv-seed/scenes --seed 4192026 --overlap-rate 0.25
+sig-id-export-cv-dataset --data-dir data/cv-seed/store --output data/cv-seed/export --seed 4192026
+sig-id-train-cv-detector --dataset data/cv-seed/export --output-model data/cv-seed/signal.pt --epochs 100
+```
+
+These generated scenes broaden synthetic burst timing, overlap, and background
+coverage. They remain synthetic-only evidence and do not replace reviewed real
+recordings.
 
 The exporter requires signal windows and completely reviewed no-signal windows in
 train, validation, and test splits. It fails when the reviewed data does not meet
