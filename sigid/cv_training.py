@@ -439,8 +439,14 @@ def train_cv_detector(
     }
     metadata_path = destination.with_suffix(destination.suffix + ".json")
     metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    return {"model": str(destination), "metadata": str(metadata_path), "model_sha256": metadata["model_sha256"],
-            "training_run": metadata["training_run"]}
+    return {
+        "model": str(destination),
+        "metadata": str(metadata_path),
+        "model_sha256": metadata["model_sha256"],
+        "confidence_threshold": confidence,
+        "confidence_threshold_source": confidence_source,
+        "training_run": metadata["training_run"],
+    }
 
 
 def main() -> None:
