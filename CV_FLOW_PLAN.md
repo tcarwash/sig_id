@@ -42,11 +42,12 @@ evaluation on held-out capture groups, optional ROCm Compose support, and an
 embedding index for reviewed regions. The base classifier/manual workflow remains
 available without the CV extra. The implementation commits are `37cd4f6` (detector
 and ROCm container), `d5dfc0b` (proposal review evidence), and `a421f39` (reviewed
-region embedding retrieval).
+region embedding retrieval), followed by evaluation, packaging, and waterfall
+geometry refinements.
 
-The first slice does not yet provide a dedicated arbitrary box editor, live YOLO
-scanning, overlapping-window tracking, real-capture quality evidence, or
-end-to-end detector-to-decoder evaluation. Those remain explicit follow-up work.
+The first slice reuses the existing selection and geometry correction tools to
+inspect and adjust proposed boxes. Live YOLO scanning, real-capture quality
+evidence, and end-to-end detector-to-decoder evaluation remain follow-up work.
 
 ### 1. Define the detection contract
 
@@ -62,8 +63,9 @@ end-to-end detector-to-decoder evaluation. Those remain explicit follow-up work.
 - Use existing accepted signal-region annotations as detector boxes and fresh,
   complete scene reviews as evidence for no-signal windows. Explicit controlled
   noise-only fixtures export as negative windows and are excluded from signal
-  embedding references. A dedicated arbitrary
-  box editor and annotation-focused revision workflow remain follow-up work.
+  embedding references. Users can draw and correct regions with the existing
+  selection and geometry-editing controls; those reviewed regions feed the CV
+  export path.
 - Store box geometry in sample and frequency coordinates, not display pixels. Preserve capture/session lineage and annotation revision history.
 - Export the reviewed data to the detector's training format. Generate images and labels from the same versioned spectrogram preprocessing used at inference.
 - Split by source capture or recording session before generating windows or augmentations. Keep all derived windows from a source in one split to avoid leakage.
