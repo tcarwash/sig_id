@@ -109,9 +109,13 @@ docker compose -f compose.yaml -f compose.rocm.yaml exec workbench \
   --output /data/cv/cv-flow-evaluation.json
 ```
 
-The report explicitly marks decoder outcomes as unmeasured until reviewed targets
-carry reproducible decoder settings and reference payloads. Keep that separate from
-successful audio recovery or protocol interoperability claims.
+For direct synthetic 2FSK, BPSK, QPSK, OOK, and bit-mapped MFSK captures, the report
+also measures bit recovery from matched YOLO time crops using generator settings
+from the hashed synthetic manifest. BPSK polarity and QPSK rotation are resolved
+against the known reference payload, so this is an oracle-assisted demodulation
+measurement, not classifier-driven decoder selection. Scene mixtures, augmented
+noise, real recordings, protocol framing, and interoperability are outside this
+measurement.
 
 Then set `SIG_ID_CV_MODEL_PATH=/data/models/cv/signal.pt` in `.env` and recreate the
 ROCm service. Keep the adjacent `.pt.json` metadata file beside the weights.
