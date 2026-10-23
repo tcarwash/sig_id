@@ -125,6 +125,7 @@ class YoloSignalDetector:
             raise RuntimeError("CV inference requires the optional 'cv' install extra") from exc
         self.model_path = str(path.resolve())
         self.model_sha256 = model_digest
+        self.model_version = f"sha256:{model_digest}"
         self.confidence_threshold = float(confidence_threshold)
         self.held_out_test = metadata.get("held_out_test")
         self.training_scope = metadata.get("scope")
@@ -173,9 +174,16 @@ class YoloSignalDetector:
                 "sample_count": region_end - region_start,
                 "frequency_low_hz": low_hz,
                 "frequency_high_hz": high_hz,
+                "box_xyxy_normalized": [
+                    float(left / image_width), float(top / image_height),
+                    float(right / image_width), float(bottom / image_height),
+                ],
+                "image_width": image_width,
+                "image_height": image_height,
                 "confidence": float(score),
                 "identity": None,
                 "model_sha256": self.model_sha256,
+                "model_version": self.model_version,
                 "preprocessing_version": PREPROCESSING_VERSION,
                 "window_sample_start": sample_start,
                 "window_sample_count": sample_count,

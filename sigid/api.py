@@ -19,7 +19,7 @@ from uuid import uuid4
 import numpy as np
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from .dataset import CaptureStore, SignalLabel, LabelRevisionConflict
 from .classifier import FEATURE_VERSION, extract_features, load_model, propose
@@ -66,12 +66,27 @@ class DetectorSourceWindow(BaseModel):
 class DetectorProposalEvidence(BaseModel):
     detector: Literal["yolo"]
     model_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    model_version: str = Field(min_length=1, max_length=80)
     confidence: float = Field(ge=0.0, le=1.0)
+    box_xyxy_normalized: tuple[float, float, float, float]
+    image_width: int = Field(gt=0)
+    image_height: int = Field(gt=0)
     preprocessing_version: str = Field(min_length=1, max_length=80)
     window_sample_start: int = Field(ge=0)
     window_sample_count: int = Field(gt=0)
     sample_rate: int = Field(gt=0)
     supporting_windows: list[DetectorSourceWindow] = Field(default_factory=list, max_length=4096)
+
+    @model_validator(mode="after")
+    def validate_normalized_box(self) -> "DetectorProposalEvidence":
+        x1, y1, x2, y2 = self.box_xyxy_normalized
+        if (
+            self.model_version != f"sha256:{self.model_sha256}"
+            or not all(0.0 <= value <= 1.0 for value in self.box_xyxy_normalized)
+            or x2 <= x1 or y2 <= y1
+        ):
+            raise ValueError("detector evidence must contain an ordered normalized box and matching model version")
+        return self
 
 
 class ClassifierProposalRequest(BaseModel):
@@ -679,6 +694,7 @@ def create_app(
             "model_path": app.state.cv_model_path,
             "error": app.state.cv_detector_error,
             "compute_backend": detector.compute_backend if detector else None,
+            "model_version": detector.model_version if detector else None,
             "confidence_threshold": detector.confidence_threshold if detector else None,
             "held_out_test": held_out_summary,
             "training_scope": detector.training_scope if detector else None,
@@ -1335,6 +1351,7 @@ def create_app(
         return {
             "capture_id": capture_id,
             "model_sha256": detector.model_sha256,
+            "model_version": detector.model_version,
             "preprocessing_version": PREPROCESSING_VERSION,
             "window_seconds": WINDOW_SECONDS,
             "window_stride_seconds": WINDOW_STRIDE_SECONDS,

@@ -59,6 +59,7 @@ follow-up work.
 - Specify and version the spectrogram preprocessing: sample rate, FFT/window and hop, frequency range, intensity scaling, image dimensions, and time/frequency orientation.
 - Preserve the native 1024x256 spectrogram shape through rectangular YOLO training batches and inference to avoid square-padding mismatch.
 - Return boxes in normalized image coordinates plus confidence and model version. Convert them to authoritative sample and frequency bounds using the window metadata.
+- Inference responses now preserve normalized XYXY coordinates, image dimensions, and a content-hash model version alongside converted sample/frequency bounds. Saving a reviewed detector proposal retains that mapping evidence.
 - Keep detector proposals distinct from reviewed annotations and classifier predictions.
 - Define behavior for clipped boxes at window edges, duplicate boxes across adjacent windows, overlapping signals, and empty/no-signal windows.
 
