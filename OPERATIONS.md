@@ -98,7 +98,8 @@ docker compose -f compose.yaml -f compose.rocm.yaml exec workbench \
 Evaluate the held-out detection-to-classifier flow with the trained detector and
 the existing method classifier. This reports box precision/recall, classifier
 coverage/accuracy on matched detections, abstentions, and known-label accepts on
-unmatched proposals:
+unmatched proposals. It also compares YOLO boxes with the existing heuristic
+spectral-track detector over the same reviewed test windows:
 
 ```sh
 docker compose -f compose.yaml -f compose.rocm.yaml exec workbench \

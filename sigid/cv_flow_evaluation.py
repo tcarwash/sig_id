@@ -15,7 +15,9 @@ from .classifier import extract_features, load_model, propose
 from .cv_dataset import _lineage_groups
 from .cv_detector import MAX_FREQUENCY_HZ, YoloSignalDetector, audio_windows
 from .cv_training import _match_pairs, _read_yolo_boxes
+from .detection import detect_tracks
 from .dataset import CaptureStore
+from .spectrum import waterfall_samples
 
 
 def _sha256_file(path: Path) -> str:
@@ -73,6 +75,7 @@ def evaluate_cv_classifier_flow(
     classifier_metadata, classifier_parameters = load_model(classifier_path)
 
     detection_counts = {"true_positive": 0, "false_positive": 0, "false_negative": 0}
+    heuristic_counts = {"true_positive": 0, "false_positive": 0, "false_negative": 0}
     classifier_counts = {
         "matched_known_targets": 0,
         "matched_known_covered": 0,
@@ -122,6 +125,36 @@ def evaluate_cv_classifier_flow(
 
             with Image.open(image_path) as opened:
                 image = np.asarray(opened.convert("RGB"))
+            heuristic_spectrum = waterfall_samples(
+                samples,
+                sample_rate,
+                fft_size=4096,
+                hop_size=512,
+                max_rows=512,
+                sample_offset=sample_start,
+                total_sample_count=int(capture["sample_count"]),
+            )
+            heuristic_tracks = detect_tracks(heuristic_spectrum)
+            heuristic_boxes = []
+            window_end = sample_start + len(samples)
+            for track in heuristic_tracks:
+                start = max(sample_start, int(track["sample_start"]))
+                end = min(window_end, int(track["sample_start"]) + int(track["sample_count"]))
+                low = max(0.0, float(track["frequency_low_hz"]))
+                high = min(MAX_FREQUENCY_HZ, float(track["frequency_high_hz"]))
+                if end <= start or high <= low:
+                    continue
+                heuristic_boxes.append([
+                    low / MAX_FREQUENCY_HZ,
+                    (start - sample_start) / len(samples),
+                    high / MAX_FREQUENCY_HZ,
+                    (end - sample_start) / len(samples),
+                ])
+            heuristic_boxes_array = np.asarray(heuristic_boxes, dtype=np.float64).reshape((-1, 4))
+            heuristic_matches = _match_pairs(heuristic_boxes_array, expected_boxes, match_iou)
+            heuristic_counts["true_positive"] += len(heuristic_matches)
+            heuristic_counts["false_positive"] += len(heuristic_boxes_array) - len(heuristic_matches)
+            heuristic_counts["false_negative"] += len(expected_boxes) - len(heuristic_matches)
             detections = detector.detect(
                 image,
                 sample_start=sample_start,
@@ -225,6 +258,7 @@ def evaluate_cv_classifier_flow(
         raise ValueError(f"{len(missing_test_windows)} held-out windows no longer match their source captures")
 
     tp = detection_counts["true_positive"]
+    heuristic_tp = heuristic_counts["true_positive"]
     known_targets = classifier_counts["matched_known_targets"]
     covered = classifier_counts["matched_known_covered"]
     return {
@@ -242,6 +276,12 @@ def evaluate_cv_classifier_flow(
             **detection_counts,
             "precision": tp / max(1, tp + detection_counts["false_positive"]),
             "recall": tp / max(1, tp + detection_counts["false_negative"]),
+        },
+        "heuristic_baseline": {
+            **heuristic_counts,
+            "precision": heuristic_tp / max(1, heuristic_tp + heuristic_counts["false_positive"]),
+            "recall": heuristic_tp / max(1, heuristic_tp + heuristic_counts["false_negative"]),
+            "method": "existing spectral peak-clustering track detector with default settings",
         },
         "classifier": {
             "counts": classifier_counts,
