@@ -21,6 +21,8 @@ from .wav import WavSource
 
 PREPROCESSING_VERSION = "sig-id-cv-gray-v1"
 WINDOW_SECONDS = 10
+WINDOW_STRIDE_SECONDS = WINDOW_SECONDS // 2
+OVERLAP_DEDUP_IOU = 0.30
 FFT_SIZE = 4096
 HOP_SIZE = 512
 MAX_FREQUENCY_HZ = 3000.0
@@ -191,7 +193,7 @@ class YoloSignalDetector:
 
     def detect_capture(self, path: str | Path, *, confidence: float = 0.25) -> list[dict[str, Any]]:
         detections: list[dict[str, Any]] = []
-        for start, samples, sample_rate in audio_windows(path, stride_seconds=WINDOW_SECONDS // 2):
+        for start, samples, sample_rate in audio_windows(path, stride_seconds=WINDOW_STRIDE_SECONDS):
             image = spectrogram_image(samples, sample_rate)
             detections.extend(self.detect(image, sample_start=start, sample_count=len(samples),
                                           sample_rate=sample_rate, confidence=confidence))
@@ -211,7 +213,7 @@ def _box_iou(left: dict[str, Any], right: dict[str, Any]) -> float:
 
 
 def _deduplicate_window_detections(
-    detections: list[dict[str, Any]], *, iou_threshold: float = 0.30
+    detections: list[dict[str, Any]], *, iou_threshold: float = OVERLAP_DEDUP_IOU
 ) -> list[dict[str, Any]]:
     """Suppress high-overlap proposals repeated by adjacent overlapping windows."""
     ranked = sorted(detections, key=lambda item: float(item["confidence"]), reverse=True)
@@ -231,4 +233,11 @@ def _deduplicate_window_detections(
                 "sample_start": candidate["window_sample_start"],
                 "sample_count": candidate["window_sample_count"],
             })
+    for item in kept:
+        if "supporting_windows" in item:
+            unique = {
+                (window["sample_start"], window["sample_count"]): window
+                for window in item["supporting_windows"]
+            }
+            item["supporting_windows"] = list(unique.values())
     return sorted(kept, key=lambda item: (int(item["sample_start"]), float(item["frequency_low_hz"])))

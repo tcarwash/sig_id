@@ -23,7 +23,13 @@ from pydantic import BaseModel, Field
 
 from .dataset import CaptureStore, SignalLabel, LabelRevisionConflict
 from .classifier import FEATURE_VERSION, extract_features, load_model, propose
-from .cv_detector import PREPROCESSING_VERSION, WINDOW_SECONDS, YoloSignalDetector
+from .cv_detector import (
+    OVERLAP_DEDUP_IOU,
+    PREPROCESSING_VERSION,
+    WINDOW_SECONDS,
+    WINDOW_STRIDE_SECONDS,
+    YoloSignalDetector,
+)
 from .cv_embeddings import load_embedding_index, read_audio_range, region_image
 from .laya import LayaError, classify as classify_with_laya, configured as laya_configured, load_reference_examples
 from .demod import demodulate_2fsk, demodulate_bpsk, demodulate_mfsk, demodulate_ook, demodulate_qpsk
@@ -1291,8 +1297,8 @@ def create_app(
             "model_sha256": detector.model_sha256,
             "preprocessing_version": PREPROCESSING_VERSION,
             "window_seconds": WINDOW_SECONDS,
-            "window_stride_seconds": WINDOW_SECONDS // 2,
-            "overlap_deduplication": "confidence-ranked 2D IoU >= 0.30 across different source windows; supporting window lineage retained",
+            "window_stride_seconds": WINDOW_STRIDE_SECONDS,
+            "overlap_deduplication_iou": OVERLAP_DEDUP_IOU,
             "detections": detections,
         }
 

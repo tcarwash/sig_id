@@ -794,7 +794,9 @@ function renderCvDetections() {
     row.className = "track-row";
     const summary = document.createElement("div");
     summary.className = "track-summary";
-    summary.textContent = `CV box ${index + 1} · ${(detection.confidence * 100).toFixed(1)}% detector score · identity unknown`;
+    const supportingWindows = (detection.supporting_windows || []).length;
+    const corroboration = supportingWindows > 1 ? ` · seen in ${supportingWindows} windows` : "";
+    summary.textContent = `CV box ${index + 1} · ${(detection.confidence * 100).toFixed(1)}% detector score${corroboration} · identity unknown`;
     const detail = document.createElement("div");
     detail.className = "region-detail";
     detail.textContent = `${detection.frequency_low_hz.toFixed(0)}–${detection.frequency_high_hz.toFixed(0)} Hz · ${(detection.sample_start / detection.sample_rate).toFixed(2)}–${((detection.sample_start + detection.sample_count) / detection.sample_rate).toFixed(2)} s`;
