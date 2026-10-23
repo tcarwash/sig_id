@@ -95,6 +95,23 @@ docker compose -f compose.yaml -f compose.rocm.yaml exec workbench \
   --output-model /data/models/cv/signal.pt --device 0
 ```
 
+Evaluate the held-out detection-to-classifier flow with the trained detector and
+the existing method classifier. This reports box precision/recall, classifier
+coverage/accuracy on matched detections, abstentions, and known-label accepts on
+unmatched proposals:
+
+```sh
+docker compose -f compose.yaml -f compose.rocm.yaml exec workbench \
+  sig-id-evaluate-cv-flow --dataset /data/cv/signal-dataset --data-dir /data \
+  --detector /data/models/cv/signal.pt \
+  --classifier /data/models/method.npz \
+  --output /data/cv/cv-flow-evaluation.json
+```
+
+The report explicitly marks decoder outcomes as unmeasured until reviewed targets
+carry reproducible decoder settings and reference payloads. Keep that separate from
+successful audio recovery or protocol interoperability claims.
+
 Then set `SIG_ID_CV_MODEL_PATH=/data/models/cv/signal.pt` in `.env` and recreate the
 ROCm service. Keep the adjacent `.pt.json` metadata file beside the weights.
 

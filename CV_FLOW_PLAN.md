@@ -79,6 +79,7 @@ evidence, and end-to-end detector-to-decoder evaluation remain follow-up work.
 - Break results down by signal strength/SNR, signal type, overlap, drift, noise, and boundary truncation. The exporter records available source/scene conditions, and the trainer reports held-out IoU 0.50 detection metrics by source kind, overlap, tagged noise/SNR, drift, and boundary truncation, plus signal-type box recall. Per-type false-positive attribution is omitted because this class-agnostic model does not predict signal identity. Real-capture SNR and other unrecorded conditions remain unavailable rather than inferred.
 - Compare against the existing heuristic detector where both apply.
 - Separately evaluate the full downstream flow: detection recall, classifier coverage/accuracy on detected regions, unknown/abstention behavior, and successful decoder outcomes. Detector confidence alone must not establish identity.
+- A held-out detector-to-classifier evaluator is available and records detector matches, classifier coverage/accuracy, abstentions, and accepted known labels on unmatched proposals. Decoder outcome evaluation still needs test targets with reproducible decoder settings and reference payloads.
 
 ### 4. Add optional packaging and inference
 
