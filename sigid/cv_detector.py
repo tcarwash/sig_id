@@ -26,6 +26,7 @@ HOP_SIZE = 512
 MAX_FREQUENCY_HZ = 3000.0
 IMAGE_WIDTH = 256
 IMAGE_HEIGHT = 1024
+MODEL_IMAGE_SIZE = (IMAGE_HEIGHT, IMAGE_WIDTH)
 DB_FLOOR = -120.0
 DB_CEILING = -30.0
 
@@ -126,7 +127,8 @@ class YoloSignalDetector:
         if not 0.0 <= confidence <= 1.0:
             raise ValueError("confidence must be between 0 and 1")
         with self._lock:
-            results = self._model.predict(image, conf=confidence, verbose=False, imgsz=IMAGE_HEIGHT)
+            results = self._model.predict(image, conf=confidence, verbose=False, imgsz=MODEL_IMAGE_SIZE,
+                                          rect=True)
         if not results:
             return []
         boxes = results[0].boxes
@@ -168,7 +170,7 @@ class YoloSignalDetector:
     def embed_image(self, image: np.ndarray) -> np.ndarray:
         """Extract a normalized second-to-last-layer image embedding."""
         with self._lock:
-            extracted = self._model.embed(image, imgsz=IMAGE_HEIGHT, verbose=False)
+            extracted = self._model.embed(image, imgsz=MODEL_IMAGE_SIZE, verbose=False, rect=True)
         value = extracted[0] if isinstance(extracted, (list, tuple)) else extracted
         if hasattr(value, "detach"):
             vector = value.detach().cpu().numpy()

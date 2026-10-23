@@ -13,7 +13,7 @@ from typing import Any
 
 import numpy as np
 
-from .cv_detector import IMAGE_HEIGHT, IMAGE_WIDTH, PREPROCESSING_VERSION
+from .cv_detector import IMAGE_HEIGHT, IMAGE_WIDTH, MODEL_IMAGE_SIZE, PREPROCESSING_VERSION
 
 
 def _sha256(path: Path) -> str:
@@ -73,7 +73,7 @@ def _evaluate_test_set(model: Any, dataset: Path, *, confidence: float) -> dict[
         expected = _read_yolo_boxes(label_path)
         with Image.open(image_path) as opened:
             image = np.asarray(opened.convert("RGB"))
-        results = model.predict(image, conf=confidence, verbose=False, imgsz=IMAGE_HEIGHT)
+        results = model.predict(image, conf=confidence, verbose=False, imgsz=MODEL_IMAGE_SIZE, rect=True)
         boxes = results[0].boxes
         predicted = (
             boxes.xyxyn.detach().cpu().numpy().astype(np.float64)
@@ -151,6 +151,9 @@ def train_cv_detector(
         "data": str(data_yaml),
         "epochs": epochs,
         "imgsz": max(IMAGE_HEIGHT, IMAGE_WIDTH),
+        # The tall, narrow spectrogram should use its native rectangular batch
+        # shape; square letterboxing wastes most of the input tensor.
+        "rect": True,
         "batch": batch,
         "seed": seed,
         "deterministic": True,
@@ -195,6 +198,8 @@ def train_cv_detector(
         "windows_manifest_sha256": _sha256(dataset / "windows.jsonl"),
         "preprocessing_version": PREPROCESSING_VERSION,
         "image_shape": [IMAGE_HEIGHT, IMAGE_WIDTH, 3],
+        "model_image_size": list(MODEL_IMAGE_SIZE),
+        "rectangular_training": True,
         "epochs": epochs,
         "batch": batch,
         "seed": seed,
