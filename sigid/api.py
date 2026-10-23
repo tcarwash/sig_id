@@ -1311,6 +1311,9 @@ def create_app(
             query_vector = detector.embed_image(image)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except Exception as exc:
+            logging.getLogger(__name__).exception("CV similarity query failed for capture %s", capture_id)
+            raise HTTPException(status_code=503, detail=f"CV similarity search failed: {exc}") from exc
         scores = vectors @ query_vector
         ordered = np.argsort(scores)[::-1]
         neighbors = []

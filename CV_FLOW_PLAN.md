@@ -40,9 +40,9 @@ over 10-second spectrogram windows, capture-level proposals and overlays, human
 review into existing regions, lineage-aware dataset export and training commands,
 evaluation on held-out capture groups, optional ROCm Compose support, and an
 embedding index for reviewed regions. The base classifier/manual workflow remains
-available without the CV extra. Current commits are `37cd4f6` (detector and ROCm
-container) and `d5dfc0b` (proposal review evidence); the embedding retrieval slice
-is being finalized.
+available without the CV extra. The implementation commits are `37cd4f6` (detector
+and ROCm container), `d5dfc0b` (proposal review evidence), and `a421f39` (reviewed
+region embedding retrieval).
 
 The first slice does not yet provide a dedicated arbitrary box editor, live YOLO
 scanning, overlapping-window tracking, real-capture quality evidence, or
@@ -89,7 +89,7 @@ end-to-end detector-to-decoder evaluation. Those remain explicit follow-up work.
 - Render boxes as provisional overlays on the waterfall and let users accept, reject, or adjust them.
 - Convert accepted boxes into the existing exact time/frequency selection contract and fetch/replay the matching audio range.
 - Run the existing classifier on each accepted region. Keep classifier proposals reviewable and preserve its abstention behavior.
-- When the classifier is uncertain, offer embedding-based nearest examples and an unknown label. The initial UI exposes candidate retrieval for an active selection; classifier abstention does not yet automatically launch retrieval. Treat embeddings as candidate retrieval, not proof of identity.
+- When the classifier is uncertain, offer embedding-based nearest examples and an unknown label. The initial UI exposes candidate retrieval for an active selection and points to it after classifier abstention; retrieval remains an explicit user action. Treat embeddings as candidate retrieval, not proof of identity.
 - Offer decoder choices based on supported classifier results, but keep decoder execution explicit initially. Store the exact region, classifier evidence, selected decoder, and decode output together.
 - Deduplicate boxes from overlapping windows and track a detection across windows without losing its source-window lineage.
 

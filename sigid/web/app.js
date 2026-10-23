@@ -734,7 +734,7 @@ function renderCvSimilarResults(neighbors) {
     row.className = "track-row";
     const summary = document.createElement("div");
     summary.className = "track-summary";
-    summary.textContent = `${neighbor.label} · ${(100 * neighbor.similarity).toFixed(1)}% cosine similarity`;
+    summary.textContent = `${neighbor.label} · cosine ${neighbor.similarity.toFixed(3)}`;
     const detail = document.createElement("div");
     detail.className = "region-detail";
     detail.textContent = `${neighbor.frequency_low_hz.toFixed(0)}–${neighbor.frequency_high_hz.toFixed(0)} Hz · ${(neighbor.sample_start / neighbor.sample_rate).toFixed(2)}–${((neighbor.sample_start + neighbor.sample_count) / neighbor.sample_rate).toFixed(2)} s · ${neighbor.review_state} reference`;
@@ -928,6 +928,9 @@ el("model-propose").addEventListener("click", async () => {
       el("label-state").textContent = result.novelty_rejected
         ? `Model abstained · outside trained modulation range (distance ${result.novelty_distance.toFixed(2)} > ${result.novelty_threshold.toFixed(2)})`
         : `Model abstained · top guess ${result.top_candidate} at ${(100 * result.confidence).toFixed(1)}%`;
+      if (state.cvSimilarAvailable) {
+        el("label-state").textContent += " · Find similar signal examples to review nearest known regions, or leave identity unknown.";
+      }
     } else {
       el("family").value = result.family || "";
       el("method").value = result.method || "";
