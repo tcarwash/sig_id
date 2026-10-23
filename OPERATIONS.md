@@ -74,6 +74,8 @@ docker compose -f compose.yaml -f compose.rocm.yaml up --build -d
 ```
 
 The ROCm image uses AMD's PyTorch/ROCm base image and includes the optional CV runtime.
+Ultralytics is pinned to the version recorded in `uv.lock` so rebuilds retain the
+same detector API.
 It passes `/dev/kfd` and `/dev/dri` through to the container. Set the video and render
 group IDs in `.env` to match `stat -c '%g' /dev/kfd` and
 `stat -c '%g' /dev/dri/renderD128` on the Docker host; the example values are common

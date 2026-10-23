@@ -19,7 +19,7 @@ RUN apt-get update \
 WORKDIR /app
 COPY requirements/runtime.txt /tmp/requirements/runtime.txt
 RUN python -m pip install --no-cache-dir --require-hashes -r /tmp/requirements/runtime.txt \
-    && python -m pip install --no-cache-dir 'ultralytics>=8.4'
+    && python -m pip install --no-cache-dir 'ultralytics==8.4.184'
 COPY pyproject.toml ./
 COPY sigid ./sigid
 RUN python -m pip install --no-cache-dir --no-build-isolation --no-deps . \
