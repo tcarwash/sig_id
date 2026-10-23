@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 
 from .dataset import CaptureStore, SignalLabel, LabelRevisionConflict
 from .classifier import FEATURE_VERSION, extract_features, load_model, propose
+from .cv_detector import PREPROCESSING_VERSION, WINDOW_SECONDS, YoloSignalDetector
 from .laya import LayaError, classify as classify_with_laya, configured as laya_configured, load_reference_examples
 from .demod import demodulate_2fsk, demodulate_bpsk, demodulate_mfsk, demodulate_ook, demodulate_qpsk
 from .detection import detect_tracks
@@ -317,6 +318,15 @@ def create_app(
         except Exception as exc:
             classifier_error = str(exc)
 
+    configured_cv_model = os.environ.get("SIG_ID_CV_MODEL_PATH")
+    cv_detector = None
+    cv_detector_error = None
+    if configured_cv_model:
+        try:
+            cv_detector = YoloSignalDetector(configured_cv_model)
+        except Exception as exc:
+            cv_detector_error = str(exc)
+
     @asynccontextmanager
     async def lifespan(application: FastAPI):
         try:
@@ -344,6 +354,9 @@ def create_app(
     app.state.fldigi_replay = fldigi_replay
     app.state.classifier = classifier
     app.state.classifier_error = classifier_error
+    app.state.cv_detector = cv_detector
+    app.state.cv_detector_error = cv_detector_error
+    app.state.cv_model_path = configured_cv_model
     app.state.laya_references = load_reference_examples()
     app.state.live_track_registry = None
     app.state.fldigi_trials = FldigiTrialRunner(fldigi, run_store=store)
@@ -577,6 +590,19 @@ def create_app(
             "noise_class_trained": metadata.get("noise_class_trained", False),
             "noise_class_validated": metadata.get("noise_class_validated", False),
             "model_sha256": metadata["model_sha256"],
+        }
+
+    @app.get("/api/cv/status")
+    def cv_status() -> dict[str, Any]:
+        return {
+            "available": app.state.cv_detector is not None,
+            "configured": bool(app.state.cv_model_path),
+            "model_path": app.state.cv_model_path,
+            "error": app.state.cv_detector_error,
+            "compute_backend": app.state.cv_detector.compute_backend if app.state.cv_detector else None,
+            "preprocessing_version": PREPROCESSING_VERSION,
+            "window_seconds": WINDOW_SECONDS,
+            "class_agnostic": True,
         }
 
     @app.get("/api/laya/status")
@@ -1192,6 +1218,32 @@ def create_app(
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/captures/{capture_id}/cv-detections")
+    def detect_capture_signals(
+        capture_id: str,
+        confidence: float = Query(default=0.25, ge=0.0, le=1.0),
+    ) -> dict[str, Any]:
+        detector = app.state.cv_detector
+        if detector is None:
+            detail = app.state.cv_detector_error or "CV detector is disabled; configure SIG_ID_CV_MODEL_PATH and install the optional cv extra"
+            raise HTTPException(status_code=503, detail=detail)
+        try:
+            capture = store.capture(capture_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="capture not found") from exc
+        try:
+            detections = detector.detect_capture(capture["audio_path"], confidence=confidence)
+        except Exception as exc:
+            logging.getLogger(__name__).exception("Optional CV detection failed for capture %s", capture_id)
+            raise HTTPException(status_code=503, detail=f"CV inference failed: {exc}") from exc
+        return {
+            "capture_id": capture_id,
+            "model_sha256": detector.model_sha256,
+            "preprocessing_version": PREPROCESSING_VERSION,
+            "window_seconds": WINDOW_SECONDS,
+            "detections": detections,
+        }
 
     @app.get("/api/captures/{capture_id}/tracks")
     def get_signal_tracks(

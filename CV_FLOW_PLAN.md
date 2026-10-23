@@ -35,6 +35,12 @@ The initial detector should be **class-agnostic**: it finds signal-shaped region
 
 ## Implementation phases
 
+Implementation is underway. The optional inference contract, batch capture API,
+waterfall overlays, reviewed-window dataset export, training command, and CPU/ROCm
+container choices are being added in separate commits. Live detection, richer
+annotation editing, embedding retrieval integration, and end-to-end downstream
+evaluation remain later work.
+
 ### 1. Define the detection contract
 
 - Use 10-second spectrogram windows as the initial inference unit.
@@ -64,6 +70,7 @@ The initial detector should be **class-agnostic**: it finds signal-shaped region
 
 - Keep CV libraries out of base runtime dependencies. Add an explicit optional install extra for inference; isolate training dependencies in a separate extra or training environment if that avoids burdening deployment.
 - Load the detector only when CV is enabled and a model artifact is configured. Report a clear unavailable/disabled state when dependencies or weights are absent.
+- Optional Compose inference can use the CPU-capable base image or an AMD ROCm/PyTorch image with explicit `/dev/kfd` and `/dev/dri` pass-through.
 - Keep inference failures isolated so the classifier, manual selection, capture, and decoding workflows remain usable.
 - Begin with batch detection on completed captures. Measure model size, memory, CPU/GPU use, and per-window latency before enabling periodic live inference.
 - Keep model weights and writable CV data in the configured persistent data directory for Compose deployments; do not bake user-trained weights into the base image.

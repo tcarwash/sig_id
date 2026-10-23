@@ -4,6 +4,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     SIG_ID_DATA_DIR=/data
 
+ARG INSTALL_CV=0
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libportaudio2 libsndfile1 \
     && rm -rf /var/lib/apt/lists/* \
@@ -17,7 +19,11 @@ RUN pip install --no-cache-dir --require-hashes -r /tmp/requirements/build.txt \
     && pip install --no-cache-dir --require-hashes -r /tmp/requirements/runtime.txt
 COPY pyproject.toml ./
 COPY sigid ./sigid
-RUN pip install --no-cache-dir --no-build-isolation --no-deps . \
+RUN if [ "$INSTALL_CV" = "1" ]; then \
+        pip install --no-cache-dir --no-build-isolation '.[cv]'; \
+    else \
+        pip install --no-cache-dir --no-build-isolation --no-deps .; \
+    fi \
     && rm -rf /app /tmp/requirements
 
 WORKDIR /data

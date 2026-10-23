@@ -13,6 +13,7 @@ dependencies = ["numpy>=2.0"]
 audio = ["numpy>=2.0", "scipy>=1.13", "soundfile>=0.12", "sounddevice>=0.5"]
 api = ["fastapi>=0.111", "uvicorn>=0.30", "python-multipart>=0.0.9", "numpy>=2.0", "scipy>=1.13"]
 dev = ["pytest>=8", "fastapi>=0.111", "httpx>=0.27", "numpy>=2.0", "python-multipart>=0.0.9", "uvicorn>=0.30", "scipy>=1.13"]
+cv = ["ultralytics>=8.4"]
 
 [project.scripts]
 sig-id-probe-fldigi = "sigid.fldigi_probe:main"
@@ -34,6 +35,8 @@ sig-id-import-synthetic = "sigid.synthetic_dataset:main"
 sig-id-mix-scene = "sigid.scenes:create_main"
 sig-id-import-scene = "sigid.scenes:import_main"
 sig-id-evaluate-detector = "sigid.detection_evaluation:main"
+sig-id-export-cv-dataset = "sigid.cv_dataset:main"
+sig-id-train-cv-detector = "sigid.cv_training:main"
 sig-id-import-sigidwiki = "sigid.sigidwiki:main"
 sig-id-serve = "sigid.server:main"
 sig-id-hub = "sigid.hub:main"

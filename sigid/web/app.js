@@ -6,7 +6,7 @@ import { narrowKnownModes } from "/mode-candidates.mjs";
 import { layoutSignalLabels, signalCaption, hitSignal } from "/signal-overlays.mjs";
 
 const el = (id) => document.getElementById(id);
-const state = { capture: null, waterfall: null, drag: null, selection: null, regions: [], tracks: [], bitAnnotations: [], protocolStencils: [], liveView: false, liveSessionId: null, modelAvailable: false, view: null, demodExports: {}, selectedTrack: null, frozen: false, labelModeId: null, modeSearchResults: [], modeSearchRequest: 0, applyingMode: false, adjustingGeometry: false, geometryDraft: false, splitMode: false, splitChildren: [], splitParentSelection: null, mergeRegionIds: new Set(), modeProposalRegion: null, proposalCaptureRequest: 0, proposalEvidenceCaptures: [] };
+const state = { capture: null, waterfall: null, drag: null, selection: null, regions: [], tracks: [], cvDetections: [], cvAvailable: false, bitAnnotations: [], protocolStencils: [], liveView: false, liveSessionId: null, modelAvailable: false, view: null, demodExports: {}, selectedTrack: null, frozen: false, labelModeId: null, modeSearchResults: [], modeSearchRequest: 0, applyingMode: false, adjustingGeometry: false, geometryDraft: false, splitMode: false, splitChildren: [], splitParentSelection: null, mergeRegionIds: new Set(), modeProposalRegion: null, proposalCaptureRequest: 0, proposalEvidenceCaptures: [] };
 state.layaAvailable = false;
 state.coverageWindow = null;
 state.coverageMasks = { ignore_regions: [], uncertain_regions: [] };
@@ -659,6 +659,97 @@ async function refreshModelStatus() {
 }
 refreshModelStatus();
 
+async function refreshCvStatus() {
+  try {
+    const status = await request("/api/cv/status");
+    state.cvAvailable = Boolean(status.available);
+    el("cv-status").textContent = status.available
+      ? `YOLO signal detector ready · ${status.window_seconds}s windows · class agnostic`
+      : `Optional CV detector unavailable${status.error ? ` · ${status.error}` : " · install the cv extra and configure SIG_ID_CV_MODEL_PATH"}`;
+    updateCvButton();
+  } catch (error) {
+    state.cvAvailable = false;
+    el("cv-status").textContent = `CV status unavailable · ${error.message}`;
+    updateCvButton();
+  }
+}
+refreshCvStatus();
+
+function updateCvButton() {
+  const button = el("cv-scan");
+  if (button) button.disabled = !state.cvAvailable || !state.capture || state.liveView;
+}
+
+el("cv-scan").addEventListener("click", async () => {
+  if (!state.capture || state.liveView || !state.cvAvailable) return;
+  const capture = state.capture;
+  const button = el("cv-scan");
+  button.disabled = true;
+  button.textContent = "Scanning capture…";
+  el("cv-status").textContent = "Scanning completed recording in 10-second spectrogram windows…";
+  try {
+    const result = await request(`/api/captures/${encodeURIComponent(capture.id)}/cv-detections`, { method: "POST" });
+    if (state.capture !== capture || state.liveView) return;
+    state.cvDetections = result.detections;
+    renderCvDetections();
+    el("cv-status").textContent = `CV proposed ${result.detections.length} signal box${result.detections.length === 1 ? "" : "es"} · provisional; review before labeling or decoding`;
+    drawOverlays();
+  } catch (error) {
+    if (state.capture === capture) el("cv-status").textContent = `CV scan failed · ${error.message}`;
+  } finally {
+    button.textContent = "Scan capture with CV";
+    updateCvButton();
+  }
+});
+
+function renderCvDetections() {
+  const list = el("cv-detection-list");
+  if (!list) return;
+  list.replaceChildren();
+  for (const [index, detection] of state.cvDetections.entries()) {
+    const row = document.createElement("div");
+    row.className = "track-row";
+    const summary = document.createElement("div");
+    summary.className = "track-summary";
+    summary.textContent = `CV box ${index + 1} · ${(detection.confidence * 100).toFixed(1)}% detector score · identity unknown`;
+    const detail = document.createElement("div");
+    detail.className = "region-detail";
+    detail.textContent = `${detection.frequency_low_hz.toFixed(0)}–${detection.frequency_high_hz.toFixed(0)} Hz · ${(detection.sample_start / detection.sample_rate).toFixed(2)}–${((detection.sample_start + detection.sample_count) / detection.sample_rate).toFixed(2)} s`;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = "Review selection";
+    button.addEventListener("click", () => selectCvDetection(detection));
+    row.append(summary, detail, button);
+    list.append(row);
+  }
+  if (!state.cvDetections.length) {
+    const empty = document.createElement("p");
+    empty.className = "subhead";
+    empty.textContent = "No boxes proposed. The detector may miss weak or unfamiliar signals.";
+    list.append(empty);
+  }
+}
+
+function selectCvDetection(detection) {
+  const data = state.waterfall;
+  if (!data || state.liveView) return;
+  const proposal = {
+    sample_start: detection.sample_start,
+    sample_count: detection.sample_count,
+    frequency_low_hz: detection.frequency_low_hz,
+    frequency_high_hz: detection.frequency_high_hz,
+    track_state: "CV proposal",
+    modulation_hypothesis: "unknown signal",
+    tone_count_candidate: "unknown",
+    time_start_seconds: detection.sample_start / data.sample_rate,
+    time_end_seconds: (detection.sample_start + detection.sample_count) / data.sample_rate,
+  };
+  selectTrack(proposal);
+  state.selectedTrack = null;
+  el("inspector-context").textContent = `Provisional CV box · ${(detection.confidence * 100).toFixed(1)}% detector score · signal identity unknown`;
+  el("selection-details").textContent += " · inspect bounds, then run the existing classifier or save as unknown";
+}
+
 async function refreshLayaStatus() {
   try {
     const provider = await request("/api/laya/status");
@@ -786,6 +877,9 @@ el("live-start").addEventListener("click", async () => {
     el("live-stop").disabled = false;
     clearDemodExports();
     state.capture = null;
+    state.cvDetections = [];
+    renderCvDetections();
+    updateCvButton();
     state.liveView = true;
     state.liveSessionId = started.session_id;
     resetOutputSession();
@@ -1197,8 +1291,11 @@ async function loadCapture() {
   el("signal-labels")?.replaceChildren();
   state.view = null;
   state.selection = null;
+  state.cvDetections = [];
+  renderCvDetections();
   updateDecoderSelectionControls();
   updateModelButton();
+  updateCvButton();
   el("demod-run").disabled = false;
   el("ook-run").disabled = false;
   el("mfsk-run").disabled = false;
@@ -1209,6 +1306,7 @@ async function loadCapture() {
   state.tracks = [];
   renderTracks();
   const c = state.capture;
+  updateCvButton();
   el("capture-title").textContent = c.source_metadata.uploaded_filename || c.source_metadata.device_name || c.source_metadata.generator || "Audio recording";
   const manifestLink = el("manifest-download");
   if (c.source_kind === "synthetic" && c.source_metadata.manifest_file) {
@@ -1628,6 +1726,19 @@ function drawOverlays() {
     const top = Math.max(0, rowA);
     ctx.strokeRect(left, top, Math.max(2, Math.min(bins - 1, right) - left), Math.max(2, Math.min(overlayCanvas.height - 1, rowB) - top));
   }
+  for (const detection of state.cvDetections) {
+    const rowA = visibleRow(detection.sample_start);
+    const rowB = visibleRow(detection.sample_start + detection.sample_count);
+    const x = visibleX(detection.frequency_low_hz);
+    const right = visibleX(detection.frequency_high_hz);
+    if (rowB < 0 || rowA >= overlayCanvas.height || right < 0 || x >= bins) continue;
+    ctx.strokeStyle = "#bd8cff";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([2, 3]);
+    const left = Math.max(0, x);
+    const top = Math.max(0, rowA);
+    ctx.strokeRect(left, top, Math.max(2, Math.min(bins - 1, right) - left), Math.max(2, Math.min(overlayCanvas.height - 1, rowB) - top));
+  }
   ctx.setLineDash([]);
   for (const region of state.regions) {
     const rowA = visibleRow(region.sample_start);
@@ -1709,7 +1820,8 @@ function selectTrack(track) {
   el("protocol").value = "";
   el("variant").value = "";
   const trackEvidence = track.track_id ? ` Track ${track.track_id} observed ${track.track_observations} times (${track.track_state}).` : "";
-  el("notes").value = `Auto-detected candidate (${track.modulation_hypothesis}); review before labeling.${trackEvidence} SNR ${track.peak_snr_db.toFixed(1)} dB.`;
+  const snrEvidence = Number.isFinite(track.peak_snr_db) ? ` SNR ${track.peak_snr_db.toFixed(1)} dB.` : "";
+  el("notes").value = `Auto-detected candidate (${track.modulation_hypothesis}); review before labeling.${trackEvidence}${snrEvidence}`;
   el("save-region").disabled = state.liveView || !state.capture;
   updateModelButton();
   el("hint").classList.add("hidden");

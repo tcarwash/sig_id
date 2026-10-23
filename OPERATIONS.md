@@ -35,6 +35,66 @@ using `/data` for their output paths, then set `SIG_ID_MODEL_PATH=/data/models/m
 in `.env` and recreate the service. Leave this setting blank for manual operation.
 A missing or invalid model leaves capture and manual analysis usable.
 
+### Optional YOLO signal detector
+
+CV inference is off unless `SIG_ID_CV_MODEL_PATH` points to a trained detector. The
+base image does not install the CV dependency. To build the optional runtime, set
+`SIG_ID_INSTALL_CV=1` and `SIG_ID_CV_MODEL_PATH=/data/models/cv/signal.pt` in `.env`,
+then run `docker compose up --build -d`. Leave both settings blank or set the install
+flag to `0` to keep the base image lean. The CV button appears in the saved-capture
+signal panel when a model loads. Its boxes are provisional; select one to enter the
+existing classifier and manual label flow. Decoder execution remains explicit.
+
+Training and dataset export can run on the host with the optional extra:
+
+```sh
+python -m pip install -e '.[cv]'
+sig-id-export-cv-dataset --data-dir ~/.local/share/sig-id --output data/cv/signal-dataset
+sig-id-train-cv-detector --dataset data/cv/signal-dataset --output-model data/models/cv/signal.pt --device cpu
+```
+
+The exporter uses current accepted region geometry only inside fresh, complete
+`Signal detection` scene reviews. Windows with uncertain or ignored subregions are
+excluded. It groups parent/scene component captures and duplicate waveforms before
+assigning train/validation/test splits. At least three independent groups are
+required. The exported `export-report.json` and `windows.jsonl` record counts, hashes,
+source windows and preprocessing version. Review a sufficient range of recordings
+before training; the CLI does not turn unreviewed parts of a capture into negative
+examples. Ultralytics downloads its selected base checkpoint when needed. The optional
+Ultralytics package is AGPL-3.0-or-later; check its [license terms](https://github.com/ultralytics/ultralytics/blob/main/LICENSE)
+before distributing an image that includes it.
+
+### AMD ROCm
+
+For an AMD GPU, use the separate ROCm build and Compose override:
+
+```sh
+docker compose -f compose.yaml -f compose.rocm.yaml up --build -d
+```
+
+The ROCm image uses AMD's PyTorch/ROCm base image and includes the optional CV runtime.
+It passes `/dev/kfd` and `/dev/dri` through to the container. Set the video and render
+group IDs in `.env` to match `stat -c '%g' /dev/kfd` and
+`stat -c '%g' /dev/dri/renderD128` on the Docker host; the example values are common
+defaults, not universal. The host needs a working ROCm driver and a GPU supported by
+the chosen AMD image. Training can then use `--device 0`. The image is large because
+the AMD runtime and PyTorch are included; changing `SIG_ID_ROCM_PYTORCH_IMAGE` should
+be treated as a separate ROCm/PyTorch compatibility change.
+
+After saving reviewed capture boxes and complete scene reviews in the workbench, export
+and train inside the ROCm container:
+
+```sh
+docker compose -f compose.yaml -f compose.rocm.yaml exec workbench \
+  sig-id-export-cv-dataset --data-dir /data --output /data/cv/signal-dataset
+docker compose -f compose.yaml -f compose.rocm.yaml exec workbench \
+  sig-id-train-cv-detector --dataset /data/cv/signal-dataset \
+  --output-model /data/models/cv/signal.pt --device 0
+```
+
+Then set `SIG_ID_CV_MODEL_PATH=/data/models/cv/signal.pt` in `.env` and recreate the
+ROCm service. Keep the adjacent `.pt.json` metadata file beside the weights.
+
 The optional **Auto ID with Laya** action sends the selected region's derived spectral
 and envelope feature vector to a Laya System One endpoint; it does not send the WAV
 audio or automatically save a label. Set `LAYA_ENDPOINT` to the full endpoint URL and,

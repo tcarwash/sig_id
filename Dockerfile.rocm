@@ -1,0 +1,31 @@
+# Optional ROCm image for detector inference and training on a passed-through AMD GPU.
+ARG ROCM_PYTORCH_IMAGE=rocm/pytorch:rocm10.1.0_ubuntu24.04_py3.12_pytorch_release_2.13.0@sha256:b11c021675620aa82d1eaa2d1e78387dde7521bb5b972ce0ad47b6b004d4e7aa
+FROM ${ROCM_PYTORCH_IMAGE}
+ARG INSTALL_CV=1
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    SIG_ID_DATA_DIR=/data
+
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libportaudio2 libsndfile1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 10001 sigid \
+    && useradd --uid 10001 --gid 10001 --home-dir /data --no-create-home sigid \
+    && mkdir -p /data \
+    && chown sigid:sigid /data
+
+WORKDIR /app
+COPY requirements/runtime.txt /tmp/requirements/runtime.txt
+RUN python -m pip install --no-cache-dir --require-hashes -r /tmp/requirements/runtime.txt \
+    && python -m pip install --no-cache-dir 'ultralytics>=8.4'
+COPY pyproject.toml ./
+COPY sigid ./sigid
+RUN python -m pip install --no-cache-dir --no-build-isolation --no-deps . \
+    && rm -rf /app /tmp/requirements
+
+WORKDIR /data
+USER 10001:10001
+VOLUME ["/data"]
+CMD ["sig-id-serve"]
