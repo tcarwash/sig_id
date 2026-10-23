@@ -157,7 +157,7 @@ def evaluate_cv_classifier_flow(
     *,
     detector_path: str | Path,
     classifier_path: str | Path,
-    confidence: float = 0.25,
+    confidence: float | None = None,
     match_iou: float = 0.50,
 ) -> dict[str, Any]:
     """Measure detector proposals and classifier outcomes on reviewed test windows.
@@ -166,7 +166,7 @@ def evaluate_cv_classifier_flow(
     the workbench classifier endpoint. A separate oracle-assisted decoder score is
     computed only where direct synthetic references provide reproducible settings.
     """
-    if not 0.0 <= confidence <= 1.0 or not 0.0 < match_iou <= 1.0:
+    if (confidence is not None and not 0.0 <= confidence <= 1.0) or not 0.0 < match_iou <= 1.0:
         raise ValueError("confidence and match_iou must be between 0 and 1")
     dataset = Path(dataset_dir).expanduser().resolve()
     root = Path(data_dir).expanduser()
@@ -196,6 +196,7 @@ def evaluate_cv_classifier_flow(
     captures = store.list_captures()
     lineage = _lineage_groups(captures)
     detector = YoloSignalDetector(detector_path)
+    confidence = detector.confidence_threshold if confidence is None else confidence
     classifier_metadata, classifier_parameters = load_model(classifier_path)
 
     detection_counts = {"true_positive": 0, "false_positive": 0, "false_negative": 0}
@@ -516,7 +517,7 @@ def main() -> None:
     parser.add_argument("--data-dir", type=Path, default=Path("~/.local/share/sig-id").expanduser())
     parser.add_argument("--detector", type=Path, required=True)
     parser.add_argument("--classifier", type=Path, required=True)
-    parser.add_argument("--confidence", type=float, default=0.25)
+    parser.add_argument("--confidence", type=float, default=None, help="override the detector artifact confidence threshold")
     parser.add_argument("--match-iou", type=float, default=0.50)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()

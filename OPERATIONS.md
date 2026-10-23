@@ -116,6 +116,10 @@ docker compose -f compose.yaml -f compose.rocm.yaml exec workbench \
   --output /data/cv/cv-flow-evaluation.json
 ```
 
+The evaluator uses the confidence threshold saved in the detector artifact so its
+proposal counts match normal batch scans. Pass `--confidence` only to evaluate a
+different threshold explicitly.
+
 For direct synthetic 2FSK, BPSK, QPSK, OOK, and bit-mapped MFSK captures, the report
 also measures bit recovery from matched YOLO time crops using generator settings
 from the hashed synthetic manifest. BPSK polarity and QPSK rotation are resolved
