@@ -669,8 +669,12 @@ async function refreshCvStatus() {
     const status = await request("/api/cv/status");
     state.cvAvailable = Boolean(status.available);
     state.cvSimilarAvailable = Boolean(status.similarity_search_available);
+    const backend = status.compute_backend || "unknown backend";
+    const backendDescription = backend === "rocm-unavailable"
+      ? "ROCm runtime unavailable; inference will use CPU"
+      : `${backend.toUpperCase()} inference`;
     el("cv-status").textContent = status.available
-      ? `YOLO signal detector ready · ${status.window_seconds}s windows · confidence ${(100 * status.confidence_threshold).toFixed(0)}% · class agnostic`
+      ? `YOLO signal detector ready · ${backendDescription} · ${status.window_seconds}s windows · confidence ${(100 * status.confidence_threshold).toFixed(0)}% · class agnostic`
       : `Optional CV detector unavailable${status.error ? ` · ${status.error}` : " · install the cv extra and configure SIG_ID_CV_MODEL_PATH"}`;
     updateCvButton();
     updateCvSimilarButton();
