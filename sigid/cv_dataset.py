@@ -89,14 +89,17 @@ def _review_covers_window(review: dict[str, Any], start: int, count: int) -> boo
     return not review["ignore_regions"] and not review["uncertain_regions"]
 
 
-def _window_boxes(regions: list[dict[str, Any]], start: int, count: int) -> tuple[list[str], str | None]:
+def _window_boxes(
+    regions: list[dict[str, Any]], start: int, count: int,
+) -> tuple[list[str], list[str], str | None]:
     lines = []
+    box_types = []
     end = start + count
     for region in regions:
         if region["lineage_state"] != "active" or region["review_state"] != "accepted":
             continue
         evidence = region.get("evidence") or {}
-        if evidence.get("generator") == "sig-id-noise":
+        if evidence.get("generator") == "sig-id-noise" or evidence.get("noise_only") is True:
             # The controlled noise fixture has a full-capture label for dataset
             # provenance, but it is explicitly a detector-negative example.
             continue
@@ -106,7 +109,7 @@ def _window_boxes(regions: list[dict[str, Any]], start: int, count: int) -> tupl
             continue
         low, high = region["frequency_low_hz"], region["frequency_high_hz"]
         if low is None or high is None:
-            return [], f"accepted region {region['id']} has no frequency bounds"
+            return [], [], f"accepted region {region['id']} has no frequency bounds"
         x1, x2 = max(0.0, low), min(MAX_FREQUENCY_HZ, high)
         y1, y2 = max(start, region_start), min(end, region_end)
         if x2 <= x1 or y2 <= y1:
@@ -114,7 +117,79 @@ def _window_boxes(regions: list[dict[str, Any]], start: int, count: int) -> tupl
         cx, cy = (x1 + x2) / (2 * MAX_FREQUENCY_HZ), (y1 + y2 - 2 * start) / (2 * count)
         width, height = (x2 - x1) / MAX_FREQUENCY_HZ, (y2 - y1) / count
         lines.append(f"0 {cx:.8f} {cy:.8f} {width:.8f} {height:.8f}")
-    return lines, None
+        box_types.append(str(region["method"] or region["family"] or "unknown"))
+    return lines, box_types, None
+
+
+def _window_conditions(
+    regions: list[dict[str, Any]], capture: dict[str, Any], start: int, count: int,
+) -> dict[str, Any]:
+    end = start + count
+    active = []
+    touched = []
+    for region in regions:
+        if region["lineage_state"] != "active" or region["review_state"] != "accepted":
+            continue
+        evidence = region.get("evidence") or {}
+        region_start = int(region["sample_start"])
+        region_end = region_start + int(region["sample_count"])
+        if region_start < end and region_end > start:
+            touched.append((region, evidence, region_start, region_end))
+            low, high = region["frequency_low_hz"], region["frequency_high_hz"]
+            overlaps_model_band = (
+                low is not None and high is not None
+                and max(0.0, float(low)) < min(MAX_FREQUENCY_HZ, float(high))
+            )
+            if (
+                overlaps_model_band
+                and evidence.get("generator") != "sig-id-noise"
+                and evidence.get("noise_only") is not True
+            ):
+                active.append((region, evidence, region_start, region_end))
+
+    labels = sorted({
+        str(region["method"] or region["family"] or "unknown")
+        for region, _, _, _ in active
+    })
+    if not labels:
+        labels = ["no_signal"]
+    source = capture["source_metadata"]
+    generator = source.get("generator")
+    parameters = source.get("parameters") or {}
+    snr_db = None
+    if generator == "sig-id-noise":
+        noise_condition = "noise_only"
+    elif generator == "sig-id-awgn-augmentation":
+        snr_db = parameters.get("requested_snr_db")
+        valid_snr = isinstance(snr_db, (int, float)) and not isinstance(snr_db, bool) and np.isfinite(snr_db)
+        noise_condition = f"awgn_snr_{float(snr_db):g}_db" if valid_snr else "awgn"
+    elif any(evidence.get("component_generator") == "sig-id-noise" for _, evidence, _, _ in touched):
+        noise_condition = "noise_component"
+    elif any(evidence.get("component_generator") == "sig-id-awgn-augmentation" for _, evidence, _, _ in touched):
+        noise_condition = "awgn_component"
+    else:
+        noise_condition = "not_tagged"
+
+    scene_drifts = [
+        abs(float(evidence["drift_hz_per_second"]))
+        for _, evidence, _, _ in touched
+        if "drift_hz_per_second" in evidence
+    ]
+    truncated = sum(region_start < start or region_end > end for _, _, region_start, region_end in active)
+    return {
+        "source_kind": capture["source_kind"],
+        "source_generator": generator,
+        "signal_types": labels,
+        "signal_overlap": "none" if not active else "multiple" if len(active) > 1 else "single",
+        "noise_condition": noise_condition,
+        "snr_db": float(snr_db) if isinstance(snr_db, (int, float)) and not isinstance(snr_db, bool) and np.isfinite(snr_db) else None,
+        "drift_condition": (
+            "unknown" if not scene_drifts else "drifted" if any(value > 0 for value in scene_drifts) else "no_drift"
+        ),
+        "maximum_absolute_drift_hz_per_second": max(scene_drifts) if scene_drifts else None,
+        "boundary_truncation": "truncated" if truncated else "not_truncated",
+        "truncated_signal_count": truncated,
+    }
 
 
 def export_cv_dataset(
@@ -153,13 +228,14 @@ def export_cv_dataset(
             if not covering:
                 skipped["unreviewed_window"] += 1
                 continue
-            labels, error = _window_boxes(regions, start, count)
+            labels, box_types, error = _window_boxes(regions, start, count)
             if error:
                 skipped["unsupported_region"] += 1
                 continue
             image = spectrogram_image(samples, actual_rate)
             group = groups[capture["id"]]
             split = split_by_group[group]
+            conditions = _window_conditions(regions, capture, start, count)
             stem = f"{capture['id']}-{start:012d}"
             image_path = destination / "images" / split / f"{stem}.png"
             label_path = destination / "labels" / split / f"{stem}.txt"
@@ -178,6 +254,8 @@ def export_cv_dataset(
                 "preprocessing_version": "sig-id-cv-gray-v1",
                 "review_ids": [review["coverage_id"] for review in covering],
                 "box_count": len(labels),
+                "box_types": box_types,
+                "conditions": conditions,
                 "image_sha256": _sha256(image_path),
                 "label_sha256": _sha256(label_path),
             })
@@ -220,6 +298,21 @@ def export_cv_dataset(
         "negative_images_by_split": {
             split: sum(row["split"] == split and row["box_count"] == 0 for row in metadata_rows)
             for split in ("train", "validation", "test")
+        },
+        "test_condition_categories": {
+            dimension: sorted({
+                value
+                for row in metadata_rows if row["split"] == "test"
+                for value in (
+                    row["conditions"][dimension]
+                    if isinstance(row["conditions"][dimension], list)
+                    else [row["conditions"][dimension]]
+                ) if value is not None
+            })
+            for dimension in (
+                "source_kind", "source_generator", "signal_types", "signal_overlap",
+                "noise_condition", "snr_db", "drift_condition", "boundary_truncation",
+            )
         },
         "skipped_windows": skipped,
         "captures_with_windows": len(window_samples_by_capture),

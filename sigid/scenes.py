@@ -334,6 +334,7 @@ def import_mixed_scene(
         )
         region_ids = []
         for component, (source_capture, source_region, _, _, _, start, _, _, _, _, _, rendered_count) in zip(components, resolved):
+            component_generator = source_capture["source_metadata"].get("generator")
             region_ids.append(store.add_region(
                 capture_id,
                 sample_start=start,
@@ -353,6 +354,14 @@ def import_mixed_scene(
                         "component_capture_id": source_capture["id"],
                         "component_sha256": source_capture["sha256"],
                         "source_region_id": source_region["id"],
+                        "component_generator": component_generator,
+                        "noise_only": component_generator == "sig-id-noise",
+                        "scene_start_sample": start,
+                        "scene_sample_count": rendered_count,
+                        "frequency_offset_hz": component.get("frequency_offset_hz", 0.0),
+                        "drift_hz_per_second": component.get("drift_hz_per_second", 0.0),
+                        "lowpass_hz": component.get("lowpass_hz"),
+                        "clock_error_ppm": component.get("clock_error_ppm", 0.0),
                     },
                     notes="Constituent label from a validated synthetic source mixed into a deterministic scene.",
                 ),

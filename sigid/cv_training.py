@@ -82,6 +82,17 @@ def _evaluate_test_set(model: Any, dataset: Path, *, confidence: float) -> dict[
     frequency_bound_errors: list[float] = []
     time_center_errors: list[float] = []
     time_bound_errors: list[float] = []
+    condition_totals: dict[str, dict[str, list[int]]] = {
+        dimension: {}
+        for dimension in (
+            "source_kind", "signal_overlap", "noise_condition",
+            "snr_condition", "drift_condition", "boundary_truncation",
+        )
+    }
+    condition_window_counts: dict[str, dict[str, int]] = {
+        dimension: {} for dimension in condition_totals
+    }
+    signal_type_counts: dict[str, list[int]] = {}
     image_paths = sorted((dataset / "images" / "test").glob("*.png"))
     if not image_paths:
         raise ValueError("test split has no reviewed windows")
@@ -105,6 +116,37 @@ def _evaluate_test_set(model: Any, dataset: Path, *, confidence: float) -> dict[
         if window is None:
             raise ValueError(f"test image {image_path.name} is missing from windows.jsonl")
         matches = _match_pairs(predicted, expected, 0.50)
+        condition_counts = (len(matches), len(predicted) - len(matches), len(expected) - len(matches))
+        conditions = window.get("conditions", {})
+        breakdown_keys = {
+            "source_kind": [conditions.get("source_kind", "unknown")],
+            "signal_overlap": [conditions.get("signal_overlap", "unknown")],
+            "noise_condition": [conditions.get("noise_condition", "unknown")],
+            "snr_condition": [
+                f"snr_db_{float(conditions['snr_db']):g}"
+                if isinstance(conditions.get("snr_db"), (int, float))
+                and not isinstance(conditions.get("snr_db"), bool)
+                and np.isfinite(conditions.get("snr_db")) else "not_available"
+            ],
+            "drift_condition": [conditions.get("drift_condition", "unknown")],
+            "boundary_truncation": [conditions.get("boundary_truncation", "unknown")],
+        }
+        for dimension, values in breakdown_keys.items():
+            for value in values:
+                key = str(value)
+                counts = condition_totals[dimension].setdefault(key, [0, 0, 0])
+                condition_totals[dimension][key] = [
+                    previous + current for previous, current in zip(counts, condition_counts, strict=True)
+                ]
+                condition_window_counts[dimension][key] = condition_window_counts[dimension].get(key, 0) + 1
+        box_types = window.get("box_types", [])
+        if len(box_types) != len(expected):
+            box_types = ["unknown"] * len(expected)
+        matched_targets = {target for _, target in matches}
+        for target, signal_type in enumerate(box_types):
+            counts = signal_type_counts.setdefault(str(signal_type), [0, 0])
+            counts[0] += 1
+            counts[1] += int(target in matched_targets)
         duration = window["sample_count"] / window["sample_rate"]
         for predicted_index, expected_index in matches:
             prediction = predicted[predicted_index]
@@ -135,6 +177,28 @@ def _evaluate_test_set(model: Any, dataset: Path, *, confidence: float) -> dict[
             "precision": true_positive / max(1, true_positive + false_positive),
             "recall": true_positive / max(1, true_positive + false_negative),
         }
+    condition_breakdowns = {}
+    for dimension, groups in condition_totals.items():
+        condition_breakdowns[dimension] = {}
+        for condition, counts in sorted(groups.items()):
+            true_positive, false_positive, false_negative = counts
+            condition_breakdowns[dimension][condition] = {
+                "reviewed_windows": condition_window_counts[dimension][condition],
+                "true_positive": true_positive,
+                "false_positive": false_positive,
+                "false_negative": false_negative,
+                "precision": true_positive / max(1, true_positive + false_positive),
+                "recall": true_positive / max(1, true_positive + false_negative),
+            }
+    signal_type_recall = {
+        signal_type: {
+            "ground_truth_boxes": counts[0],
+            "matched_boxes": counts[1],
+            "missed_boxes": counts[0] - counts[1],
+            "recall": counts[1] / max(1, counts[0]),
+        }
+        for signal_type, counts in sorted(signal_type_counts.items())
+    }
     return {
         "confidence_threshold": confidence,
         "reviewed_test_windows": len(image_paths),
@@ -149,6 +213,8 @@ def _evaluate_test_set(model: Any, dataset: Path, *, confidence: float) -> dict[
             "note": "Errors are calculated only for greedy IoU >= 0.50 matches; null means no boxes matched.",
         },
         "metrics": results,
+        "condition_breakdowns_iou_0_50": condition_breakdowns,
+        "signal_type_recall_iou_0_50": signal_type_recall,
         "scope": "one fixed confidence threshold on capture/lineage-held-out, completely reviewed windows",
     }
 
