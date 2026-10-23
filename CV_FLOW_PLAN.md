@@ -47,8 +47,11 @@ region embedding retrieval), followed by evaluation, packaging, and waterfall
 geometry refinements.
 
 The first slice reuses the existing selection and geometry correction tools to
-inspect and adjust proposed boxes. Live YOLO scanning, real-capture quality
-evidence, and end-to-end detector-to-decoder evaluation remain follow-up work.
+inspect and adjust proposed boxes. A held-out downstream evaluator now measures
+detection-to-classifier behavior and limited oracle-assisted bit recovery on direct
+synthetic captures. Live YOLO scanning, independent real-capture quality evidence,
+classifier-selected decoding, and protocol interoperability validation remain
+follow-up work.
 
 ### 1. Define the detection contract
 
