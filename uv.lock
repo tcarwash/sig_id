@@ -2132,7 +2132,7 @@ requires-dist = [
     { name = "scipy", marker = "extra == 'dev'", specifier = ">=1.13" },
     { name = "sounddevice", marker = "extra == 'audio'", specifier = ">=0.5" },
     { name = "soundfile", marker = "extra == 'audio'", specifier = ">=0.12" },
-    { name = "ultralytics", marker = "extra == 'cv'", specifier = ">=8.4" },
+    { name = "ultralytics", marker = "extra == 'cv'", specifier = "==8.4.184" },
     { name = "uvicorn", marker = "extra == 'api'", specifier = ">=0.30" },
     { name = "uvicorn", marker = "extra == 'dev'", specifier = ">=0.30" },
 ]
