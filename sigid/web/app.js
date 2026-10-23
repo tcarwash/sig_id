@@ -1815,68 +1815,67 @@ function drawOverlays() {
   const bins = view.frequencyEnd - view.frequencyStart;
   const visibleRow = (sample) => sampleToRow(sample);
   const visibleX = (frequency) => Math.round((frequency - lowHz) / Math.max(1, highHz - lowHz) * (bins - 1));
+  const overlayBounds = (sampleStart, sampleCount, frequencyLow, frequencyHigh) => {
+    const sampleEnd = sampleStart + sampleCount;
+    if (sampleEnd <= state.view.timeStartSample || sampleStart >= state.view.timeEndSample
+      || frequencyHigh <= lowHz || frequencyLow >= highHz) return null;
+    const x0 = visibleX(frequencyLow);
+    const x1 = visibleX(frequencyHigh);
+    const y0 = visibleRow(sampleStart);
+    const y1 = visibleRow(sampleEnd);
+    const left = Math.max(0, Math.min(x0, x1));
+    const right = Math.min(bins - 1, Math.max(x0, x1));
+    const top = Math.max(0, Math.min(y0, y1));
+    const bottom = Math.min(overlayCanvas.height - 1, Math.max(y0, y1));
+    if (right < left || bottom < top) return null;
+    return {
+      left,
+      top,
+      width: Math.max(2, right - left),
+      height: Math.max(2, bottom - top),
+    };
+  };
   for (const track of state.tracks) {
-    const rowA = visibleRow(track.sample_start);
-    const rowB = visibleRow(track.sample_start + track.sample_count);
-    const x = visibleX(track.frequency_low_hz);
-    const right = visibleX(track.frequency_high_hz);
-    if (rowB < 0 || rowA >= overlayCanvas.height || right < 0 || x >= bins) continue;
+    const bounds = overlayBounds(track.sample_start, track.sample_count, track.frequency_low_hz, track.frequency_high_hz);
+    if (!bounds) continue;
     ctx.strokeStyle = track.track_state === "persistent" ? "#52d6d0" : "#f1be69";
     ctx.lineWidth = 1.5;
     ctx.setLineDash([5, 3]);
-    const left = Math.max(0, x);
-    const top = Math.max(0, rowA);
-    ctx.strokeRect(left, top, Math.max(2, Math.min(bins - 1, right) - left), Math.max(2, Math.min(overlayCanvas.height - 1, rowB) - top));
+    ctx.strokeRect(bounds.left, bounds.top, bounds.width, bounds.height);
   }
   for (const detection of state.cvDetections) {
-    const rowA = visibleRow(detection.sample_start);
-    const rowB = visibleRow(detection.sample_start + detection.sample_count);
-    const x = visibleX(detection.frequency_low_hz);
-    const right = visibleX(detection.frequency_high_hz);
-    if (rowB < 0 || rowA >= overlayCanvas.height || right < 0 || x >= bins) continue;
+    const bounds = overlayBounds(detection.sample_start, detection.sample_count,
+      detection.frequency_low_hz, detection.frequency_high_hz);
+    if (!bounds) continue;
     ctx.strokeStyle = "#bd8cff";
     ctx.lineWidth = 2;
     ctx.setLineDash([2, 3]);
-    const left = Math.max(0, x);
-    const top = Math.max(0, rowA);
-    ctx.strokeRect(left, top, Math.max(2, Math.min(bins - 1, right) - left), Math.max(2, Math.min(overlayCanvas.height - 1, rowB) - top));
+    ctx.strokeRect(bounds.left, bounds.top, bounds.width, bounds.height);
   }
   ctx.setLineDash([]);
   for (const region of state.regions) {
-    const rowA = visibleRow(region.sample_start);
-    const rowB = visibleRow(region.sample_start + region.sample_count);
     const low = region.frequency_low_hz ?? 0;
     const high = region.frequency_high_hz ?? data.sample_rate / 2;
-    const x = visibleX(low);
-    const right = visibleX(high);
-    if (rowB < 0 || rowA >= overlayCanvas.height || right < 0 || x >= bins) continue;
+    const bounds = overlayBounds(region.sample_start, region.sample_count, low, high);
+    if (!bounds) continue;
     ctx.strokeStyle = "#ffffff";
     ctx.lineWidth = 2;
-    const left = Math.max(0, x);
-    const top = Math.max(0, rowA);
-    ctx.strokeRect(left, top, Math.max(2, Math.min(bins - 1, right) - left), Math.max(2, Math.min(overlayCanvas.height - 1, rowB) - top));
+    ctx.strokeRect(bounds.left, bounds.top, bounds.width, bounds.height);
   }
   if (state.coverageOnly && state.coverageWindow) {
     for (const [field, color] of [["uncertain_regions", "#f1be69"], ["ignore_regions", "#ee796f"]]) {
       for (const mask of state.coverageMasks[field]) {
         const low = mask.frequency_low_hz ?? state.coverageWindow.frequency_low_hz ?? 0;
         const high = mask.frequency_high_hz ?? state.coverageWindow.frequency_high_hz ?? data.sample_rate / 2;
-        const x = visibleX(low);
-        const right = visibleX(high);
-        const rowA = visibleRow(mask.sample_start);
-        const rowB = visibleRow(mask.sample_start + mask.sample_count);
-        if (rowB < 0 || rowA >= overlayCanvas.height || right < 0 || x >= bins) continue;
-        const left = Math.max(0, x);
-        const top = Math.max(0, rowA);
-        const width = Math.max(2, Math.min(bins - 1, right) - left);
-        const height = Math.max(2, Math.min(overlayCanvas.height - 1, rowB) - top);
+        const bounds = overlayBounds(mask.sample_start, mask.sample_count, low, high);
+        if (!bounds) continue;
         ctx.fillStyle = color;
         ctx.globalAlpha = 0.2;
-        ctx.fillRect(left, top, width, height);
+        ctx.fillRect(bounds.left, bounds.top, bounds.width, bounds.height);
         ctx.globalAlpha = 1;
         ctx.strokeStyle = color;
         ctx.lineWidth = 2;
-        ctx.strokeRect(left, top, width, height);
+        ctx.strokeRect(bounds.left, bounds.top, bounds.width, bounds.height);
       }
     }
   }
