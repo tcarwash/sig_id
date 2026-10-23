@@ -36,7 +36,8 @@ The initial detector should be **class-agnostic**: it finds signal-shaped region
 ## Implementation phases
 
 The first implementation slice is in place: optional class-agnostic YOLO inference
-over 10-second spectrogram windows, capture-level proposals and overlays, human
+over overlapping 10-second spectrogram windows, confidence-ranked cross-window
+duplicate suppression with supporting-window lineage, capture-level proposals and overlays, human
 review into existing regions, lineage-aware dataset export and training commands,
 evaluation on held-out capture groups, optional ROCm Compose support, and an
 embedding index for reviewed regions. The base classifier/manual workflow remains
@@ -97,7 +98,7 @@ evidence, and end-to-end detector-to-decoder evaluation remain follow-up work.
 - Run the existing classifier on each accepted region. Keep classifier proposals reviewable and preserve its abstention behavior.
 - When the classifier is uncertain, offer embedding-based nearest examples and an unknown label. The initial UI exposes candidate retrieval for an active selection and points to it after classifier abstention; retrieval remains an explicit user action. Treat embeddings as candidate retrieval, not proof of identity.
 - Offer decoder choices based on supported classifier results, but keep decoder execution explicit initially. Store the exact region, classifier evidence, selected decoder, and decode output together.
-- Deduplicate boxes from overlapping windows and track a detection across windows without losing its source-window lineage.
+- Deduplicate boxes from overlapping windows and track a detection across windows without losing its source-window lineage. Batch capture scanning now uses a 5-second stride, suppresses cross-window boxes at 0.30 2D IoU, and retains supporting window metadata on the surviving proposal; temporal tracking beyond one completed-capture scan remains future work.
 
 ### 6. Opt-in rollout and acceptance gates
 

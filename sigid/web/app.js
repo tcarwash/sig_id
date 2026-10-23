@@ -769,13 +769,13 @@ el("cv-scan").addEventListener("click", async () => {
   const button = el("cv-scan");
   button.disabled = true;
   button.textContent = "Scanning capture…";
-  el("cv-status").textContent = "Scanning completed recording in 10-second spectrogram windows…";
+  el("cv-status").textContent = "Scanning completed recording in overlapping 10-second spectrogram windows…";
   try {
     const result = await request(`/api/captures/${encodeURIComponent(capture.id)}/cv-detections`, { method: "POST" });
     if (state.capture !== capture || state.liveView) return;
     state.cvDetections = result.detections;
     renderCvDetections();
-    el("cv-status").textContent = `CV proposed ${result.detections.length} signal box${result.detections.length === 1 ? "" : "es"} · provisional; review before labeling or decoding`;
+    el("cv-status").textContent = `CV proposed ${result.detections.length} signal box${result.detections.length === 1 ? "" : "es"} · overlapping windows deduplicated; provisional, review before labeling or decoding`;
     drawOverlays();
   } catch (error) {
     if (state.capture === capture) el("cv-status").textContent = `CV scan failed · ${error.message}`;
@@ -834,6 +834,7 @@ function selectCvDetection(detection) {
       window_sample_start: detection.window_sample_start,
       window_sample_count: detection.window_sample_count,
       sample_rate: detection.sample_rate,
+      supporting_windows: detection.supporting_windows || [],
     },
   };
   selectTrack(proposal);

@@ -60,14 +60,19 @@ def spectrogram_image(samples: Any, sample_rate: int) -> np.ndarray:
     return np.repeat(gray[:, :, None], 3, axis=2)
 
 
-def audio_windows(path: str | Path, seconds: int = WINDOW_SECONDS) -> Iterator[tuple[int, np.ndarray, int]]:
-    """Yield bounded, non-overlapping mono windows and the capture sample count."""
+def audio_windows(path: str | Path, seconds: int = WINDOW_SECONDS, *,
+                  stride_seconds: int | None = None) -> Iterator[tuple[int, np.ndarray, int]]:
+    """Yield bounded mono windows, optionally overlapping them by using a shorter stride."""
     if seconds != WINDOW_SECONDS:
         raise ValueError(f"CV window size is fixed at {WINDOW_SECONDS} seconds")
+    stride_seconds = seconds if stride_seconds is None else stride_seconds
+    if not isinstance(stride_seconds, int) or isinstance(stride_seconds, bool) or not 0 < stride_seconds <= seconds:
+        raise ValueError("window stride must be a positive whole number no greater than the window size")
     source = WavSource(path)
     metadata = source.metadata()
     sample_rate = int(metadata["sample_rate"])
     window_samples = sample_rate * seconds
+    stride_samples = sample_rate * stride_seconds
     buffered = np.empty(0, dtype=np.float64)
     buffer_start = 0
     for block in source.blocks():
@@ -77,10 +82,12 @@ def audio_windows(path: str | Path, seconds: int = WINDOW_SECONDS) -> Iterator[t
         buffered = np.concatenate((buffered, block_values))
         while buffered.size >= window_samples:
             yield buffer_start, buffered[:window_samples].copy(), sample_rate
-            buffered = buffered[window_samples:]
-            buffer_start += window_samples
-    if buffered.size >= FFT_SIZE:
-        yield buffer_start, buffered, sample_rate
+            buffered = buffered[stride_samples:]
+            buffer_start += stride_samples
+    while buffered.size >= FFT_SIZE:
+        yield buffer_start, buffered[:window_samples].copy(), sample_rate
+        buffered = buffered[stride_samples:]
+        buffer_start += stride_samples
 
 
 class YoloSignalDetector:
@@ -184,8 +191,44 @@ class YoloSignalDetector:
 
     def detect_capture(self, path: str | Path, *, confidence: float = 0.25) -> list[dict[str, Any]]:
         detections: list[dict[str, Any]] = []
-        for start, samples, sample_rate in audio_windows(path):
+        for start, samples, sample_rate in audio_windows(path, stride_seconds=WINDOW_SECONDS // 2):
             image = spectrogram_image(samples, sample_rate)
             detections.extend(self.detect(image, sample_start=start, sample_count=len(samples),
                                           sample_rate=sample_rate, confidence=confidence))
-        return detections
+        return _deduplicate_window_detections(detections)
+
+
+def _box_iou(left: dict[str, Any], right: dict[str, Any]) -> float:
+    x0 = max(float(left["frequency_low_hz"]), float(right["frequency_low_hz"]))
+    y0 = max(int(left["sample_start"]), int(right["sample_start"]))
+    x1 = min(float(left["frequency_high_hz"]), float(right["frequency_high_hz"]))
+    y1 = min(int(left["sample_start"]) + int(left["sample_count"]),
+             int(right["sample_start"]) + int(right["sample_count"]))
+    intersection = max(0.0, x1 - x0) * max(0, y1 - y0)
+    left_area = (float(left["frequency_high_hz"]) - float(left["frequency_low_hz"])) * int(left["sample_count"])
+    right_area = (float(right["frequency_high_hz"]) - float(right["frequency_low_hz"])) * int(right["sample_count"])
+    return intersection / max(1e-12, left_area + right_area - intersection)
+
+
+def _deduplicate_window_detections(
+    detections: list[dict[str, Any]], *, iou_threshold: float = 0.30
+) -> list[dict[str, Any]]:
+    """Suppress high-overlap proposals repeated by adjacent overlapping windows."""
+    ranked = sorted(detections, key=lambda item: float(item["confidence"]), reverse=True)
+    kept: list[dict[str, Any]] = []
+    for candidate in ranked:
+        duplicate = next((item for item in kept
+                          if item["window_sample_start"] != candidate["window_sample_start"]
+                          and _box_iou(item, candidate) >= iou_threshold), None)
+        if duplicate is None:
+            kept.append(candidate)
+        else:
+            duplicate.setdefault("supporting_windows", [{
+                "sample_start": duplicate["window_sample_start"],
+                "sample_count": duplicate["window_sample_count"],
+            }])
+            duplicate["supporting_windows"].append({
+                "sample_start": candidate["window_sample_start"],
+                "sample_count": candidate["window_sample_count"],
+            })
+    return sorted(kept, key=lambda item: (int(item["sample_start"]), float(item["frequency_low_hz"])))

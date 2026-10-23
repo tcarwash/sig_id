@@ -52,6 +52,11 @@ def default_track_fft_size(sample_rate: int) -> int:
     return min(8192, 1 << int(np.ceil(np.log2(target))))
 
 
+class DetectorSourceWindow(BaseModel):
+    sample_start: int = Field(ge=0)
+    sample_count: int = Field(gt=0)
+
+
 class DetectorProposalEvidence(BaseModel):
     detector: Literal["yolo"]
     model_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -60,6 +65,7 @@ class DetectorProposalEvidence(BaseModel):
     window_sample_start: int = Field(ge=0)
     window_sample_count: int = Field(gt=0)
     sample_rate: int = Field(gt=0)
+    supporting_windows: list[DetectorSourceWindow] = Field(default_factory=list, max_length=4096)
 
 
 class CVSimilarRegionsRequest(BaseModel):
@@ -1285,6 +1291,8 @@ def create_app(
             "model_sha256": detector.model_sha256,
             "preprocessing_version": PREPROCESSING_VERSION,
             "window_seconds": WINDOW_SECONDS,
+            "window_stride_seconds": WINDOW_SECONDS // 2,
+            "overlap_deduplication": "confidence-ranked 2D IoU >= 0.30 across different source windows; supporting window lineage retained",
             "detections": detections,
         }
 
@@ -1964,6 +1972,13 @@ def create_app(
                     raise ValueError("detector window exceeds the capture sample range")
                 if data.sample_start < window_start or data.sample_start + data.sample_count > window_end:
                     raise ValueError("proposal region must remain inside its detector window")
+                for source_window in detector_evidence.supporting_windows:
+                    source_start = source_window.sample_start
+                    source_end = source_start + source_window.sample_count
+                    if source_end > int(capture["sample_count"]):
+                        raise ValueError("supporting detector window exceeds the capture sample range")
+                    if min(source_end, data.sample_start + data.sample_count) <= max(source_start, data.sample_start):
+                        raise ValueError("supporting detector window must overlap the proposed region")
             elif data.signal_presence_confirmed:
                 raise ValueError("signal presence confirmation requires detector evidence")
             resolved = resolve_mode_label(data.mode_id, {
