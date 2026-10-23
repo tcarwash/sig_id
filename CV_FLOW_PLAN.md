@@ -71,7 +71,7 @@ end-to-end detector-to-decoder evaluation. Those remain explicit follow-up work.
 
 - Add a reproducible training command, configuration, and versioned model artifact.
 - Start with class-agnostic boxes. Evaluate class-labeled detection only if measurements show a clear benefit.
-- Report box precision/recall at defined overlap thresholds, temporal/frequency localization error, and false detections per unit of audio. The trainer now evaluates the held-out split at the same rectangular inference shape.
+- Report box precision/recall at defined overlap thresholds, temporal/frequency localization error, and false detections per unit of audio. The trainer now evaluates the held-out split at the same rectangular inference shape and reports center/bounds error in seconds and hertz for IoU 0.50 matches.
 - Break results down by signal strength/SNR, signal type, overlap, drift, noise, and boundary truncation. The initial evaluator reports held-out box metrics and false detections per audio hour; condition-level breakdowns remain follow-up work.
 - Compare against the existing heuristic detector where both apply.
 - Separately evaluate the full downstream flow: detection recall, classifier coverage/accuracy on detected regions, unknown/abstention behavior, and successful decoder outcomes. Detector confidence alone must not establish identity.

@@ -13,7 +13,13 @@ from typing import Any
 
 import numpy as np
 
-from .cv_detector import IMAGE_HEIGHT, IMAGE_WIDTH, MODEL_IMAGE_SIZE, PREPROCESSING_VERSION
+from .cv_detector import (
+    IMAGE_HEIGHT,
+    IMAGE_WIDTH,
+    MAX_FREQUENCY_HZ,
+    MODEL_IMAGE_SIZE,
+    PREPROCESSING_VERSION,
+)
 
 
 def _sha256(path: Path) -> str:
@@ -44,20 +50,27 @@ def _iou(left: np.ndarray, right: np.ndarray) -> float:
     return intersection / max(left_area + right_area - intersection, 1e-12)
 
 
-def _match_counts(predicted: np.ndarray, expected: np.ndarray, threshold: float) -> tuple[int, int, int]:
+def _match_pairs(predicted: np.ndarray, expected: np.ndarray, threshold: float) -> list[tuple[int, int]]:
     pairs = sorted(
         ((_iou(predicted[i], expected[j]), i, j) for i in range(len(predicted)) for j in range(len(expected))),
         reverse=True,
     )
     used_predictions: set[int] = set()
     used_expected: set[int] = set()
+    matches = []
     for overlap, prediction, target in pairs:
         if overlap < threshold:
             break
         if prediction not in used_predictions and target not in used_expected:
             used_predictions.add(prediction)
             used_expected.add(target)
-    return len(used_predictions), len(predicted) - len(used_predictions), len(expected) - len(used_expected)
+            matches.append((prediction, target))
+    return matches
+
+
+def _match_counts(predicted: np.ndarray, expected: np.ndarray, threshold: float) -> tuple[int, int, int]:
+    matches = _match_pairs(predicted, expected, threshold)
+    return len(matches), len(predicted) - len(matches), len(expected) - len(matches)
 
 
 def _evaluate_test_set(model: Any, dataset: Path, *, confidence: float) -> dict[str, Any]:
@@ -65,9 +78,15 @@ def _evaluate_test_set(model: Any, dataset: Path, *, confidence: float) -> dict[
 
     totals = {"0.25": [0, 0, 0], "0.50": [0, 0, 0]}
     duration_seconds = 0.0
+    frequency_center_errors: list[float] = []
+    frequency_bound_errors: list[float] = []
+    time_center_errors: list[float] = []
+    time_bound_errors: list[float] = []
     image_paths = sorted((dataset / "images" / "test").glob("*.png"))
     if not image_paths:
         raise ValueError("test split has no reviewed windows")
+    manifest = [json.loads(line) for line in (dataset / "windows.jsonl").read_text(encoding="utf-8").splitlines()]
+    test_windows = {Path(item["image"]).stem: item for item in manifest if item["split"] == "test"}
     for image_path in image_paths:
         label_path = dataset / "labels" / "test" / f"{image_path.stem}.txt"
         expected = _read_yolo_boxes(label_path)
@@ -82,7 +101,26 @@ def _evaluate_test_set(model: Any, dataset: Path, *, confidence: float) -> dict[
         for threshold, key in ((0.25, "0.25"), (0.5, "0.50")):
             counts = _match_counts(predicted, expected, threshold)
             totals[key] = [left + right for left, right in zip(totals[key], counts, strict=True)]
-    manifest = [json.loads(line) for line in (dataset / "windows.jsonl").read_text(encoding="utf-8").splitlines()]
+        window = test_windows.get(image_path.stem)
+        if window is None:
+            raise ValueError(f"test image {image_path.name} is missing from windows.jsonl")
+        matches = _match_pairs(predicted, expected, 0.50)
+        duration = window["sample_count"] / window["sample_rate"]
+        for predicted_index, expected_index in matches:
+            prediction = predicted[predicted_index]
+            target = expected[expected_index]
+            pred_center_x = (prediction[0] + prediction[2]) / 2
+            target_center_x = (target[0] + target[2]) / 2
+            pred_center_y = (prediction[1] + prediction[3]) / 2
+            target_center_y = (target[1] + target[3]) / 2
+            frequency_center_errors.append(abs(pred_center_x - target_center_x) * MAX_FREQUENCY_HZ)
+            frequency_bound_errors.extend(abs(prediction[[0, 2]] - target[[0, 2]]) * MAX_FREQUENCY_HZ)
+            time_center_errors.append(abs(pred_center_y - target_center_y) * duration)
+            time_bound_errors.extend(abs(prediction[[1, 3]] - target[[1, 3]]) * duration)
+
+    def mean(values: list[float]) -> float | None:
+        return float(np.mean(values)) if values else None
+
     for item in manifest:
         if item["split"] == "test":
             duration_seconds += item["sample_count"] / item["sample_rate"]
@@ -102,6 +140,14 @@ def _evaluate_test_set(model: Any, dataset: Path, *, confidence: float) -> dict[
         "reviewed_test_windows": len(image_paths),
         "reviewed_test_audio_seconds": duration_seconds,
         "false_detections_per_audio_hour": totals["0.50"][1] / max(duration_seconds / 3600.0, 1e-12),
+        "localization_at_iou_0_50": {
+            "matched_boxes": len(frequency_center_errors),
+            "frequency_center_error_hz_mae": mean(frequency_center_errors),
+            "frequency_bounds_error_hz_mae": mean(frequency_bound_errors),
+            "time_center_error_seconds_mae": mean(time_center_errors),
+            "time_bounds_error_seconds_mae": mean(time_bound_errors),
+            "note": "Errors are calculated only for greedy IoU >= 0.50 matches; null means no boxes matched.",
+        },
         "metrics": results,
         "scope": "one fixed confidence threshold on capture/lineage-held-out, completely reviewed windows",
     }
