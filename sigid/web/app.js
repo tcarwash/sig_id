@@ -1901,8 +1901,10 @@ function selectTrack(track) {
   const bins = view.frequencyEnd - view.frequencyStart;
   const x1 = Math.max(0, Math.min(bins - 1, Math.round((track.frequency_low_hz - lowHz) / Math.max(1, highHz - lowHz) * (bins - 1))));
   const x2 = Math.max(x1 + 1, Math.min(bins - 1, Math.round((track.frequency_high_hz - lowHz) / Math.max(1, highHz - lowHz) * (bins - 1))));
-  const y1 = Math.max(0, sampleToRow(track.sample_start));
-  const y2 = Math.max(y1 + 1, sampleToRow(track.sample_start + track.sample_count));
+  const rowA = sampleToRow(track.sample_start);
+  const rowB = sampleToRow(track.sample_start + track.sample_count);
+  const y1 = Math.max(0, Math.min(rowA, rowB));
+  const y2 = Math.min(overlayCanvas.height - 1, Math.max(rowA, rowB));
   const binStep = (highHz - lowHz) / Math.max(1, bins - 1);
   const sampleEnd = Math.min(data.sample_count, track.sample_start + track.sample_count);
   state.selection = { sample_start: track.sample_start, sample_count: Math.max(1, sampleEnd - track.sample_start), frequency_low_hz: track.frequency_low_hz, frequency_high_hz: track.frequency_high_hz, x1, y1, x2, y2 };
