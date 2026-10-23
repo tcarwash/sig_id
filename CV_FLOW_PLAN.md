@@ -60,7 +60,9 @@ end-to-end detector-to-decoder evaluation. Those remain explicit follow-up work.
 ### 2. Build the training-data path
 
 - Use existing accepted signal-region annotations as detector boxes and fresh,
-  complete scene reviews as evidence for no-signal windows. A dedicated arbitrary
+  complete scene reviews as evidence for no-signal windows. Explicit controlled
+  noise-only fixtures export as negative windows and are excluded from signal
+  embedding references. A dedicated arbitrary
   box editor and annotation-focused revision workflow remain follow-up work.
 - Store box geometry in sample and frequency coordinates, not display pixels. Preserve capture/session lineage and annotation revision history.
 - Export the reviewed data to the detector's training format. Generate images and labels from the same versioned spectrogram preprocessing used at inference.

@@ -95,6 +95,11 @@ def _window_boxes(regions: list[dict[str, Any]], start: int, count: int) -> tupl
     for region in regions:
         if region["lineage_state"] != "active" or region["review_state"] != "accepted":
             continue
+        evidence = region.get("evidence") or {}
+        if evidence.get("generator") == "sig-id-noise":
+            # The controlled noise fixture has a full-capture label for dataset
+            # provenance, but it is explicitly a detector-negative example.
+            continue
         region_start = region["sample_start"]
         region_end = region_start + region["sample_count"]
         if region_start >= end or region_end <= start:
