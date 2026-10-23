@@ -468,3 +468,48 @@ The catalog preserves the page URL, revision, source-reported fields and media l
 Wiki labels remain unreviewed references, not accepted training labels; media stays
 link-only until reuse rights are reviewed per asset. Use `--categories Signal` to
 catalog only identified entries, or add a different category explicitly.
+
+## Optional spectrogram CV detector
+
+The class-agnostic YOLO detector augments the existing classifier and manual
+selection flow. It proposes signal boxes on completed captures; review a box to
+use the normal selection, classification, and decoding workflow. Proposals do
+not identify a signal type by themselves. CV is disabled when no model path is
+configured, and the default Compose image omits the CV runtime dependencies.
+
+For CPU inference, build the optional dependency into the image and configure a
+trained model stored in the persistent `/data` volume:
+
+```sh
+SIG_ID_INSTALL_CV=1 SIG_ID_CV_MODEL_PATH=/data/cv/signal.pt docker compose up --build -d
+```
+
+To export reviewed windows and train inside the running container, provide fresh,
+complete detection coverage reviews and accepted signal-region annotations across
+at least three independent capture/lineage groups. Export and train into `/data`
+so outputs survive container rebuilds:
+
+```sh
+docker compose exec workbench sig-id-export-cv-dataset --output /data/cv/dataset
+docker compose exec workbench sig-id-train-cv-detector --dataset /data/cv/dataset --output-model /data/cv/signal.pt
+```
+
+The exporter requires signal windows and completely reviewed no-signal windows in
+train, validation, and test splits. It fails when the reviewed data does not meet
+those requirements. After training, set `SIG_ID_CV_MODEL_PATH=/data/cv/signal.pt`
+for the service and recreate it so the detector loads the new artifact.
+
+For AMD ROCm, use the supplied PyTorch ROCm image and device override. Set the
+video and render group IDs to the host values (inspect them with
+`getent group video render`), then build and start the service:
+
+```sh
+SIG_ID_ROCM_VIDEO_GID=44 SIG_ID_ROCM_RENDER_GID=109 SIG_ID_INSTALL_CV=1 SIG_ID_CV_MODEL_PATH=/data/cv/signal.pt docker compose -f compose.yaml -f compose.rocm.yaml up --build -d
+```
+
+Replace the example group IDs with the host values. The override passes `/dev/kfd`
+and `/dev/dri` through to the container. ROCm availability depends on a compatible
+host driver, GPU, and PyTorch ROCm image; successful startup alone does not verify
+GPU inference. Training can use the same Compose file pair. Keep detector weights,
+exported datasets, and run artifacts in the persistent volume, not the image. See
+[`CV_FLOW_PLAN.md`](CV_FLOW_PLAN.md) for architecture and validation limits.
