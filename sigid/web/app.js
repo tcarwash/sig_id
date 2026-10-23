@@ -673,8 +673,15 @@ async function refreshCvStatus() {
     const backendDescription = backend === "rocm-unavailable"
       ? "ROCm runtime unavailable; inference will use CPU"
       : `${backend.toUpperCase()} inference`;
+    const heldOut = status.held_out_test;
+    const groundTruthBoxes = heldOut ? heldOut.true_positive + heldOut.false_negative : 0;
+    const evaluationDescription = !heldOut
+      ? "held-out metrics unavailable"
+      : groundTruthBoxes
+        ? `${heldOut.true_positive}/${groundTruthBoxes} held-out boxes matched at IoU 0.50`
+        : "held-out report has no signal boxes";
     el("cv-status").textContent = status.available
-      ? `YOLO signal detector ready · ${backendDescription} · ${status.window_seconds}s windows · confidence ${(100 * status.confidence_threshold).toFixed(0)}% · class agnostic`
+      ? `YOLO signal detector loaded · ${backendDescription} · ${evaluationDescription} · ${status.window_seconds}s windows · confidence ${(100 * status.confidence_threshold).toFixed(0)}% · class agnostic`
       : `Optional CV detector unavailable${status.error ? ` · ${status.error}` : " · install the cv extra and configure SIG_ID_CV_MODEL_PATH"}`;
     updateCvButton();
     updateCvSimilarButton();

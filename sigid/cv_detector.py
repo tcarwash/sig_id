@@ -126,6 +126,8 @@ class YoloSignalDetector:
         self.model_path = str(path.resolve())
         self.model_sha256 = model_digest
         self.confidence_threshold = float(confidence_threshold)
+        self.held_out_test = metadata.get("held_out_test")
+        self.training_scope = metadata.get("scope")
         if torch.version.hip:
             self.compute_backend = "rocm" if torch.cuda.is_available() else "rocm-unavailable"
         elif torch.cuda.is_available():

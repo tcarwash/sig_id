@@ -656,13 +656,32 @@ def create_app(
 
     @app.get("/api/cv/status")
     def cv_status() -> dict[str, Any]:
+        detector = app.state.cv_detector
+        test_report = detector.held_out_test if detector else None
+        test_metrics = (test_report or {}).get("metrics", {}) if isinstance(test_report, dict) else {}
+        iou_metrics = test_metrics.get("iou_0.50", {}) if isinstance(test_metrics, dict) else {}
+        held_out_summary = None
+        if isinstance(iou_metrics, dict) and all(
+            isinstance(iou_metrics.get(key), int) and not isinstance(iou_metrics.get(key), bool)
+            for key in ("true_positive", "false_positive", "false_negative")
+        ):
+            held_out_summary = {
+                "scope": test_report.get("scope"),
+                "windows": test_report.get("reviewed_test_windows"),
+                "true_positive": iou_metrics["true_positive"],
+                "false_positive": iou_metrics["false_positive"],
+                "false_negative": iou_metrics["false_negative"],
+                "false_detections_per_audio_hour": test_report.get("false_detections_per_audio_hour"),
+            }
         return {
-            "available": app.state.cv_detector is not None,
+            "available": detector is not None,
             "configured": bool(app.state.cv_model_path),
             "model_path": app.state.cv_model_path,
             "error": app.state.cv_detector_error,
-            "compute_backend": app.state.cv_detector.compute_backend if app.state.cv_detector else None,
-            "confidence_threshold": app.state.cv_detector.confidence_threshold if app.state.cv_detector else None,
+            "compute_backend": detector.compute_backend if detector else None,
+            "confidence_threshold": detector.confidence_threshold if detector else None,
+            "held_out_test": held_out_summary,
+            "training_scope": detector.training_scope if detector else None,
             "similarity_search_available": app.state.cv_embedding_vectors is not None,
             "similarity_search_error": app.state.cv_embedding_error,
             "preprocessing_version": PREPROCESSING_VERSION,
