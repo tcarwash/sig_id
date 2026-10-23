@@ -79,10 +79,127 @@
     "All source examples were controlled synthetic modulation or generated noise.",
     "The run used yolo11n.pt and the host-installed Ultralytics 8.3.180, not the project-pinned 8.4.184 runtime.",
     "One epoch was used only to exercise export, training, threshold selection, evaluation, metadata packaging and ROCm model loading.",
-    "Zero held-out signal-box detections; no claims about real signals, classifier routing, decoding, or interoperability."
+    "Zero held-out signal-box detections; no claims about real signals, classifier routing, decoding, or interoperability.",
+    "The stratified ten-epoch run reduced held-out misses but still produced 13 false detections on 3 short negative windows; the resulting model was not retained as a usable detector."
   ],
+  "scene_geometry_smoke": {
+    "frequency_drift_hz_per_second": 10.0,
+    "frequency_offset_hz": 200.0,
+    "imported_scene_bounds_hz": [
+      800.0,
+      1320.0
+    ],
+    "sample_bounds": [
+      12000,
+      36000
+    ],
+    "signal_duration_seconds": 2.0,
+    "source_bounds_hz": [
+      600.0,
+      1100.0
+    ]
+  },
   "schema_version": 1,
   "scope": "Controlled synthetic pipeline smoke run; not a detector-quality or real-recording result.",
+  "stratified_follow_up_run": {
+    "conclusion": "The model learned synthetic bursts (15/18 held-out recall), but 13 false detections on 3 negative windows correspond to about 698 false detections/hour on this short-clip set. Not suitable for use; real-capture evidence is absent.",
+    "dataset": {
+      "independent_capture_lineage_groups": 140,
+      "negative_images_by_split": {
+        "test": 3,
+        "train": 14,
+        "validation": 3
+      },
+      "positive_images_by_split": {
+        "test": 18,
+        "train": 84,
+        "validation": 18
+      },
+      "split_groups": {
+        "test": 21,
+        "train": 98,
+        "validation": 21
+      },
+      "split_images": {
+        "test": 21,
+        "train": 98,
+        "validation": 21
+      }
+    },
+    "held_out_test": {
+      "false_detections_per_audio_hour": 698.090692124105,
+      "metrics": {
+        "iou_0.25": {
+          "false_negative": 3,
+          "false_positive": 13,
+          "precision": 0.5357142857142857,
+          "recall": 0.8333333333333334,
+          "true_positive": 15
+        },
+        "iou_0.50": {
+          "false_negative": 3,
+          "false_positive": 13,
+          "precision": 0.5357142857142857,
+          "recall": 0.8333333333333334,
+          "true_positive": 15
+        }
+      },
+      "reviewed_windows": 21,
+      "runtime_measurements": {
+        "accelerator_memory_measured": true,
+        "inference_windows": 21,
+        "mean_latency_ms_per_window": 10.474128047159562,
+        "p50_latency_ms_per_window": 10.584503994323313,
+        "p95_latency_ms_per_window": 11.183148017153144,
+        "peak_accelerator_allocated_mb": 76.474609375,
+        "peak_accelerator_reserved_mb": 138.0,
+        "prediction_confidence_floor": 0.1,
+        "process_rss_mb_after_evaluation": 2539.59765625,
+        "throughput_windows_per_second": 95.47334112181167
+      }
+    },
+    "runtime_wrapper": {
+      "backend": "rocm",
+      "detections_on_one_synthetic_test_window": 3,
+      "model_version": "sha256:0e279f5c746386d61b2b29257a2ace4e29fa14694cf89876822666a3550828c1"
+    },
+    "scope": "Ten-epoch synthetic-only learning run after positive/negative group stratification; not a real-capture quality claim.",
+    "training": {
+      "accelerator": "AMD Radeon RX 6700 XT",
+      "accelerator_backend": "ROCm",
+      "base_model": "yolo11n.pt",
+      "batch": 8,
+      "confidence_threshold_selected": 0.1,
+      "confidence_threshold_source": "validation_iou_0.50_f1_then_precision_then_higher_threshold",
+      "epochs": 10,
+      "model_sha256": "0e279f5c746386d61b2b29257a2ace4e29fa14694cf89876822666a3550828c1",
+      "project_pinned_ultralytics_version": "8.4.184",
+      "runtime_note": "hipBLASLt reported unsupported architecture and fell back to hipBLAS.",
+      "seed": 4192026,
+      "torch": "2.5.1+rocm6.2",
+      "ultralytics_runtime_version": "8.3.180"
+    },
+    "validation": {
+      "false_detections_per_audio_hour": 253.5211267605633,
+      "metrics": {
+        "iou_0.25": {
+          "false_negative": 8,
+          "false_positive": 4,
+          "precision": 0.7142857142857143,
+          "recall": 0.5555555555555556,
+          "true_positive": 10
+        },
+        "iou_0.50": {
+          "false_negative": 8,
+          "false_positive": 4,
+          "precision": 0.7142857142857143,
+          "recall": 0.5555555555555556,
+          "true_positive": 10
+        }
+      },
+      "reviewed_windows": 21
+    }
+  },
   "training": {
     "accelerator": "AMD Radeon RX 6700 XT",
     "accelerator_backend": "ROCm",

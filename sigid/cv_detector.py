@@ -163,8 +163,8 @@ class YoloSignalDetector:
             top, bottom = sorted((y1, y2))
             if right <= left or bottom <= top:
                 continue
-            low_hz = left / image_width * MAX_FREQUENCY_HZ
-            high_hz = right / image_width * MAX_FREQUENCY_HZ
+            low_hz = float(left / image_width * MAX_FREQUENCY_HZ)
+            high_hz = float(right / image_width * MAX_FREQUENCY_HZ)
             region_start = sample_start + int(round(top / image_height * sample_count))
             region_end = sample_start + int(round(bottom / image_height * sample_count))
             region_start = min(max(region_start, sample_start), sample_start + sample_count - 1)

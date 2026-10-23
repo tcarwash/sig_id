@@ -144,6 +144,33 @@ def _clock_resample(audio: np.ndarray, clock_error_ppm: float, rendered_count: i
     return np.interp(output_positions, source_positions, audio, left=0.0, right=0.0)
 
 
+def _scene_frequency_bounds(
+    region: dict[str, Any], *, sample_rate: int, offset_hz: float,
+    drift_hz_per_second: float, sample_count: int,
+) -> tuple[float | None, float | None]:
+    """Bound the aliased real-signal frequencies after scene offset and drift."""
+    low, high = region["frequency_low_hz"], region["frequency_high_hz"]
+    if low is None or high is None:
+        return None, None
+    duration = sample_count / sample_rate
+    end_offset = offset_hz + drift_hz_per_second * duration
+    shifted_low = float(low) + min(offset_hz, end_offset)
+    shifted_high = float(high) + max(offset_hz, end_offset)
+    half_rate = sample_rate / 2.0
+    candidates = [shifted_low, shifted_high]
+    first_boundary = int(np.ceil(shifted_low / half_rate))
+    last_boundary = int(np.floor(shifted_high / half_rate))
+    candidates.extend(index * half_rate for index in range(first_boundary, last_boundary + 1))
+    folded = [
+        min(value % sample_rate, sample_rate - (value % sample_rate))
+        for value in candidates
+    ]
+    result_low, result_high = min(folded), max(folded)
+    if result_high <= result_low:
+        return None, None
+    return float(result_low), float(result_high)
+
+
 def _render(components: list[tuple[dict[str, Any], dict[str, Any], int, int, float, int, np.ndarray, float, float, float | None, float, int]], sample_count: int, sample_rate: int) -> bytes:
     mixed = np.zeros(sample_count, dtype=np.float64)
     for _, _, source_start, source_count, gain, scene_start, audio, offset, drift, lowpass_hz, clock_error, rendered_count in components:
@@ -335,12 +362,19 @@ def import_mixed_scene(
         region_ids = []
         for component, (source_capture, source_region, _, _, _, start, _, _, _, _, _, rendered_count) in zip(components, resolved):
             component_generator = source_capture["source_metadata"].get("generator")
+            frequency_low_hz, frequency_high_hz = _scene_frequency_bounds(
+                source_region,
+                sample_rate=sample_rate,
+                offset_hz=float(component.get("frequency_offset_hz", 0.0)),
+                drift_hz_per_second=float(component.get("drift_hz_per_second", 0.0)),
+                sample_count=rendered_count,
+            )
             region_ids.append(store.add_region(
                 capture_id,
                 sample_start=start,
                 sample_count=rendered_count,
-                frequency_low_hz=source_region["frequency_low_hz"],
-                frequency_high_hz=source_region["frequency_high_hz"],
+                frequency_low_hz=frequency_low_hz,
+                frequency_high_hz=frequency_high_hz,
                 label=SignalLabel(
                     family=source_region["family"],
                     method=source_region["method"],
