@@ -381,6 +381,55 @@ def _validate_manifest(manifest: dict[str, Any], wav_path: Path) -> None:
         raise ValueError(f"invalid synthetic generator parameters: {exc}") from exc
 
 
+def synthetic_frequency_bounds(
+    manifest: dict[str, Any], *, inherited_bounds: tuple[float, float] | None = None,
+) -> tuple[float, float] | None:
+    """Estimate the generated signal's occupied band from verified parameters."""
+    generator = manifest.get("generator")
+    if generator == "sig-id-noise":
+        return None
+    if generator == "sig-id-awgn-augmentation":
+        return inherited_bounds
+    parameters = manifest.get("parameters") or {}
+    sample_rate = manifest.get("sample_rate")
+    if not isinstance(sample_rate, int) or isinstance(sample_rate, bool) or sample_rate <= 0:
+        return None
+    symbol_rate = parameters.get("symbol_rate")
+    if (
+        not isinstance(symbol_rate, (int, float)) or isinstance(symbol_rate, bool)
+        or not math.isfinite(symbol_rate) or symbol_rate <= 0
+    ):
+        return None
+    guard_hz = float(symbol_rate)
+    if generator == "sig-id-2fsk":
+        tones = (parameters.get("tone_low_hz"), parameters.get("tone_high_hz"))
+    elif generator == "sig-id-mfsk":
+        tones = parameters.get("tone_frequencies_hz")
+        if not isinstance(tones, list) or not tones:
+            return None
+    elif generator in {
+        "sig-id-bpsk", "sig-id-qpsk", "sig-id-ook", "sig-id-ask", "sig-id-ppm",
+    }:
+        carrier = parameters.get("carrier_hz")
+        if not isinstance(carrier, (int, float)) or isinstance(carrier, bool):
+            return None
+        if generator == "sig-id-ppm":
+            pulse_samples = parameters.get("pulse_samples")
+            if isinstance(pulse_samples, int) and not isinstance(pulse_samples, bool) and pulse_samples > 0:
+                guard_hz = max(guard_hz, sample_rate / pulse_samples)
+        tones = (float(carrier),)
+    else:
+        return None
+    if not isinstance(tones, (tuple, list)) or not tones or any(
+        not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value)
+        for value in tones
+    ):
+        return None
+    low = max(0.0, min(float(value) for value in tones) - guard_hz)
+    high = min(sample_rate / 2.0, max(float(value) for value in tones) + guard_hz)
+    return (low, high) if high > low else None
+
+
 def _validate_awgn_augmentation(
     manifest: dict[str, Any], wav_path: Path, *, store: CaptureStore
 ) -> dict[str, Any]:
@@ -531,10 +580,28 @@ def import_synthetic_wav(
             parent_capture_id=parent_capture["id"] if parent_capture else None,
             source_metadata=metadata,
         )
+        inherited_bounds = None
+        if parent_capture:
+            parent_regions = store.regions(parent_capture["id"])
+            if parent_regions:
+                parent_region = parent_regions[0]
+                if parent_region["frequency_low_hz"] is not None:
+                    inherited_bounds = (
+                        float(parent_region["frequency_low_hz"]),
+                        float(parent_region["frequency_high_hz"]),
+                    )
+                else:
+                    parent_manifest_path = Path(parent_capture["audio_path"]).with_suffix(".wav.json")
+                    if parent_manifest_path.is_file():
+                        parent_manifest, _ = _read_manifest(parent_manifest_path)
+                        inherited_bounds = synthetic_frequency_bounds(parent_manifest)
+        frequency_bounds = synthetic_frequency_bounds(manifest, inherited_bounds=inherited_bounds)
         region_id = store.add_region(
             capture_id,
             sample_start=0,
             sample_count=int(manifest["sample_count"]),
+            frequency_low_hz=frequency_bounds[0] if frequency_bounds else None,
+            frequency_high_hz=frequency_bounds[1] if frequency_bounds else None,
             label=SignalLabel(
                 family=manifest["labels"]["modulation_family"],
                 method=manifest["labels"]["modulation_method"],

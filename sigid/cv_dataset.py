@@ -13,6 +13,7 @@ import numpy as np
 
 from .cv_detector import IMAGE_HEIGHT, IMAGE_WIDTH, MAX_FREQUENCY_HZ, WINDOW_SECONDS, audio_windows, spectrogram_image
 from .dataset import CaptureStore
+from .synthetic_dataset import synthetic_frequency_bounds
 
 
 def _sha256(path: Path) -> str:
@@ -87,6 +88,46 @@ def _review_covers_window(review: dict[str, Any], start: int, count: int) -> boo
         return False
     # A review with excluded or uncertain areas is not a clean training target.
     return not review["ignore_regions"] and not review["uncertain_regions"]
+
+
+def _synthetic_capture_frequency_bounds(
+    store: CaptureStore, capture: dict[str, Any], seen: set[str] | None = None,
+) -> tuple[float, float] | None:
+    """Recover missing legacy synthetic geometry from its verified sidecar manifest."""
+    capture_id = capture["id"]
+    visited = set() if seen is None else seen
+    if capture_id in visited or capture["source_kind"] != "synthetic":
+        return None
+    visited.add(capture_id)
+    metadata = capture["source_metadata"]
+    manifest_name = metadata.get("manifest_file")
+    if not isinstance(manifest_name, str) or Path(manifest_name).name != manifest_name:
+        return None
+    manifest_path = Path(capture["audio_path"]).parent / manifest_name
+    try:
+        raw_manifest = manifest_path.read_bytes()
+        if hashlib.sha256(raw_manifest).hexdigest() != metadata.get("manifest_sha256"):
+            return None
+        manifest = json.loads(raw_manifest)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    inherited = None
+    parent_id = capture.get("parent_capture_id")
+    if manifest.get("generator") == "sig-id-awgn-augmentation" and parent_id:
+        try:
+            parent = store.capture(parent_id)
+        except KeyError:
+            parent = None
+        if parent:
+            parent_regions = store.regions(parent_id)
+            if parent_regions and parent_regions[0]["frequency_low_hz"] is not None:
+                inherited = (
+                    float(parent_regions[0]["frequency_low_hz"]),
+                    float(parent_regions[0]["frequency_high_hz"]),
+                )
+            else:
+                inherited = _synthetic_capture_frequency_bounds(store, parent, visited)
+    return synthetic_frequency_bounds(manifest, inherited_bounds=inherited)
 
 
 def _window_boxes(
@@ -218,6 +259,15 @@ def export_cv_dataset(
     window_samples_by_capture: dict[str, int] = {}
     for capture in captures:
         regions = store.regions(capture["id"])
+        if capture["source_kind"] == "synthetic" and any(
+            region["frequency_low_hz"] is None for region in regions
+            if region["review_state"] == "accepted"
+        ):
+            inferred_bounds = _synthetic_capture_frequency_bounds(store, capture)
+            if inferred_bounds:
+                for region in regions:
+                    if region["frequency_low_hz"] is None:
+                        region["frequency_low_hz"], region["frequency_high_hz"] = inferred_bounds
         reviews = store.scene_coverages(capture["id"])
         sample_rate = int(capture["sample_rate"])
         full_window = sample_rate * WINDOW_SECONDS

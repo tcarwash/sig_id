@@ -1,0 +1,118 @@
+{
+  "artifact": {
+    "kept_outside_repository": true,
+    "reason": "One-epoch smoke model achieved zero held-out signal-box recall and is not a useful detector.",
+    "runtime_wrapper_backend": "rocm",
+    "runtime_wrapper_detections_on_sample_window": 0,
+    "sha256": "6e13b7b138d55b9b688375f83784067a8c43bdcafde8cfdc4726458ddd92f5e8"
+  },
+  "dataset": {
+    "builder": "sig-id-build-corpus",
+    "independent_capture_lineage_groups": 140,
+    "negative_images_by_split": {
+      "test": 3,
+      "train": 16,
+      "validation": 1
+    },
+    "noise_only_capture_groups": 20,
+    "positive_images_by_split": {
+      "test": 18,
+      "train": 82,
+      "validation": 20
+    },
+    "seed": 4192026,
+    "signal_capture_groups": 120,
+    "skipped_windows": {
+      "unreviewed_window": 0,
+      "unsupported_region": 0
+    },
+    "split_images": {
+      "test": 21,
+      "train": 98,
+      "validation": 21
+    }
+  },
+  "date": "2026-10-23",
+  "geometry_fix_smoke": {
+    "generator": "sig-id-2fsk",
+    "imported_region_bounds_hz": [
+      600,
+      1100
+    ],
+    "symbol_rate_hz": 100,
+    "tone_hz": [
+      700,
+      1000
+    ]
+  },
+  "held_out_test": {
+    "metrics": {
+      "iou_0.25": {
+        "false_negative": 18,
+        "false_positive": 0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "true_positive": 0
+      },
+      "iou_0.50": {
+        "false_negative": 18,
+        "false_positive": 0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "true_positive": 0
+      }
+    },
+    "runtime_measurements": {
+      "accelerator_memory_measured": true,
+      "inference_windows": 21,
+      "mean_latency_ms_per_window": 10.083665189865444,
+      "p50_latency_ms_per_window": 9.938838018570095,
+      "p95_latency_ms_per_window": 10.457535972818732,
+      "peak_accelerator_allocated_mb": 57.6416015625,
+      "peak_accelerator_reserved_mb": 120.0,
+      "prediction_confidence_floor": 0.75,
+      "process_rss_mb_after_evaluation": 2902.09765625,
+      "throughput_windows_per_second": 99.1702898867613
+    }
+  },
+  "limitations": [
+    "All source examples were controlled synthetic modulation or generated noise.",
+    "The run used yolo11n.pt and the host-installed Ultralytics 8.3.180, not the project-pinned 8.4.184 runtime.",
+    "One epoch was used only to exercise export, training, threshold selection, evaluation, metadata packaging and ROCm model loading.",
+    "Zero held-out signal-box detections; no claims about real signals, classifier routing, decoding, or interoperability."
+  ],
+  "schema_version": 1,
+  "scope": "Controlled synthetic pipeline smoke run; not a detector-quality or real-recording result.",
+  "training": {
+    "accelerator": "AMD Radeon RX 6700 XT",
+    "accelerator_backend": "ROCm",
+    "base_model": "yolo11n.pt",
+    "batch": 8,
+    "epochs": 1,
+    "project_pinned_ultralytics_version": "8.4.184",
+    "runtime_note": "hipBLASLt reported unsupported architecture and fell back to hipBLAS.",
+    "seed": 4192026,
+    "torch": "2.5.1+rocm6.2",
+    "ultralytics_runtime_version": "8.3.180"
+  },
+  "validation": {
+    "confidence_threshold_selected": 0.75,
+    "metrics": {
+      "iou_0.25": {
+        "false_negative": 20,
+        "false_positive": 0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "true_positive": 0
+      },
+      "iou_0.50": {
+        "false_negative": 20,
+        "false_positive": 0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "true_positive": 0
+      }
+    },
+    "selection_method": "validation_iou_0.50_f1_then_precision_then_higher_threshold"
+  }
+}

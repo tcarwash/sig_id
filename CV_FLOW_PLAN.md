@@ -71,6 +71,7 @@ follow-up work.
   selection and geometry-editing controls; those reviewed regions feed the CV
   export path.
 - Store box geometry in sample and frequency coordinates, not display pixels. Preserve capture/session lineage and annotation revision history.
+- Deterministic synthetic imports now derive signal-frequency geometry from their validated generator manifests. The CV exporter can recover missing geometry on older imports only when the sidecar hash matches the stored capture provenance.
 - Export the reviewed data to the detector's training format. Generate images and labels from the same versioned spectrogram preprocessing used at inference.
 - Split by source capture or recording session before generating windows or augmentations. Keep all derived windows from a source in one split to avoid leakage.
 - Include representative real captures as they become available, alongside synthetic scenes. Track their source and review status separately.
@@ -84,6 +85,7 @@ follow-up work.
 - Compare against the existing heuristic detector where both apply. The held-out flow evaluator now reports class-agnostic box precision/recall for both YOLO and the spectral peak-clustering baseline on identical reviewed windows.
 - Separately evaluate the full downstream flow: detection recall, classifier coverage/accuracy on detected regions, unknown/abstention behavior, and successful decoder outcomes. Detector confidence alone must not establish identity.
 - A held-out detector-to-classifier evaluator records detector matches, classifier coverage/accuracy, abstentions, and accepted known labels on unmatched proposals. It also reports limited bit recovery for matched YOLO crops from direct synthetic captures, using oracle demodulator parameters and resolving BPSK polarity/QPSK rotation against the known payload. This does not measure classifier-driven mode selection, scene mixtures, real recordings, protocol framing, or interoperability.
+- An isolated 140-group synthetic bootstrap dataset completed export, one-epoch ROCm training, validation-selected thresholding, held-out evaluation, and runtime artifact loading. The smoke model detected 0/20 validation and 0/18 held-out signal boxes, so this verifies the training path only and is not a useful detector. See [`reports/cv-synthetic-bootstrap-2026-10-23.json`](reports/cv-synthetic-bootstrap-2026-10-23.json); representative real-capture training and quality evidence remain open.
 
 ### 4. Add optional packaging and inference
 
