@@ -6,7 +6,7 @@ import { narrowKnownModes } from "/mode-candidates.mjs";
 import { layoutSignalLabels, signalCaption, hitSignal } from "/signal-overlays.mjs";
 
 const el = (id) => document.getElementById(id);
-const state = { capture: null, waterfall: null, drag: null, selection: null, regions: [], tracks: [], cvDetections: [], cvAvailable: false, cvSimilarAvailable: false, bitAnnotations: [], protocolStencils: [], liveView: false, liveSessionId: null, modelAvailable: false, view: null, demodExports: {}, selectedTrack: null, frozen: false, labelModeId: null, modeSearchResults: [], modeSearchRequest: 0, applyingMode: false, adjustingGeometry: false, geometryDraft: false, splitMode: false, splitChildren: [], splitParentSelection: null, mergeRegionIds: new Set(), modeProposalRegion: null, proposalCaptureRequest: 0, proposalEvidenceCaptures: [] };
+const state = { capture: null, waterfall: null, drag: null, selection: null, regions: [], tracks: [], cvDetections: [], cvAvailable: false, cvSimilarAvailable: false, bitAnnotations: [], protocolStencils: [], liveView: false, liveSessionId: null, modelAvailable: false, view: null, demodExports: {}, selectedTrack: null, classifierProposal: null, frozen: false, labelModeId: null, modeSearchResults: [], modeSearchRequest: 0, applyingMode: false, adjustingGeometry: false, geometryDraft: false, splitMode: false, splitChildren: [], splitParentSelection: null, mergeRegionIds: new Set(), modeProposalRegion: null, proposalCaptureRequest: 0, proposalEvidenceCaptures: [] };
 state.layaAvailable = false;
 state.coverageWindow = null;
 state.coverageMasks = { ignore_regions: [], uncertain_regions: [] };
@@ -921,6 +921,7 @@ el("model-propose").addEventListener("click", async () => {
   if (!state.capture || !state.selection || state.liveView || !state.modelAvailable) return;
   const selection = state.selection;
   const sourceCapture = state.capture;
+  state.classifierProposal = null;
   const button = el("model-propose");
   button.disabled = true;
   button.textContent = "Analyzing…";
@@ -932,6 +933,11 @@ el("model-propose").addEventListener("click", async () => {
       body: JSON.stringify({ sample_start: selection.sample_start, sample_count: Math.min(1_000_000, selection.sample_count) }),
     });
     if (state.capture !== sourceCapture || state.selection !== selection) return;
+    state.classifierProposal = {
+      capture_id: sourceCapture.id,
+      selection,
+      result: { ...result, selection_sample_count: selection.sample_count },
+    };
     if (!result.family && !result.method) {
       el("label-state").textContent = result.novelty_rejected
         ? `Model abstained · outside trained modulation range (distance ${result.novelty_distance.toFixed(2)} > ${result.novelty_threshold.toFixed(2)})`
@@ -1390,6 +1396,7 @@ async function loadCapture() {
   state.coverageMaskMode = null;
   el("coverage-panel").hidden = true;
   state.editRegion = null;
+  state.classifierProposal = null;
   el("start-scene-review").disabled = true;
   updateCoverageMaskControls();
   state.waterfall = null;
@@ -1677,10 +1684,11 @@ function renderDecodeRuns() {
       : " · track time unavailable";
     const carrier = Number.isFinite(run.carrier_hz) ? ` · carrier ${run.carrier_hz.toFixed(0)} Hz` : "";
     const regionLink = run.region_id ? " · linked saved region" : "";
-    button.textContent = `${run.current_mode || "Fldigi"} · ${run.status}${carrier}${interval}${regionLink}`;
+    const classifierLink = run.classifier_evidence?.model_sha256 ? " · classifier evidence saved" : "";
+    button.textContent = `${run.current_mode || "Fldigi"} · ${run.status}${carrier}${interval}${regionLink}${classifierLink}`;
     button.addEventListener("click", () => {
       showOutput("text");
-      state.textOutputContext = `Saved run ${run.id.slice(0,8)}${run.region_id ? ` · region ${run.region_id.slice(0,8)}` : ""} · ${run.output_scope} · ${run.association}`;
+      state.textOutputContext = `Saved run ${run.id.slice(0,8)}${run.region_id ? ` · region ${run.region_id.slice(0,8)}` : ""}${run.classifier_evidence?.model_sha256 ? ` · classifier ${run.classifier_evidence.model_sha256.slice(0,8)}` : ""} · ${run.output_scope} · ${run.association}`;
       el("output-context").textContent = state.textOutputContext;
       el("decoded-text").textContent = `${run.status.toUpperCase()} · ${run.current_mode || "Fldigi"}\n${run.note}\n\n${run.output_text || "No decoded text was recorded."}`;
       el("decoded-text").scrollTop = 0;
@@ -2153,6 +2161,9 @@ el("save-region").addEventListener("click", async () => {
   button.disabled = true;
   try {
     const selection = state.selection;
+    const classifierProposal = state.classifierProposal?.capture_id === captureId
+      && state.classifierProposal.selection === selection
+      ? state.classifierProposal.result : null;
     const destination = edit ? `/api/captures/${captureId}/regions/${edit.id}/labels` : `/api/captures/${captureId}/regions`;
     await request(destination, {
       method: "POST",
@@ -2167,6 +2178,11 @@ el("save-region").addEventListener("click", async () => {
         origin: !edit && state.selectedTrack ? "detector_proposal" : el("missed-signal").checked && !edit ? "user_added_missed_detection" : "manual",
         detector_evidence: !edit ? state.selectedTrack?.detector_evidence || null : null,
         signal_presence_confirmed: !edit && Boolean(state.selectedTrack?.detector_evidence) && el("cv-presence-confirmed").checked,
+        classifier_proposal: classifierProposal ? {
+          sample_start: classifierProposal.sample_start,
+          sample_count: classifierProposal.sample_count,
+          selection_sample_count: classifierProposal.selection_sample_count,
+        } : null,
         family: el("family").value.trim() || null,
         method: el("method").value.trim() || null,
         protocol: el("protocol").value.trim() || null,
@@ -2177,6 +2193,7 @@ el("save-region").addEventListener("click", async () => {
     const regions = await request(`/api/captures/${captureId}/regions`);
     if (state.capture?.id !== captureId) return;
     state.regions = regions;
+    state.classifierProposal = null;
     beginNewRegion();
     renderRegions();
     await refreshSceneCoverage(captureId);

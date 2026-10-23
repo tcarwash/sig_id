@@ -74,6 +74,12 @@ class DetectorProposalEvidence(BaseModel):
     supporting_windows: list[DetectorSourceWindow] = Field(default_factory=list, max_length=4096)
 
 
+class ClassifierProposalRequest(BaseModel):
+    sample_start: int = Field(ge=0)
+    sample_count: int = Field(ge=1024, le=1_000_000)
+    selection_sample_count: int = Field(gt=0)
+
+
 class CVSimilarRegionsRequest(BaseModel):
     sample_start: int = Field(ge=0)
     sample_count: int = Field(gt=0, le=10_000_000)
@@ -96,6 +102,7 @@ class RegionCreate(BaseModel):
     mode_id: str | None = Field(default=None, max_length=80)
     origin: Literal["manual", "detector_proposal", "user_added_missed_detection"] = "manual"
     detector_evidence: DetectorProposalEvidence | None = None
+    classifier_proposal: ClassifierProposalRequest | None = None
     signal_presence_confirmed: bool = False
 
 
@@ -107,6 +114,7 @@ class LabelRevisionCreate(BaseModel):
     variant: str | None = Field(default=None, max_length=200)
     mode_id: str | None = Field(default=None, max_length=80)
     notes: str = Field(default="", max_length=20000)
+    classifier_proposal: ClassifierProposalRequest | None = None
 
 
 class AnnotationFeedbackCreate(BaseModel):
@@ -1043,11 +1051,12 @@ def create_app(
             raise HTTPException(status_code=404, detail="capture not found") from exc
         if settings.sample_start + settings.sample_count > int(capture["sample_count"]):
             raise HTTPException(status_code=422, detail="selected region exceeds the saved capture")
+        linked_region = None
         if settings.region_id:
-            region = next((item for item in store.regions(capture_id) if item["id"] == settings.region_id), None)
-            if region is None or region["lineage_state"] != "active":
+            linked_region = next((item for item in store.regions(capture_id) if item["id"] == settings.region_id), None)
+            if linked_region is None or linked_region["lineage_state"] != "active":
                 raise HTTPException(status_code=422, detail="decoder region must be an active region in this capture")
-            if (settings.sample_start, settings.sample_count) != (region["sample_start"], region["sample_count"]):
+            if (settings.sample_start, settings.sample_count) != (linked_region["sample_start"], linked_region["sample_count"]):
                 raise HTTPException(status_code=422, detail="decoder sample bounds must match the linked region")
         try:
             modes = fldigi.mode_names()
@@ -1069,6 +1078,7 @@ def create_app(
                 note="Waiting to replay the selected saved-capture region.",
                 carrier_hz=settings.carrier_hz,
                 region_id=settings.region_id,
+                classifier_evidence=(linked_region["evidence"].get("classifier_proposal") if linked_region else None),
                 output_scope="isolated_region_replay", association="exact_capture_window",
             )
             decode_executor.submit(run_saved_replay, run_id, capture, settings)
@@ -1395,51 +1405,65 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    @app.post("/api/captures/{capture_id}/classify")
-    def classify_capture_region(capture_id: str, settings: ClassifyRequest) -> dict[str, Any]:
+    def classifier_proposal_for_range(
+        capture_id: str, capture: dict[str, Any], sample_start: int,
+        classified_sample_count: int, selection_sample_count: int,
+    ) -> dict[str, Any]:
         if app.state.classifier is None:
             raise HTTPException(status_code=503, detail="no valid modulation model is configured")
+        if sample_start >= int(capture["sample_count"]):
+            raise HTTPException(status_code=422, detail="sample_start is outside the capture")
+        expected_count = min(1_000_000, selection_sample_count, int(capture["sample_count"]) - sample_start)
+        if classified_sample_count != expected_count:
+            raise ValueError("classifier proposal range does not match the saved selection")
+        end = sample_start + classified_sample_count
+        values: list[float] = []
+        for block in WavSource(capture["audio_path"]).blocks():
+            block_end = block.first_sample + block.sample_count
+            if block_end <= sample_start:
+                continue
+            if block.first_sample >= end:
+                break
+            left = max(0, sample_start - block.first_sample)
+            right = min(block.sample_count, end - block.first_sample)
+            values.extend(block.samples[left:right])
+        model = app.state.classifier
+        features = extract_features(
+            values,
+            int(capture["sample_rate"]),
+            feature_version=model["metadata"]["feature_version"],
+        )
+        result = propose(
+            features,
+            model["parameters"],
+            model["metadata"]["classes"],
+            threshold=float(model["metadata"]["abstention_threshold"]),
+            family_threshold=float(model["metadata"]["family_abstention_threshold"]),
+            novelty_threshold=model["metadata"].get("novelty_distance_threshold"),
+        )
+        return {
+            **result,
+            "model_sha256": model["metadata"]["model_sha256"],
+            "feature_version": model["metadata"]["feature_version"],
+            "capture_id": capture_id,
+            "sample_start": sample_start,
+            "sample_count": len(values),
+            "selection_sample_count": selection_sample_count,
+            "capture_sha256": capture["sha256"],
+        }
+
+    @app.post("/api/captures/{capture_id}/classify")
+    def classify_capture_region(capture_id: str, settings: ClassifyRequest) -> dict[str, Any]:
         try:
             capture = store.capture(capture_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="capture not found") from exc
-        start = settings.sample_start
-        if start >= int(capture["sample_count"]):
-            raise HTTPException(status_code=422, detail="sample_start is outside the capture")
-        end = min(int(capture["sample_count"]), start + settings.sample_count)
         try:
-            values: list[float] = []
-            for block in WavSource(capture["audio_path"]).blocks():
-                block_end = block.first_sample + block.sample_count
-                if block_end <= start:
-                    continue
-                if block.first_sample >= end:
-                    break
-                left = max(0, start - block.first_sample)
-                right = min(block.sample_count, end - block.first_sample)
-                values.extend(block.samples[left:right])
-            model = app.state.classifier
-            features = extract_features(
-                values,
-                int(capture["sample_rate"]),
-                feature_version=model["metadata"]["feature_version"],
+            return classifier_proposal_for_range(
+                capture_id, capture, settings.sample_start,
+                min(settings.sample_count, int(capture["sample_count"]) - settings.sample_start),
+                settings.sample_count,
             )
-            result = propose(
-                features,
-                model["parameters"],
-                model["metadata"]["classes"],
-                threshold=float(model["metadata"]["abstention_threshold"]),
-                family_threshold=float(model["metadata"]["family_abstention_threshold"]),
-                novelty_threshold=model["metadata"].get("novelty_distance_threshold"),
-            )
-            return {
-                **result,
-                "model_sha256": model["metadata"]["model_sha256"],
-                "capture_id": capture_id,
-                "sample_start": start,
-                "sample_count": len(values),
-                "capture_sha256": capture["sha256"],
-            }
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -1806,19 +1830,38 @@ def create_app(
             current_region = next((region for region in store.regions(capture_id) if region["id"] == region_id), None)
             if current_region is None:
                 raise KeyError("region not in this capture")
+            classifier_evidence = None
+            if data.classifier_proposal is not None:
+                proposal = data.classifier_proposal
+                if proposal.sample_start != current_region["sample_start"] or proposal.selection_sample_count != current_region["sample_count"]:
+                    raise ValueError("classifier proposal selection must match the saved region geometry")
+                classifier_evidence = classifier_proposal_for_range(
+                    capture_id, store.capture(capture_id), proposal.sample_start,
+                    proposal.sample_count, proposal.selection_sample_count,
+                )
             resolved = resolve_mode_label(data.mode_id, {
                 "family": data.family, "method": data.method,
                 "protocol": data.protocol, "variant": data.variant,
             }, additional_modes=store.accepted_mode_definitions())
             has_label = any((resolved["family"], resolved["method"], resolved["protocol"], resolved["variant"]))
+            label_evidence = {"reviewed_from_revision": data.expected_revision}
+            if resolved["mode_id"]:
+                label_evidence["mode_registry_version"] = resolved["registry_version"]
+            label_evidence.update({
+                key: current_region["evidence"][key]
+                for key in ("detector_proposal", "signal_presence_review")
+                if key in current_region["evidence"]
+            })
+            if classifier_evidence is not None:
+                label_evidence["classifier_proposal"] = classifier_evidence
+            elif "classifier_proposal" in current_region["evidence"]:
+                label_evidence["classifier_proposal"] = current_region["evidence"]["classifier_proposal"]
             store.revise_label(region_id, SignalLabel(
                 family=resolved["family"], method=resolved["method"], protocol=resolved["protocol"], variant=resolved["variant"],
                 mode_id=resolved["mode_id"], notes=data.notes,
                 source="human" if has_label else "unknown",
                 review_state="accepted" if has_label else "pending",
-                evidence={"reviewed_from_revision": data.expected_revision}
-                | ({"mode_registry_version": resolved["registry_version"]} if resolved["mode_id"] else {})
-                | {key: current_region["evidence"][key] for key in ("detector_proposal", "signal_presence_review") if key in current_region["evidence"]},
+                evidence=label_evidence,
             ), expected_revision=data.expected_revision)
             return next(region for region in store.regions(capture_id) if region["id"] == region_id)
         except KeyError as exc:
@@ -2003,6 +2046,15 @@ def create_app(
             }, additional_modes=store.accepted_mode_definitions())
             has_label = any((resolved["family"], resolved["method"], resolved["protocol"], resolved["variant"]))
             accepted_presence = data.signal_presence_confirmed
+            classifier_evidence = None
+            if data.classifier_proposal is not None:
+                proposal = data.classifier_proposal
+                if proposal.sample_start != data.sample_start or proposal.selection_sample_count != data.sample_count:
+                    raise ValueError("classifier proposal selection must match the saved region geometry")
+                classifier_evidence = classifier_proposal_for_range(
+                    capture_id, capture, proposal.sample_start,
+                    proposal.sample_count, proposal.selection_sample_count,
+                )
             region_id = store.add_region(
                 capture_id,
                 sample_start=data.sample_start,
@@ -2020,6 +2072,7 @@ def create_app(
                     evidence={
                         **({"mode_registry_version": resolved["registry_version"]} if resolved["mode_id"] else {}),
                         **({"detector_proposal": detector_evidence.model_dump()} if detector_evidence else {}),
+                        **({"classifier_proposal": classifier_evidence} if classifier_evidence is not None else {}),
                         **({"signal_presence_review": "confirmed_unknown_identity"} if accepted_presence else {}),
                     } or None,
                     notes=data.notes,

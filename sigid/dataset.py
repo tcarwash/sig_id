@@ -207,6 +207,7 @@ class CaptureStore:
                     note TEXT NOT NULL,
                     output_scope TEXT NOT NULL DEFAULT 'shared_live_input',
                     association TEXT NOT NULL DEFAULT 'track_window_tentative',
+                    classifier_evidence_json TEXT NOT NULL DEFAULT '{}',
                     created_utc TEXT NOT NULL,
                     updated_utc TEXT NOT NULL,
                     CHECK(sample_start IS NULL OR sample_start >= 0),
@@ -260,6 +261,8 @@ class CaptureStore:
                 db.execute("ALTER TABLE decoder_runs ADD COLUMN carrier_hz REAL")
             if "region_id" not in columns:
                 db.execute("ALTER TABLE decoder_runs ADD COLUMN region_id TEXT REFERENCES regions(id) ON DELETE SET NULL")
+            if "classifier_evidence_json" not in columns:
+                db.execute("ALTER TABLE decoder_runs ADD COLUMN classifier_evidence_json TEXT NOT NULL DEFAULT '{}'")
             db.execute("CREATE INDEX IF NOT EXISTS decoder_runs_by_region ON decoder_runs(region_id, created_utc DESC)")
             region_columns = {row[1] for row in db.execute("PRAGMA table_info(regions)")}
             if "origin" not in region_columns:
@@ -1008,11 +1011,12 @@ class CaptureStore:
             if geometry_revision != expected_geometry_revision:
                 raise LabelRevisionConflict("bounds changed since feedback was opened; reopen the region")
             if action == "incorrect_identity":
+                prior_evidence = json.loads(current["evidence_json"])
                 next_label = SignalLabel(
                     family=correction.get("family"), method=correction.get("method"),
                     protocol=correction.get("protocol"), variant=correction.get("variant"),
                     mode_id=correction.get("mode_id"), source="human", review_state="accepted",
-                    evidence={"feedback_action": action, "corrected_from_revision": latest, **({"mode_registry_version": correction["registry_version"]} if correction.get("registry_version") else {})},
+                    evidence={**prior_evidence, "feedback_action": action, "corrected_from_revision": latest, **({"mode_registry_version": correction["registry_version"]} if correction.get("registry_version") else {})},
                     notes=note,
                 )
             else:
@@ -1228,6 +1232,7 @@ class CaptureStore:
         association: str = "track_window_tentative",
         carrier_hz: float | None = None,
         region_id: str | None = None,
+        classifier_evidence: dict[str, Any] | None = None,
     ) -> str:
         if not session_id or not track_id:
             raise ValueError("decoder run requires a live session and track")
@@ -1246,12 +1251,12 @@ class CaptureStore:
                    (id, session_id, capture_id, region_id, track_id, sample_start, sample_count, sample_rate, carrier_hz,
                     modulation_hypothesis, backend, modes_json, attempted_modes_json,
                     current_mode, output_offset, output_end, output_text, status, note,
-                    output_scope, association, created_utc, updated_utc)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '', ?, ?, ?, ?, ?, ?)""",
+                    output_scope, association, classifier_evidence_json, created_utc, updated_utc)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '', ?, ?, ?, ?, ?, ?, ?)""",
                 (run_id, session_id, capture_id, region_id, track_id, sample_start, sample_count, sample_rate, carrier_hz,
                  modulation_hypothesis, backend, json.dumps(modes),
                  json.dumps(attempted_modes), current_mode, output_offset, status,
-                 note, output_scope, association, now, now),
+                 note, output_scope, association, json.dumps(classifier_evidence or {}, sort_keys=True), now, now),
             )
         return run_id
 
@@ -1296,6 +1301,7 @@ class CaptureStore:
             item = dict(row)
             item["modes"] = json.loads(item.pop("modes_json"))
             item["attempted_modes"] = json.loads(item.pop("attempted_modes_json"))
+            item["classifier_evidence"] = json.loads(item.pop("classifier_evidence_json"))
             # Scope and association are explicit so shared live audio can never
             # be mistaken for an isolated decode of the candidate region.
             result.append(item)

@@ -97,7 +97,7 @@ evidence, and end-to-end detector-to-decoder evaluation remain follow-up work.
 - Convert accepted boxes into the existing exact time/frequency selection contract and fetch/replay the matching audio range.
 - Run the existing classifier on each accepted region. Keep classifier proposals reviewable and preserve its abstention behavior.
 - When the classifier is uncertain, offer embedding-based nearest examples and an unknown label. The initial UI exposes candidate retrieval for an active selection and points to it after classifier abstention; retrieval remains an explicit user action. Treat embeddings as candidate retrieval, not proof of identity.
-- Offer decoder choices based on supported classifier results, but keep decoder execution explicit initially. Saved-capture Fldigi replays now retain a validated link to the active region when replay bounds match its saved geometry; classifier proposal evidence is still not persisted with that decoder run.
+- Offer decoder choices based on supported classifier results, but keep decoder execution explicit initially. Saved regions now retain the server-generated classifier proposal (including abstentions, model hash, and exact audio sample range); saved-capture Fldigi replays snapshot that evidence and retain a validated link to the active region when replay bounds match its saved geometry.
 - Deduplicate boxes from overlapping windows and track a detection across windows without losing its source-window lineage. Batch capture scanning now uses a 5-second stride, suppresses cross-window boxes at 0.30 2D IoU, and retains supporting window metadata on the surviving proposal; temporal tracking beyond one completed-capture scan remains future work.
 
 ### 6. Opt-in rollout and acceptance gates
