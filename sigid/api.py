@@ -662,6 +662,7 @@ def create_app(
             "model_path": app.state.cv_model_path,
             "error": app.state.cv_detector_error,
             "compute_backend": app.state.cv_detector.compute_backend if app.state.cv_detector else None,
+            "confidence_threshold": app.state.cv_detector.confidence_threshold if app.state.cv_detector else None,
             "similarity_search_available": app.state.cv_embedding_vectors is not None,
             "similarity_search_error": app.state.cv_embedding_error,
             "preprocessing_version": PREPROCESSING_VERSION,
@@ -1297,7 +1298,7 @@ def create_app(
     @app.post("/api/captures/{capture_id}/cv-detections")
     def detect_capture_signals(
         capture_id: str,
-        confidence: float = Query(default=0.25, ge=0.0, le=1.0),
+        confidence: float | None = Query(default=None, ge=0.0, le=1.0),
     ) -> dict[str, Any]:
         detector = app.state.cv_detector
         if detector is None:
@@ -1319,6 +1320,7 @@ def create_app(
             "window_seconds": WINDOW_SECONDS,
             "window_stride_seconds": WINDOW_STRIDE_SECONDS,
             "overlap_deduplication_iou": OVERLAP_DEDUP_IOU,
+            "confidence_threshold": detector.confidence_threshold,
             "detections": detections,
         }
 

@@ -65,6 +65,13 @@ examples. Ultralytics downloads its selected base checkpoint when needed. The op
 Ultralytics package is AGPL-3.0-or-later; check its [license terms](https://github.com/ultralytics/ultralytics/blob/main/LICENSE)
 before distributing an image that includes it.
 
+Training sweeps confidence thresholds on validation and selects the operating point
+with the highest IoU 0.50 F1 (ties prefer higher precision, then a higher threshold).
+The held-out test report measures precision/recall at IoU 0.25 and 0.50 using that
+selected threshold. Pass `--confidence` to override it. The selected threshold is
+saved in model metadata and used by batch capture scans unless the request supplies
+an explicit confidence value.
+
 ### AMD ROCm
 
 For an AMD GPU, use the separate ROCm build and Compose override:

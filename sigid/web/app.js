@@ -670,7 +670,7 @@ async function refreshCvStatus() {
     state.cvAvailable = Boolean(status.available);
     state.cvSimilarAvailable = Boolean(status.similarity_search_available);
     el("cv-status").textContent = status.available
-      ? `YOLO signal detector ready · ${status.window_seconds}s windows · class agnostic`
+      ? `YOLO signal detector ready · ${status.window_seconds}s windows · confidence ${(100 * status.confidence_threshold).toFixed(0)}% · class agnostic`
       : `Optional CV detector unavailable${status.error ? ` · ${status.error}` : " · install the cv extra and configure SIG_ID_CV_MODEL_PATH"}`;
     updateCvButton();
     updateCvSimilarButton();

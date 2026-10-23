@@ -115,6 +115,9 @@ class YoloSignalDetector:
             or metadata.get("classes") != ["signal"]
         ):
             raise ValueError("CV model metadata must identify a class-agnostic detector")
+        confidence_threshold = metadata.get("confidence_threshold", 0.25)
+        if not isinstance(confidence_threshold, (int, float)) or isinstance(confidence_threshold, bool) or not 0.0 < confidence_threshold < 1.0:
+            raise ValueError("CV model metadata confidence threshold must be between 0 and 1")
         try:
             from ultralytics import YOLO
             import torch
@@ -122,6 +125,7 @@ class YoloSignalDetector:
             raise RuntimeError("CV inference requires the optional 'cv' install extra") from exc
         self.model_path = str(path.resolve())
         self.model_sha256 = model_digest
+        self.confidence_threshold = float(confidence_threshold)
         if torch.version.hip:
             self.compute_backend = "rocm" if torch.cuda.is_available() else "rocm-unavailable"
         elif torch.cuda.is_available():
@@ -132,7 +136,8 @@ class YoloSignalDetector:
         self._lock = Lock()
 
     def detect(self, image: np.ndarray, *, sample_start: int, sample_count: int,
-               sample_rate: int, confidence: float = 0.25) -> list[dict[str, Any]]:
+               sample_rate: int, confidence: float | None = None) -> list[dict[str, Any]]:
+        confidence = self.confidence_threshold if confidence is None else confidence
         if not 0.0 <= confidence <= 1.0:
             raise ValueError("confidence must be between 0 and 1")
         with self._lock:
@@ -191,7 +196,7 @@ class YoloSignalDetector:
             raise ValueError("detector returned an invalid image embedding")
         return vector / norm
 
-    def detect_capture(self, path: str | Path, *, confidence: float = 0.25) -> list[dict[str, Any]]:
+    def detect_capture(self, path: str | Path, *, confidence: float | None = None) -> list[dict[str, Any]]:
         detections: list[dict[str, Any]] = []
         for start, samples, sample_rate in audio_windows(path, stride_seconds=WINDOW_STRIDE_SECONDS):
             image = spectrogram_image(samples, sample_rate)

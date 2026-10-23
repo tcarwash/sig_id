@@ -77,10 +77,21 @@ def _match_counts(predicted: np.ndarray, expected: np.ndarray, threshold: float)
 
 def _evaluate_test_set(
     model: Any, dataset: Path, *, confidence: float, device: str | None = None,
+    split: str = "test", include_confidence_sweep: bool = True,
 ) -> dict[str, Any]:
     from PIL import Image
 
+    if split not in {"validation", "test"}:
+        raise ValueError("CV evaluation split must be validation or test")
     totals = {"0.25": [0, 0, 0], "0.50": [0, 0, 0]}
+    confidence_thresholds = (
+        sorted({0.05, 0.10, 0.25, 0.50, 0.75, float(confidence)})
+        if include_confidence_sweep else [float(confidence)]
+    )
+    confidence_sweep_totals = {
+        f"{threshold:g}": {"iou_0.25": [0, 0, 0], "iou_0.50": [0, 0, 0]}
+        for threshold in confidence_thresholds
+    }
     duration_seconds = 0.0
     frequency_center_errors: list[float] = []
     frequency_bound_errors: list[float] = []
@@ -105,13 +116,13 @@ def _evaluate_test_set(
     accelerator_available = bool(torch and torch.cuda.is_available() and device != "cpu")
     if accelerator_available:
         torch.cuda.reset_peak_memory_stats()
-    image_paths = sorted((dataset / "images" / "test").glob("*.png"))
+    image_paths = sorted((dataset / "images" / split).glob("*.png"))
     if not image_paths:
-        raise ValueError("test split has no reviewed windows")
+        raise ValueError(f"{split} split has no reviewed windows")
     manifest = [json.loads(line) for line in (dataset / "windows.jsonl").read_text(encoding="utf-8").splitlines()]
-    test_windows = {Path(item["image"]).stem: item for item in manifest if item["split"] == "test"}
+    test_windows = {Path(item["image"]).stem: item for item in manifest if item["split"] == split}
     for image_path in image_paths:
-        label_path = dataset / "labels" / "test" / f"{image_path.stem}.txt"
+        label_path = dataset / "labels" / split / f"{image_path.stem}.txt"
         expected = _read_yolo_boxes(label_path)
         with Image.open(image_path) as opened:
             image = np.asarray(opened.convert("RGB"))
@@ -119,7 +130,8 @@ def _evaluate_test_set(
             torch.cuda.synchronize()
         inference_start = time.perf_counter()
         predict_options = {
-            "conf": confidence, "verbose": False, "imgsz": MODEL_IMAGE_SIZE, "rect": True,
+            "conf": confidence_thresholds[0], "verbose": False,
+            "imgsz": MODEL_IMAGE_SIZE, "rect": True,
         }
         if device:
             predict_options["device"] = device
@@ -128,13 +140,24 @@ def _evaluate_test_set(
             torch.cuda.synchronize()
         inference_latencies.append(time.perf_counter() - inference_start)
         boxes = results[0].boxes
-        predicted = (
+        predicted_all = (
             boxes.xyxyn.detach().cpu().numpy().astype(np.float64)
             if boxes is not None and len(boxes) else np.empty((0, 4), dtype=np.float64)
         )
+        scores = (
+            boxes.conf.detach().cpu().numpy().astype(np.float64)
+            if boxes is not None and len(boxes) else np.empty((0,), dtype=np.float64)
+        )
+        predicted = predicted_all[scores >= confidence]
         for threshold, key in ((0.25, "0.25"), (0.5, "0.50")):
             counts = _match_counts(predicted, expected, threshold)
             totals[key] = [left + right for left, right in zip(totals[key], counts, strict=True)]
+        for operating_threshold in confidence_thresholds:
+            candidate_boxes = predicted_all[scores >= operating_threshold]
+            point = confidence_sweep_totals[f"{operating_threshold:g}"]
+            for overlap, key in ((0.25, "iou_0.25"), (0.5, "iou_0.50")):
+                counts = _match_counts(candidate_boxes, expected, overlap)
+                point[key] = [left + right for left, right in zip(point[key], counts, strict=True)]
         window = test_windows.get(image_path.stem)
         if window is None:
             raise ValueError(f"test image {image_path.name} is missing from windows.jsonl")
@@ -187,7 +210,7 @@ def _evaluate_test_set(
         return float(np.mean(values)) if values else None
 
     for item in manifest:
-        if item["split"] == "test":
+        if item["split"] == split:
             duration_seconds += item["sample_count"] / item["sample_rate"]
 
     results = {}
@@ -200,6 +223,22 @@ def _evaluate_test_set(
             "precision": true_positive / max(1, true_positive + false_positive),
             "recall": true_positive / max(1, true_positive + false_negative),
         }
+    confidence_sweep = {}
+    for threshold, overlap_totals in confidence_sweep_totals.items():
+        point = {}
+        for overlap, counts in overlap_totals.items():
+            true_positive, false_positive, false_negative = counts
+            precision = true_positive / max(1, true_positive + false_positive)
+            recall = true_positive / max(1, true_positive + false_negative)
+            point[overlap] = {
+                "true_positive": true_positive,
+                "false_positive": false_positive,
+                "false_negative": false_negative,
+                "precision": precision,
+                "recall": recall,
+                "f1": 2 * precision * recall / max(1e-12, precision + recall),
+            }
+        confidence_sweep[threshold] = point
     condition_breakdowns = {}
     for dimension, groups in condition_totals.items():
         condition_breakdowns[dimension] = {}
@@ -225,6 +264,7 @@ def _evaluate_test_set(
     inference_seconds = sum(inference_latencies)
     runtime_measurements: dict[str, Any] = {
         "inference_windows": len(inference_latencies),
+        "prediction_confidence_floor": confidence_thresholds[0],
         "mean_latency_ms_per_window": float(np.mean(inference_latencies) * 1000),
         "p50_latency_ms_per_window": float(np.percentile(inference_latencies, 50) * 1000),
         "p95_latency_ms_per_window": float(np.percentile(inference_latencies, 95) * 1000),
@@ -246,8 +286,8 @@ def _evaluate_test_set(
         runtime_measurements["process_rss_mb_after_evaluation"] = None
     return {
         "confidence_threshold": confidence,
-        "reviewed_test_windows": len(image_paths),
-        "reviewed_test_audio_seconds": duration_seconds,
+        f"reviewed_{split}_windows": len(image_paths),
+        f"reviewed_{split}_audio_seconds": duration_seconds,
         "false_detections_per_audio_hour": totals["0.50"][1] / max(duration_seconds / 3600.0, 1e-12),
         "localization_at_iou_0_50": {
             "matched_boxes": len(frequency_center_errors),
@@ -258,10 +298,11 @@ def _evaluate_test_set(
             "note": "Errors are calculated only for greedy IoU >= 0.50 matches; null means no boxes matched.",
         },
         "metrics": results,
+        "confidence_sweep": confidence_sweep if include_confidence_sweep else None,
         "condition_breakdowns_iou_0_50": condition_breakdowns,
         "signal_type_recall_iou_0_50": signal_type_recall,
         "runtime_measurements": runtime_measurements,
-        "scope": "one fixed confidence threshold on capture/lineage-held-out, completely reviewed windows",
+        "scope": f"{split} capture/lineage-held-out, completely reviewed windows; localization and condition breakdowns use the selected confidence threshold",
     }
 
 
@@ -275,7 +316,7 @@ def train_cv_detector(
     seed: int = 1,
     device: str | None = None,
     workers: int = 4,
-    confidence: float = 0.25,
+    confidence: float | None = None,
 ) -> dict[str, Any]:
     dataset = Path(dataset_dir).expanduser().resolve()
     destination = Path(output_model).expanduser().resolve()
@@ -301,8 +342,10 @@ def train_cv_detector(
         from ultralytics import YOLO
     except ImportError as exc:
         raise RuntimeError("CV training requires the optional 'cv' install extra") from exc
-    if epochs <= 0 or batch <= 0 or workers < 0 or not 0.0 < confidence < 1.0:
-        raise ValueError("epochs and batch must be positive, workers cannot be negative")
+    if epochs <= 0 or batch <= 0 or workers < 0 or (
+        confidence is not None and not 0.0 < confidence < 1.0
+    ):
+        raise ValueError("epochs and batch must be positive, workers cannot be negative, and confidence must be within (0, 1)")
 
     destination.parent.mkdir(parents=True, exist_ok=True)
     run_root = destination.parent / f".{destination.stem}-training"
@@ -338,7 +381,27 @@ def train_cv_detector(
         raise RuntimeError(f"YOLO training completed without a best.pt artifact at {best}")
 
     evaluation_model = YOLO(str(best))
-    test_metrics = _evaluate_test_set(evaluation_model, dataset, confidence=confidence, device=device)
+    validation_metrics = _evaluate_test_set(
+        evaluation_model, dataset, confidence=confidence if confidence is not None else 0.25,
+        device=device, split="validation",
+    )
+    if confidence is None:
+        points = validation_metrics["confidence_sweep"]
+        confidence = max(
+            (float(threshold) for threshold in points),
+            key=lambda threshold: (
+                points[f"{threshold:g}"]["iou_0.50"]["f1"],
+                points[f"{threshold:g}"]["iou_0.50"]["precision"],
+                threshold,
+            ),
+        )
+        confidence_source = "validation_iou_0.50_f1_then_precision_then_higher_threshold"
+    else:
+        confidence_source = "user_override"
+    test_metrics = _evaluate_test_set(
+        evaluation_model, dataset, confidence=confidence, device=device,
+        split="test", include_confidence_sweep=False,
+    )
 
     with tempfile.NamedTemporaryFile(prefix=f".{destination.name}.", dir=destination.parent, delete=False) as temp:
         temporary_model = Path(temp.name)
@@ -365,8 +428,11 @@ def train_cv_detector(
         "batch": batch,
         "seed": seed,
         "device": device or "auto",
+        "confidence_threshold": confidence,
+        "confidence_threshold_source": confidence_source,
         "training_finished_utc": datetime.now(timezone.utc).isoformat(),
         "training_run": str(run_root / "run"),
+        "held_out_validation": validation_metrics,
         "held_out_test": test_metrics,
         "model_size_bytes": destination.stat().st_size,
         "scope": "reviewed capture windows from the exported dataset; not a radio or decoder validation result",
@@ -387,7 +453,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--device", default=None, help="Ultralytics device selector, for example cpu or 0")
     parser.add_argument("--workers", type=int, default=4)
-    parser.add_argument("--confidence", type=float, default=0.25, help="fixed confidence for held-out test metrics")
+    parser.add_argument("--confidence", type=float, default=None, help="override the confidence threshold selected by validation IoU 0.50 F1")
     args = parser.parse_args()
     print(json.dumps(train_cv_detector(args.dataset, output_model=args.output_model,
                                        base_model=args.base_model, epochs=args.epochs,
