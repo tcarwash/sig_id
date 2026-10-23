@@ -2712,7 +2712,11 @@ function renderRegions() {
       const detail = document.createElement("div");
       detail.className = "region-detail";
       const classifierSummary = classifierEvidenceSummary(region.evidence?.classifier_proposal);
-      detail.textContent = `${(region.sample_start / state.capture.sample_rate).toFixed(2)} s · ${(region.sample_count / state.capture.sample_rate).toFixed(2)} s duration${region.lineage_state === "superseded" ? " · superseded by split/merge" : ""}${classifierSummary ? ` · ${classifierSummary}` : ""}`;
+      const detectorEvidence = region.evidence?.detector_proposal;
+      const detectorSummary = detectorEvidence
+        ? `CV ${Math.round(100 * detectorEvidence.confidence)}% · model ${detectorEvidence.model_sha256.slice(0, 8)}${detectorEvidence.supporting_windows?.length > 1 ? ` · seen in ${detectorEvidence.supporting_windows.length} windows` : ""}`
+        : null;
+      detail.textContent = `${(region.sample_start / state.capture.sample_rate).toFixed(2)} s · ${(region.sample_count / state.capture.sample_rate).toFixed(2)} s duration${region.lineage_state === "superseded" ? " · superseded by split/merge" : ""}${detectorSummary ? ` · ${detectorSummary}` : ""}${classifierSummary ? ` · ${classifierSummary}` : ""}`;
       const left = document.createElement("div");
       left.append(main, detail);
       const protocol = document.createElement("div");
@@ -2721,7 +2725,12 @@ function renderRegions() {
       const badge = document.createElement("span");
       badge.className = "region-badge";
       const badgeLabels = { synthetic: "SYNTHETIC", human: "HUMAN LABEL", decoder: "DECODER", external: "EXTERNAL", rsid: "RSID", prediction: "PREDICTION", unknown: "UNKNOWN" };
-      badge.textContent = region.lineage_state === "superseded" ? "SUPERSEDED" : region.review_state === "accepted" ? (badgeLabels[region.source] || "ACCEPTED") : "PENDING REVIEW";
+      const identityKnown = Boolean(region.family || region.method || region.protocol || region.variant);
+      badge.textContent = region.lineage_state === "superseded"
+        ? "SUPERSEDED"
+        : region.origin === "detector_proposal"
+          ? `CV · ${region.review_state !== "accepted" ? "PENDING REVIEW" : identityKnown ? "HUMAN LABEL" : "PRESENCE REVIEW"}`
+          : region.review_state === "accepted" ? (badgeLabels[region.source] || "ACCEPTED") : "PENDING REVIEW";
       row.append(left, protocol, badge);
       const mergeLabel = document.createElement("label");
       mergeLabel.className = "demod-check region-merge-select";
