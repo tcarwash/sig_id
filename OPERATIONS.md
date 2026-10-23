@@ -57,7 +57,8 @@ The exporter uses current accepted region geometry only inside fresh, complete
 `Signal detection` scene reviews. Windows with uncertain or ignored subregions are
 excluded. It groups parent/scene component captures and duplicate waveforms before
 assigning train/validation/test splits. At least three independent groups are
-required. The exported `export-report.json` and `windows.jsonl` record counts, hashes,
+required; each split must contain signal and completely reviewed no-signal windows.
+The exported `export-report.json` and `windows.jsonl` record counts, hashes,
 source windows and preprocessing version. Review a sufficient range of recordings
 before training; the CLI does not turn unreviewed parts of a capture into negative
 examples. Ultralytics downloads its selected base checkpoint when needed. The optional

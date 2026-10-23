@@ -743,9 +743,19 @@ function selectCvDetection(detection) {
     tone_count_candidate: "unknown",
     time_start_seconds: detection.sample_start / data.sample_rate,
     time_end_seconds: (detection.sample_start + detection.sample_count) / data.sample_rate,
+    detector_evidence: {
+      detector: "yolo",
+      model_sha256: detection.model_sha256,
+      confidence: detection.confidence,
+      preprocessing_version: detection.preprocessing_version,
+      window_sample_start: detection.window_sample_start,
+      window_sample_count: detection.window_sample_count,
+      sample_rate: detection.sample_rate,
+    },
   };
   selectTrack(proposal);
-  state.selectedTrack = null;
+  el("cv-presence-row").hidden = false;
+  el("cv-presence-confirmed").checked = false;
   el("inspector-context").textContent = `Provisional CV box · ${(detection.confidence * 100).toFixed(1)}% detector score · signal identity unknown`;
   el("selection-details").textContent += " · inspect bounds, then run the existing classifier or save as unknown";
 }
@@ -766,7 +776,9 @@ async function refreshLayaStatus() {
 refreshLayaStatus();
 
 function updateModelButton() {
-  el("model-propose").disabled = !state.modelAvailable || !state.capture || !state.selection || state.liveView;
+  const tooShort = (state.selection?.sample_count ?? 0) < 1024;
+  el("model-propose").disabled = !state.modelAvailable || !state.capture || !state.selection || state.liveView || tooShort;
+  el("model-propose").title = tooShort ? "The classifier needs at least 1024 audio samples in this selection." : "Suggest a modulation method for this selection.";
   updateLayaButton();
 }
 
@@ -1806,8 +1818,8 @@ function selectTrack(track) {
   const sampleEnd = Math.min(data.sample_count, track.sample_start + track.sample_count);
   state.selection = { sample_start: track.sample_start, sample_count: Math.max(1, sampleEnd - track.sample_start), frequency_low_hz: track.frequency_low_hz, frequency_high_hz: track.frequency_high_hz, x1, y1, x2, y2 };
   updateCarrierFromSelection(state.selection);
-  state.selectedTrack = track;
   beginNewRegion();
+  state.selectedTrack = track;
   const center = (track.frequency_low_hz + track.frequency_high_hz) / 2;
   const bandwidth = track.frequency_high_hz - track.frequency_low_hz;
   el("inspector-context").textContent = `${track.modulation_hypothesis} candidate · ${center.toFixed(0)} Hz center · ${bandwidth.toFixed(0)} Hz wide · peak SNR estimate ${track.peak_snr_db?.toFixed(1) ?? "unknown"} dB · ${track.tone_count_candidate ?? "unknown"} tone centers${Number.isFinite(track.drift_hz_per_second) ? ` · drift ${track.drift_hz_per_second.toFixed(1)} Hz/s` : ""}`;
@@ -2053,6 +2065,8 @@ el("save-region").addEventListener("click", async () => {
         frequency_high_hz: selection.frequency_high_hz,
         mode_id: state.labelModeId,
         origin: !edit && state.selectedTrack ? "detector_proposal" : el("missed-signal").checked && !edit ? "user_added_missed_detection" : "manual",
+        detector_evidence: !edit ? state.selectedTrack?.detector_evidence || null : null,
+        signal_presence_confirmed: !edit && Boolean(state.selectedTrack?.detector_evidence) && el("cv-presence-confirmed").checked,
         family: el("family").value.trim() || null,
         method: el("method").value.trim() || null,
         protocol: el("protocol").value.trim() || null,
@@ -3010,6 +3024,9 @@ function startSpectrumStream(generation,sessionId) {
 }
 
 function beginNewRegion() {
+  state.selectedTrack = null;
+  el("cv-presence-row").hidden = true;
+  el("cv-presence-confirmed").checked = false;
   state.editRegion = null;
   state.coverageEdit = null;
   state.coverageOnly = false;

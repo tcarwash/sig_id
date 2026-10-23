@@ -51,6 +51,16 @@ def default_track_fft_size(sample_rate: int) -> int:
     return min(8192, 1 << int(np.ceil(np.log2(target))))
 
 
+class DetectorProposalEvidence(BaseModel):
+    detector: Literal["yolo"]
+    model_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    confidence: float = Field(ge=0.0, le=1.0)
+    preprocessing_version: str = Field(min_length=1, max_length=80)
+    window_sample_start: int = Field(ge=0)
+    window_sample_count: int = Field(gt=0)
+    sample_rate: int = Field(gt=0)
+
+
 class RegionCreate(BaseModel):
     sample_start: int = Field(ge=0)
     sample_count: int = Field(gt=0)
@@ -63,6 +73,8 @@ class RegionCreate(BaseModel):
     notes: str = ""
     mode_id: str | None = Field(default=None, max_length=80)
     origin: Literal["manual", "detector_proposal", "user_added_missed_detection"] = "manual"
+    detector_evidence: DetectorProposalEvidence | None = None
+    signal_presence_confirmed: bool = False
 
 
 class LabelRevisionCreate(BaseModel):
@@ -1687,7 +1699,8 @@ def create_app(
     @app.post("/api/captures/{capture_id}/regions/{region_id}/labels", status_code=201)
     def revise_region_label(capture_id: str, region_id: str, data: LabelRevisionCreate) -> dict[str, Any]:
         try:
-            if not any(region["id"] == region_id for region in store.regions(capture_id)):
+            current_region = next((region for region in store.regions(capture_id) if region["id"] == region_id), None)
+            if current_region is None:
                 raise KeyError("region not in this capture")
             resolved = resolve_mode_label(data.mode_id, {
                 "family": data.family, "method": data.method,
@@ -1699,7 +1712,9 @@ def create_app(
                 mode_id=resolved["mode_id"], notes=data.notes,
                 source="human" if has_label else "unknown",
                 review_state="accepted" if has_label else "pending",
-                evidence={"reviewed_from_revision": data.expected_revision} | ({"mode_registry_version": resolved["registry_version"]} if resolved["mode_id"] else {}),
+                evidence={"reviewed_from_revision": data.expected_revision}
+                | ({"mode_registry_version": resolved["registry_version"]} if resolved["mode_id"] else {})
+                | {key: current_region["evidence"][key] for key in ("detector_proposal", "signal_presence_review") if key in current_region["evidence"]},
             ), expected_revision=data.expected_revision)
             return next(region for region in store.regions(capture_id) if region["id"] == region_id)
         except KeyError as exc:
@@ -1854,11 +1869,29 @@ def create_app(
     @app.post("/api/captures/{capture_id}/regions", status_code=201)
     def create_region(capture_id: str, data: RegionCreate) -> dict[str, Any]:
         try:
+            capture = store.capture(capture_id)
+            detector_evidence = data.detector_evidence
+            if data.signal_presence_confirmed and data.origin != "detector_proposal":
+                raise ValueError("signal presence confirmation is only valid for a detector proposal")
+            if detector_evidence is not None:
+                if data.origin != "detector_proposal":
+                    raise ValueError("detector evidence is only valid for a detector proposal")
+                if detector_evidence.sample_rate != int(capture["sample_rate"]):
+                    raise ValueError("detector sample rate does not match the capture")
+                window_start = detector_evidence.window_sample_start
+                window_end = window_start + detector_evidence.window_sample_count
+                if window_end > int(capture["sample_count"]):
+                    raise ValueError("detector window exceeds the capture sample range")
+                if data.sample_start < window_start or data.sample_start + data.sample_count > window_end:
+                    raise ValueError("proposal region must remain inside its detector window")
+            elif data.signal_presence_confirmed:
+                raise ValueError("signal presence confirmation requires detector evidence")
             resolved = resolve_mode_label(data.mode_id, {
                 "family": data.family, "method": data.method,
                 "protocol": data.protocol, "variant": data.variant,
             }, additional_modes=store.accepted_mode_definitions())
             has_label = any((resolved["family"], resolved["method"], resolved["protocol"], resolved["variant"]))
+            accepted_presence = data.signal_presence_confirmed
             region_id = store.add_region(
                 capture_id,
                 sample_start=data.sample_start,
@@ -1871,9 +1904,13 @@ def create_app(
                     protocol=resolved["protocol"],
                     variant=resolved["variant"],
                     mode_id=resolved["mode_id"],
-                    source="human" if has_label else "unknown",
-                    review_state="accepted" if has_label else "pending",
-                    evidence={"mode_registry_version": resolved["registry_version"]} if resolved["mode_id"] else None,
+                    source="human" if has_label or accepted_presence else "unknown",
+                    review_state="accepted" if has_label or accepted_presence else "pending",
+                    evidence={
+                        **({"mode_registry_version": resolved["registry_version"]} if resolved["mode_id"] else {}),
+                        **({"detector_proposal": detector_evidence.model_dump()} if detector_evidence else {}),
+                        **({"signal_presence_review": "confirmed_unknown_identity"} if accepted_presence else {}),
+                    } or None,
                     notes=data.notes,
                 ),
                 origin=data.origin,

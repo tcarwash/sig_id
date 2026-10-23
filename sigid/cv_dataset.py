@@ -208,6 +208,14 @@ def export_cv_dataset(
         "split_images": {split: sum(row["split"] == split for row in metadata_rows) for split in ("train", "validation", "test")},
         "positive_images": sum(row["box_count"] > 0 for row in metadata_rows),
         "negative_images": sum(row["box_count"] == 0 for row in metadata_rows),
+        "positive_images_by_split": {
+            split: sum(row["split"] == split and row["box_count"] > 0 for row in metadata_rows)
+            for split in ("train", "validation", "test")
+        },
+        "negative_images_by_split": {
+            split: sum(row["split"] == split and row["box_count"] == 0 for row in metadata_rows)
+            for split in ("train", "validation", "test")
+        },
         "skipped_windows": skipped,
         "captures_with_windows": len(window_samples_by_capture),
     }

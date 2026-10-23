@@ -130,8 +130,11 @@ def train_cv_detector(
         raise ValueError("dataset preprocessing version does not match this trainer")
     if report.get("split_images", {}).get("train", 0) < 1 or report.get("split_images", {}).get("validation", 0) < 1:
         raise ValueError("training and validation splits must both contain reviewed images")
-    if report.get("positive_images", 0) < 3:
-        raise ValueError("at least three reviewed positive windows are required before YOLO training")
+    for split in ("train", "validation", "test"):
+        if report.get("positive_images_by_split", {}).get(split, 0) < 1:
+            raise ValueError(f"{split} split must contain at least one reviewed signal window")
+        if report.get("negative_images_by_split", {}).get(split, 0) < 1:
+            raise ValueError(f"{split} split must contain at least one completely reviewed no-signal window")
     if not any((dataset / "labels" / "train").glob("*.txt")):
         raise ValueError("training split has no labels")
     try:
