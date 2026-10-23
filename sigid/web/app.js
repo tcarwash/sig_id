@@ -6,7 +6,7 @@ import { narrowKnownModes } from "/mode-candidates.mjs";
 import { layoutSignalLabels, signalCaption, hitSignal } from "/signal-overlays.mjs";
 
 const el = (id) => document.getElementById(id);
-const state = { capture: null, waterfall: null, drag: null, selection: null, regions: [], tracks: [], cvDetections: [], cvAvailable: false, cvSimilarAvailable: false, bitAnnotations: [], protocolStencils: [], liveView: false, liveSessionId: null, modelAvailable: false, view: null, demodExports: {}, selectedTrack: null, classifierProposal: null, frozen: false, labelModeId: null, modeSearchResults: [], modeSearchRequest: 0, applyingMode: false, adjustingGeometry: false, geometryDraft: false, splitMode: false, splitChildren: [], splitParentSelection: null, mergeRegionIds: new Set(), modeProposalRegion: null, proposalCaptureRequest: 0, proposalEvidenceCaptures: [] };
+const state = { capture: null, waterfall: null, drag: null, selection: null, regions: [], tracks: [], cvDetections: [], cvDismissedCount: 0, cvAvailable: false, cvSimilarAvailable: false, bitAnnotations: [], protocolStencils: [], liveView: false, liveSessionId: null, modelAvailable: false, view: null, demodExports: {}, selectedTrack: null, classifierProposal: null, frozen: false, labelModeId: null, modeSearchResults: [], modeSearchRequest: 0, applyingMode: false, adjustingGeometry: false, geometryDraft: false, splitMode: false, splitChildren: [], splitParentSelection: null, mergeRegionIds: new Set(), modeProposalRegion: null, proposalCaptureRequest: 0, proposalEvidenceCaptures: [] };
 state.layaAvailable = false;
 state.coverageWindow = null;
 state.coverageMasks = { ignore_regions: [], uncertain_regions: [] };
@@ -778,7 +778,11 @@ el("cv-scan").addEventListener("click", async () => {
   try {
     const result = await request(`/api/captures/${encodeURIComponent(capture.id)}/cv-detections`, { method: "POST" });
     if (state.capture !== capture || state.liveView) return;
-    state.cvDetections = result.detections;
+    state.cvDetections = result.detections.map((detection, index) => ({
+      ...detection,
+      cv_proposal_id: `${result.model_sha256 || "model"}:${index}:${detection.sample_start}`,
+    }));
+    state.cvDismissedCount = 0;
     renderCvDetections();
     el("cv-status").textContent = `CV proposed ${result.detections.length} signal box${result.detections.length === 1 ? "" : "es"} · overlapping windows deduplicated; provisional, review before labeling or decoding`;
     drawOverlays();
@@ -809,13 +813,35 @@ function renderCvDetections() {
     button.type = "button";
     button.textContent = "Review selection";
     button.addEventListener("click", () => selectCvDetection(detection));
-    row.append(summary, detail, button);
+    const reject = document.createElement("button");
+    reject.type = "button";
+    reject.textContent = "Reject box";
+    reject.title = "Remove this proposal from the current scan; this does not create a training label.";
+    reject.addEventListener("click", () => {
+      state.cvDetections = state.cvDetections.filter((item) => item !== detection);
+      state.cvDismissedCount += 1;
+      if (state.selectedTrack?.cv_proposal_id === detection.cv_proposal_id) {
+        state.selection = null;
+        beginNewRegion();
+        el("selection-summary").textContent = "No selection";
+        el("selection-details").textContent = "The dismissed CV proposal was cleared from the label editor.";
+        el("inspector-context").textContent = "Select a signal region to inspect or label it.";
+      }
+      renderCvDetections();
+      drawOverlays();
+      el("cv-status").textContent = state.cvDetections.length
+        ? `${state.cvDetections.length} CV proposal${state.cvDetections.length === 1 ? "" : "s"} remain · ${state.cvDismissedCount} rejected from this scan`
+        : `All CV proposals rejected from this scan · ${state.cvDismissedCount} dismissed; no training label was recorded`;
+    });
+    row.append(summary, detail, button, reject);
     list.append(row);
   }
   if (!state.cvDetections.length) {
     const empty = document.createElement("p");
     empty.className = "subhead";
-    empty.textContent = "No boxes proposed. The detector may miss weak or unfamiliar signals.";
+    empty.textContent = state.cvDismissedCount
+      ? `No proposals remain · ${state.cvDismissedCount} rejected from this scan; dismissals are not training labels.`
+      : "No boxes proposed. The detector may miss weak or unfamiliar signals.";
     list.append(empty);
   }
 }
@@ -828,6 +854,7 @@ function selectCvDetection(detection) {
     sample_count: detection.sample_count,
     frequency_low_hz: detection.frequency_low_hz,
     frequency_high_hz: detection.frequency_high_hz,
+    cv_proposal_id: detection.cv_proposal_id,
     track_state: "CV proposal",
     modulation_hypothesis: "unknown signal",
     tone_count_candidate: "unknown",
@@ -991,6 +1018,7 @@ el("live-start").addEventListener("click", async () => {
     clearDemodExports();
     state.capture = null;
     state.cvDetections = [];
+    state.cvDismissedCount = 0;
     renderCvDetections();
     updateCvButton();
     state.liveView = true;
@@ -1406,6 +1434,7 @@ async function loadCapture() {
   state.view = null;
   state.selection = null;
   state.cvDetections = [];
+  state.cvDismissedCount = 0;
   el("cv-similar-results")?.replaceChildren();
   el("cv-similar-status").textContent = "";
   renderCvDetections();
