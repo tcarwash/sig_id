@@ -5,8 +5,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import shutil
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -73,7 +75,9 @@ def _match_counts(predicted: np.ndarray, expected: np.ndarray, threshold: float)
     return len(matches), len(predicted) - len(matches), len(expected) - len(matches)
 
 
-def _evaluate_test_set(model: Any, dataset: Path, *, confidence: float) -> dict[str, Any]:
+def _evaluate_test_set(
+    model: Any, dataset: Path, *, confidence: float, device: str | None = None,
+) -> dict[str, Any]:
     from PIL import Image
 
     totals = {"0.25": [0, 0, 0], "0.50": [0, 0, 0]}
@@ -93,6 +97,14 @@ def _evaluate_test_set(model: Any, dataset: Path, *, confidence: float) -> dict[
         dimension: {} for dimension in condition_totals
     }
     signal_type_counts: dict[str, list[int]] = {}
+    inference_latencies: list[float] = []
+    try:
+        import torch
+    except ImportError:
+        torch = None
+    accelerator_available = bool(torch and torch.cuda.is_available() and device != "cpu")
+    if accelerator_available:
+        torch.cuda.reset_peak_memory_stats()
     image_paths = sorted((dataset / "images" / "test").glob("*.png"))
     if not image_paths:
         raise ValueError("test split has no reviewed windows")
@@ -103,7 +115,18 @@ def _evaluate_test_set(model: Any, dataset: Path, *, confidence: float) -> dict[
         expected = _read_yolo_boxes(label_path)
         with Image.open(image_path) as opened:
             image = np.asarray(opened.convert("RGB"))
-        results = model.predict(image, conf=confidence, verbose=False, imgsz=MODEL_IMAGE_SIZE, rect=True)
+        if accelerator_available:
+            torch.cuda.synchronize()
+        inference_start = time.perf_counter()
+        predict_options = {
+            "conf": confidence, "verbose": False, "imgsz": MODEL_IMAGE_SIZE, "rect": True,
+        }
+        if device:
+            predict_options["device"] = device
+        results = model.predict(image, **predict_options)
+        if accelerator_available:
+            torch.cuda.synchronize()
+        inference_latencies.append(time.perf_counter() - inference_start)
         boxes = results[0].boxes
         predicted = (
             boxes.xyxyn.detach().cpu().numpy().astype(np.float64)
@@ -199,6 +222,28 @@ def _evaluate_test_set(model: Any, dataset: Path, *, confidence: float) -> dict[
         }
         for signal_type, counts in sorted(signal_type_counts.items())
     }
+    inference_seconds = sum(inference_latencies)
+    runtime_measurements: dict[str, Any] = {
+        "inference_windows": len(inference_latencies),
+        "mean_latency_ms_per_window": float(np.mean(inference_latencies) * 1000),
+        "p50_latency_ms_per_window": float(np.percentile(inference_latencies, 50) * 1000),
+        "p95_latency_ms_per_window": float(np.percentile(inference_latencies, 95) * 1000),
+        "throughput_windows_per_second": len(inference_latencies) / max(inference_seconds, 1e-12),
+        "accelerator_memory_measured": accelerator_available,
+        "peak_accelerator_allocated_mb": (
+            float(torch.cuda.max_memory_allocated() / (1024 * 1024)) if accelerator_available else None
+        ),
+        "peak_accelerator_reserved_mb": (
+            float(torch.cuda.max_memory_reserved() / (1024 * 1024)) if accelerator_available else None
+        ),
+    }
+    try:
+        import psutil
+        runtime_measurements["process_rss_mb_after_evaluation"] = float(
+            psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
+        )
+    except ImportError:
+        runtime_measurements["process_rss_mb_after_evaluation"] = None
     return {
         "confidence_threshold": confidence,
         "reviewed_test_windows": len(image_paths),
@@ -215,6 +260,7 @@ def _evaluate_test_set(model: Any, dataset: Path, *, confidence: float) -> dict[
         "metrics": results,
         "condition_breakdowns_iou_0_50": condition_breakdowns,
         "signal_type_recall_iou_0_50": signal_type_recall,
+        "runtime_measurements": runtime_measurements,
         "scope": "one fixed confidence threshold on capture/lineage-held-out, completely reviewed windows",
     }
 
@@ -238,6 +284,8 @@ def train_cv_detector(
     if not report_path.is_file() or not data_yaml.is_file():
         raise FileNotFoundError("dataset must be produced by sig-id-export-cv-dataset")
     report = json.loads(report_path.read_text(encoding="utf-8"))
+    if report.get("schema_version") not in {1, 2}:
+        raise ValueError("unsupported CV dataset report schema")
     if report.get("preprocessing_version") != PREPROCESSING_VERSION:
         raise ValueError("dataset preprocessing version does not match this trainer")
     if report.get("split_images", {}).get("train", 0) < 1 or report.get("split_images", {}).get("validation", 0) < 1:
@@ -290,7 +338,7 @@ def train_cv_detector(
         raise RuntimeError(f"YOLO training completed without a best.pt artifact at {best}")
 
     evaluation_model = YOLO(str(best))
-    test_metrics = _evaluate_test_set(evaluation_model, dataset, confidence=confidence)
+    test_metrics = _evaluate_test_set(evaluation_model, dataset, confidence=confidence, device=device)
 
     with tempfile.NamedTemporaryFile(prefix=f".{destination.name}.", dir=destination.parent, delete=False) as temp:
         temporary_model = Path(temp.name)
@@ -306,6 +354,7 @@ def train_cv_detector(
         "base_model": base_model,
         "dataset_path": str(dataset),
         "dataset_report_sha256": _sha256(report_path),
+        "dataset_schema_version": report["schema_version"],
         "data_yaml_sha256": _sha256(data_yaml),
         "windows_manifest_sha256": _sha256(dataset / "windows.jsonl"),
         "preprocessing_version": PREPROCESSING_VERSION,
@@ -319,6 +368,7 @@ def train_cv_detector(
         "training_finished_utc": datetime.now(timezone.utc).isoformat(),
         "training_run": str(run_root / "run"),
         "held_out_test": test_metrics,
+        "model_size_bytes": destination.stat().st_size,
         "scope": "reviewed capture windows from the exported dataset; not a radio or decoder validation result",
     }
     metadata_path = destination.with_suffix(destination.suffix + ".json")

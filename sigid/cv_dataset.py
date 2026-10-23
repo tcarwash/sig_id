@@ -279,7 +279,7 @@ def export_cv_dataset(
         for row in metadata_rows:
             stream.write(json.dumps(row, sort_keys=True) + "\n")
     report = {
-        "schema_version": 1,
+        "schema_version": 2,
         "preprocessing_version": "sig-id-cv-gray-v1",
         "image_width": IMAGE_WIDTH,
         "image_height": IMAGE_HEIGHT,

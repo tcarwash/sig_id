@@ -84,7 +84,7 @@ end-to-end detector-to-decoder evaluation. Those remain explicit follow-up work.
 - Load the detector only when CV is enabled and a model artifact is configured. Report a clear unavailable/disabled state when dependencies or weights are absent.
 - Optional Compose inference can use the CPU-capable base image or an AMD ROCm/PyTorch image with explicit `/dev/kfd` and `/dev/dri` pass-through.
 - Keep inference failures isolated so the classifier, manual selection, capture, and decoding workflows remain usable.
-- Begin with batch detection on completed captures. Measure model size, memory, CPU/GPU use, and per-window latency before enabling periodic live inference.
+- Begin with batch detection on completed captures. Training evaluation now records model size, per-window latency/throughput, process RSS, and accelerator memory when exposed by PyTorch. Real-capture and hardware measurements are still required before enabling periodic live inference.
 - Keep model weights and writable CV data in the configured persistent data directory for Compose deployments; do not bake user-trained weights into the base image.
 
 ### 5. Connect detections to the existing workflow
