@@ -63,18 +63,44 @@ def _lineage_groups(captures: list[dict[str, Any]]) -> dict[str, str]:
     return {capture_id: stable_ids[find(capture_id)] for capture_id in by_id}
 
 
-def _splits(groups: set[str], seed: int) -> dict[str, str]:
+def _splits(
+    groups: set[str], seed: int, group_strata: dict[str, set[str]] | None = None,
+) -> dict[str, str]:
     if len(groups) < 3:
         raise ValueError("CV export needs at least three independent capture/lineage groups")
-    ordered = sorted(groups, key=lambda value: hashlib.sha256(f"{seed}:{value}".encode()).hexdigest())
-    count = len(ordered)
+    count = len(groups)
     test_count = max(1, int(round(count * 0.15)))
     val_count = max(1, int(round(count * 0.15)))
     if test_count + val_count >= count:
         test_count = val_count = 1
-    assignment = {group: "test" for group in ordered[:test_count]}
-    assignment.update({group: "validation" for group in ordered[test_count:test_count + val_count]})
-    assignment.update({group: "train" for group in ordered[test_count + val_count:]})
+    split_counts = {"test": test_count, "validation": val_count, "train": count - test_count - val_count}
+    split_weights = {name: value / count for name, value in split_counts.items()}
+    buckets: dict[tuple[str, ...], list[str]] = {}
+    group_strata = group_strata or {}
+    for group in groups:
+        buckets.setdefault(tuple(sorted(group_strata.get(group, set()))), []).append(group)
+
+    assignment: dict[str, str] = {}
+    for stratum, members in sorted(buckets.items(), key=lambda item: (item[0], len(item[1]))):
+        remaining_counts = {name: int(len(members) * weight) for name, weight in split_weights.items()}
+        remainder_order = sorted(
+            split_weights,
+            key=lambda name: (
+                -(len(members) * split_weights[name] - remaining_counts[name]),
+                hashlib.sha256(f"{seed}:{stratum}:{name}".encode()).hexdigest(),
+            ),
+        )
+        for name in remainder_order[:len(members) - sum(remaining_counts.values())]:
+            remaining_counts[name] += 1
+        ordered = sorted(
+            members,
+            key=lambda value: hashlib.sha256(f"{seed}:{stratum}:{value}".encode()).hexdigest(),
+        )
+        offset = 0
+        for name in ("test", "validation", "train"):
+            next_offset = offset + remaining_counts[name]
+            assignment.update({group: name for group in ordered[offset:next_offset]})
+            offset = next_offset
     return assignment
 
 
@@ -246,7 +272,33 @@ def export_cv_dataset(
     store = CaptureStore(root / "dataset.sqlite3")
     captures = store.list_captures()
     groups = _lineage_groups(captures)
-    split_by_group = _splits(set(groups.values()), seed)
+    regions_by_capture: dict[str, list[dict[str, Any]]] = {}
+    reviews_by_capture: dict[str, list[dict[str, Any]]] = {}
+    group_strata: dict[str, set[str]] = {}
+    for capture in captures:
+        capture_id = capture["id"]
+        regions = store.regions(capture_id)
+        if capture["source_kind"] == "synthetic" and any(
+            region["frequency_low_hz"] is None for region in regions
+            if region["review_state"] == "accepted"
+        ):
+            inferred_bounds = _synthetic_capture_frequency_bounds(store, capture)
+            if inferred_bounds:
+                for region in regions:
+                    if region["frequency_low_hz"] is None:
+                        region["frequency_low_hz"], region["frequency_high_hz"] = inferred_bounds
+        reviews = store.scene_coverages(capture_id)
+        regions_by_capture[capture_id] = regions
+        reviews_by_capture[capture_id] = reviews
+        group = groups[capture_id]
+        for review in reviews:
+            if not _review_covers_window(review, review["sample_start"], review["sample_count"]):
+                continue
+            boxes, _, error = _window_boxes(regions, review["sample_start"], review["sample_count"])
+            if error:
+                continue
+            group_strata.setdefault(group, set()).add("positive" if boxes else "negative")
+    split_by_group = _splits(set(groups.values()), seed, group_strata)
     if destination.exists() and any(destination.iterdir()):
         raise FileExistsError(f"output directory must be empty: {destination}")
     destination.mkdir(parents=True, exist_ok=True)
@@ -258,17 +310,8 @@ def export_cv_dataset(
     skipped = {"unreviewed_window": 0, "unsupported_region": 0}
     window_samples_by_capture: dict[str, int] = {}
     for capture in captures:
-        regions = store.regions(capture["id"])
-        if capture["source_kind"] == "synthetic" and any(
-            region["frequency_low_hz"] is None for region in regions
-            if region["review_state"] == "accepted"
-        ):
-            inferred_bounds = _synthetic_capture_frequency_bounds(store, capture)
-            if inferred_bounds:
-                for region in regions:
-                    if region["frequency_low_hz"] is None:
-                        region["frequency_low_hz"], region["frequency_high_hz"] = inferred_bounds
-        reviews = store.scene_coverages(capture["id"])
+        regions = regions_by_capture[capture["id"]]
+        reviews = reviews_by_capture[capture["id"]]
         sample_rate = int(capture["sample_rate"])
         full_window = sample_rate * WINDOW_SECONDS
         for start, samples, actual_rate in audio_windows(capture["audio_path"]):

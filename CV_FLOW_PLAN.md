@@ -74,7 +74,7 @@ follow-up work.
 - Store box geometry in sample and frequency coordinates, not display pixels. Preserve capture/session lineage and annotation revision history.
 - Deterministic synthetic imports now derive signal-frequency geometry from their validated generator manifests. The CV exporter can recover missing geometry on older imports only when the sidecar hash matches the stored capture provenance.
 - Export the reviewed data to the detector's training format. Generate images and labels from the same versioned spectrogram preprocessing used at inference.
-- Split by source capture or recording session before generating windows or augmentations. Keep all derived windows from a source in one split to avoid leakage.
+- Split by source capture or recording session before generating windows or augmentations. Keep all derived windows from a source in one split to avoid leakage, and stratify reviewed positive, no-signal, mixed, and unreviewed groups across partitions when possible so validation and test cover both detection classes.
 - Include representative real captures as they become available, alongside synthetic scenes. Track their source and review status separately.
 
 ### 3. Train and evaluate offline
