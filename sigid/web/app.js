@@ -514,6 +514,10 @@ el("decode-selection").addEventListener("click", async () => {
   const button = el("decode-selection");
   button.disabled = true;
   const carrierStatus = carrierHz === null ? "carrier unset" : `carrier ${carrierHz.toFixed(0)} Hz`;
+  const linkedRegion = state.editRegion && state.regions.find((region) =>
+    region.id === state.editRegion.id && region.lineage_state === "active"
+      && region.sample_start === selection.sample_start && region.sample_count === selection.sample_count,
+  );
   el("replay-status").textContent = `Queuing ${mode} decode · ${carrierStatus} · ${(selection.sample_start / state.waterfall.sample_rate).toFixed(2)}–${((selection.sample_start + selection.sample_count) / state.waterfall.sample_rate).toFixed(2)} s…`;
   try {
     const endpoint = liveSessionId
@@ -527,6 +531,7 @@ el("decode-selection").addEventListener("click", async () => {
         sample_count: selection.sample_count,
         track_id: state.selectedTrack?.track_id || null,
         carrier_hz: carrierHz,
+        region_id: liveSessionId ? null : linkedRegion?.id || null,
       }),
     });
     el("replay-status").textContent = `Decode ${result.status} · ${mode} · ${carrierStatus} · isolated ${liveSessionId ? "live track" : "selected region"} input`;
@@ -1671,10 +1676,11 @@ function renderDecodeRuns() {
       ? ` · ${(run.sample_start / run.sample_rate).toFixed(2)}–${((run.sample_start + run.sample_count) / run.sample_rate).toFixed(2)} s`
       : " · track time unavailable";
     const carrier = Number.isFinite(run.carrier_hz) ? ` · carrier ${run.carrier_hz.toFixed(0)} Hz` : "";
-    button.textContent = `${run.current_mode || "Fldigi"} · ${run.status}${carrier}${interval}`;
+    const regionLink = run.region_id ? " · linked saved region" : "";
+    button.textContent = `${run.current_mode || "Fldigi"} · ${run.status}${carrier}${interval}${regionLink}`;
     button.addEventListener("click", () => {
       showOutput("text");
-      state.textOutputContext = `Saved run ${run.id.slice(0,8)} · ${run.output_scope} · ${run.association}`;
+      state.textOutputContext = `Saved run ${run.id.slice(0,8)}${run.region_id ? ` · region ${run.region_id.slice(0,8)}` : ""} · ${run.output_scope} · ${run.association}`;
       el("output-context").textContent = state.textOutputContext;
       el("decoded-text").textContent = `${run.status.toUpperCase()} · ${run.current_mode || "Fldigi"}\n${run.note}\n\n${run.output_text || "No decoded text was recorded."}`;
       el("decoded-text").scrollTop = 0;

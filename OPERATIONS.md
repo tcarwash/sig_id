@@ -122,6 +122,8 @@ misses at window boundaries. Cross-window proposals with 2D time/frequency IoU o
 at least 0.30 are suppressed in favor of the higher-confidence box; the surviving
 proposal retains the contributing window coordinates in its review evidence.
 This increases inference work by roughly 2x compared with non-overlapping scans.
+When a saved region is selected without changing its bounds, its explicit Fldigi
+replay is linked to that region in the decoder-run history.
 
 Then set `SIG_ID_CV_MODEL_PATH=/data/models/cv/signal.pt` in `.env` and recreate the
 ROCm service. Keep the adjacent `.pt.json` metadata file beside the weights.

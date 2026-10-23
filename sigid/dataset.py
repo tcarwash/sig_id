@@ -189,6 +189,7 @@ class CaptureStore:
                     id TEXT PRIMARY KEY,
                     session_id TEXT NOT NULL,
                     capture_id TEXT REFERENCES captures(id) ON DELETE SET NULL,
+                    region_id TEXT REFERENCES regions(id) ON DELETE SET NULL,
                     track_id TEXT NOT NULL,
                     sample_start INTEGER,
                     sample_count INTEGER,
@@ -257,6 +258,9 @@ class CaptureStore:
                 db.execute("ALTER TABLE decoder_runs ADD COLUMN association TEXT NOT NULL DEFAULT 'track_window_tentative'")
             if "carrier_hz" not in columns:
                 db.execute("ALTER TABLE decoder_runs ADD COLUMN carrier_hz REAL")
+            if "region_id" not in columns:
+                db.execute("ALTER TABLE decoder_runs ADD COLUMN region_id TEXT REFERENCES regions(id) ON DELETE SET NULL")
+            db.execute("CREATE INDEX IF NOT EXISTS decoder_runs_by_region ON decoder_runs(region_id, created_utc DESC)")
             region_columns = {row[1] for row in db.execute("PRAGMA table_info(regions)")}
             if "origin" not in region_columns:
                 db.execute("ALTER TABLE regions ADD COLUMN origin TEXT NOT NULL DEFAULT 'manual'")
@@ -1223,22 +1227,28 @@ class CaptureStore:
         output_scope: str = "shared_live_input",
         association: str = "track_window_tentative",
         carrier_hz: float | None = None,
+        region_id: str | None = None,
     ) -> str:
         if not session_id or not track_id:
             raise ValueError("decoder run requires a live session and track")
         if (sample_start is None) != (sample_count is None):
             raise ValueError("decoder run sample bounds must be provided together")
+        if region_id is not None:
+            with self._connect() as db:
+                region = db.execute("SELECT capture_id FROM regions WHERE id = ?", (region_id,)).fetchone()
+            if region is None or region["capture_id"] != capture_id:
+                raise ValueError("decoder run region must belong to its saved capture")
         run_id = str(uuid4())
         now = datetime.now(timezone.utc).isoformat()
         with self._connect() as db:
             db.execute(
                 """INSERT INTO decoder_runs
-                   (id, session_id, capture_id, track_id, sample_start, sample_count, sample_rate, carrier_hz,
+                   (id, session_id, capture_id, region_id, track_id, sample_start, sample_count, sample_rate, carrier_hz,
                     modulation_hypothesis, backend, modes_json, attempted_modes_json,
                     current_mode, output_offset, output_end, output_text, status, note,
                     output_scope, association, created_utc, updated_utc)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '', ?, ?, ?, ?, ?, ?)""",
-                (run_id, session_id, capture_id, track_id, sample_start, sample_count, sample_rate, carrier_hz,
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '', ?, ?, ?, ?, ?, ?)""",
+                (run_id, session_id, capture_id, region_id, track_id, sample_start, sample_count, sample_rate, carrier_hz,
                  modulation_hypothesis, backend, json.dumps(modes),
                  json.dumps(attempted_modes), current_mode, output_offset, status,
                  note, output_scope, association, now, now),

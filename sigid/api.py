@@ -245,6 +245,7 @@ class FldigiReplayRequest(BaseModel):
     sample_count: int = Field(gt=0, le=192_000 * 600)
     track_id: str | None = Field(default=None, max_length=128)
     carrier_hz: float | None = Field(default=None, ge=0, le=20000)
+    region_id: str | None = Field(default=None, max_length=80)
 
 
 class FldigiTrackTrialRequest(BaseModel):
@@ -971,6 +972,8 @@ def create_app(
 
     @app.post("/api/live/sessions/{session_id}/decode", status_code=202)
     def replay_live_region(session_id: str, settings: FldigiReplayRequest) -> dict[str, Any]:
+        if settings.region_id is not None:
+            raise HTTPException(status_code=422, detail="saved region links are only valid for saved-capture replays")
         status = live_capture.status()
         if not status.get("active") or status.get("session_id") != session_id:
             raise HTTPException(status_code=409, detail="live capture session is no longer active")
@@ -1040,6 +1043,12 @@ def create_app(
             raise HTTPException(status_code=404, detail="capture not found") from exc
         if settings.sample_start + settings.sample_count > int(capture["sample_count"]):
             raise HTTPException(status_code=422, detail="selected region exceeds the saved capture")
+        if settings.region_id:
+            region = next((item for item in store.regions(capture_id) if item["id"] == settings.region_id), None)
+            if region is None or region["lineage_state"] != "active":
+                raise HTTPException(status_code=422, detail="decoder region must be an active region in this capture")
+            if (settings.sample_start, settings.sample_count) != (region["sample_start"], region["sample_count"]):
+                raise HTTPException(status_code=422, detail="decoder sample bounds must match the linked region")
         try:
             modes = fldigi.mode_names()
         except Exception as exc:
@@ -1059,6 +1068,7 @@ def create_app(
                 output_offset=0, status="queued",
                 note="Waiting to replay the selected saved-capture region.",
                 carrier_hz=settings.carrier_hz,
+                region_id=settings.region_id,
                 output_scope="isolated_region_replay", association="exact_capture_window",
             )
             decode_executor.submit(run_saved_replay, run_id, capture, settings)
