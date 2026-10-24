@@ -198,8 +198,176 @@
     "The run used yolo11n.pt and the host-installed Ultralytics 8.3.180, not the project-pinned 8.4.184 runtime.",
     "One epoch was used only to exercise export, training, threshold selection, evaluation, metadata packaging and ROCm model loading.",
     "Zero held-out signal-box detections; no claims about real signals, classifier routing, decoding, or interoperability.",
-    "The stratified ten-epoch run reduced held-out misses but still produced 13 false detections on 3 short negative windows; the resulting model was not retained as a usable detector."
+    "The stratified ten-epoch run reduced held-out misses but still produced 13 false detections on 3 short negative windows; the resulting model was not retained as a usable detector.",
+    "The 100-epoch pinned ROCm run shows that the earlier zero BPSK/QPSK recall was partly an undertraining result on this synthetic corpus; performance still varies by signal type and real-capture quality is unknown."
   ],
+  "pinned_rocm_100_epoch_follow_up": {
+    "conclusion": "A 100-epoch run in the pinned ROCm container materially improved held-out performance over the earlier 10-epoch run on the same source-lineage split: 29/36 boxes matched at IoU 0.50, with 2 false detections. It now detects some BPSK and QPSK, though misses remain. The detector still has no independent real-capture validation.",
+    "dataset": {
+      "independent_lineage_groups": 112,
+      "negative_images_by_split": {
+        "test": 17,
+        "train": 78,
+        "validation": 17
+      },
+      "positive_images_by_split": {
+        "test": 32,
+        "train": 150,
+        "validation": 30
+      },
+      "seed": 4202026,
+      "test_audio_seconds": 357.28000000000003,
+      "test_windows": 49
+    },
+    "held_out_test": {
+      "false_detections_on_pure_noise": 0,
+      "false_detections_per_audio_hour": 20.152261531571874,
+      "metrics_iou_0_25": {
+        "false_negative": 6,
+        "false_positive": 1,
+        "precision": 0.967741935483871,
+        "recall": 0.8333333333333334,
+        "true_positive": 30
+      },
+      "metrics_iou_0_50": {
+        "false_negative": 7,
+        "false_positive": 2,
+        "precision": 0.9354838709677419,
+        "recall": 0.8055555555555556,
+        "true_positive": 29
+      },
+      "pure_noise_windows": 17,
+      "reviewed_audio_seconds": 357.28000000000003,
+      "reviewed_windows": 49,
+      "runtime_measurements": {
+        "accelerator_memory_measured": true,
+        "inference_windows": 49,
+        "mean_latency_ms_per_window": 12.466325727528988,
+        "p50_latency_ms_per_window": 12.059918022714555,
+        "p95_latency_ms_per_window": 15.171191969420757,
+        "peak_accelerator_allocated_mb": 140.04833984375,
+        "peak_accelerator_reserved_mb": 198.0,
+        "prediction_confidence_floor": 0.5,
+        "process_rss_mb_after_evaluation": 3035.53125,
+        "throughput_windows_per_second": 80.21609749789644
+      },
+      "signal_type_recall_iou_0_50": {
+        "16-ary frequency shift keying": {
+          "ground_truth_boxes": 8,
+          "matched_boxes": 6,
+          "missed_boxes": 2,
+          "recall": 0.75
+        },
+        "4-ary frequency shift keying": {
+          "ground_truth_boxes": 4,
+          "matched_boxes": 4,
+          "missed_boxes": 0,
+          "recall": 1.0
+        },
+        "8-ary frequency shift keying": {
+          "ground_truth_boxes": 6,
+          "matched_boxes": 6,
+          "missed_boxes": 0,
+          "recall": 1.0
+        },
+        "binary frequency shift keying": {
+          "ground_truth_boxes": 10,
+          "matched_boxes": 10,
+          "missed_boxes": 0,
+          "recall": 1.0
+        },
+        "binary phase-shift keying": {
+          "ground_truth_boxes": 6,
+          "matched_boxes": 2,
+          "missed_boxes": 4,
+          "recall": 0.3333333333333333
+        },
+        "quadrature phase-shift keying": {
+          "ground_truth_boxes": 2,
+          "matched_boxes": 1,
+          "missed_boxes": 1,
+          "recall": 0.5
+        }
+      }
+    },
+    "held_out_validation": {
+      "confidence_sweep_iou_0_50": {
+        "0.05": {
+          "f1": 0.8421052631578948,
+          "false_negative": 0,
+          "false_positive": 12,
+          "precision": 0.7272727272727273,
+          "recall": 1.0,
+          "true_positive": 32
+        },
+        "0.1": {
+          "f1": 0.9142857142857143,
+          "false_negative": 0,
+          "false_positive": 6,
+          "precision": 0.8421052631578947,
+          "recall": 1.0,
+          "true_positive": 32
+        },
+        "0.25": {
+          "f1": 0.9411764705882353,
+          "false_negative": 0,
+          "false_positive": 4,
+          "precision": 0.8888888888888888,
+          "recall": 1.0,
+          "true_positive": 32
+        },
+        "0.5": {
+          "f1": 0.967741935483871,
+          "false_negative": 2,
+          "false_positive": 0,
+          "precision": 1.0,
+          "recall": 0.9375,
+          "true_positive": 30
+        },
+        "0.75": {
+          "f1": 0.8571428571428571,
+          "false_negative": 8,
+          "false_positive": 0,
+          "precision": 1.0,
+          "recall": 0.75,
+          "true_positive": 24
+        }
+      },
+      "metrics_iou_0_50": {
+        "false_negative": 0,
+        "false_positive": 4,
+        "precision": 0.8888888888888888,
+        "recall": 1.0,
+        "true_positive": 32
+      }
+    },
+    "limitations": [
+      "Synthetic-only data; no reviewed real-capture windows were available.",
+      "The model still missed 4/6 held-out BPSK boxes and 1/2 QPSK boxes at IoU 0.50, despite improvement over the 10-epoch run.",
+      "There were no false detections in 17 pure-noise windows; this is too little negative audio to establish a low false-alarm rate.",
+      "The 2 false boxes occurred on signal-containing windows.",
+      "MIOpen reported missing optional gfx1031 grouped-convolution/database files; training and evaluation completed.",
+      "No claims about classifier-selected decoding, radio performance, protocol framing, or interoperability."
+    ],
+    "training": {
+      "accelerator": "AMD Radeon RX 6700 XT",
+      "accelerator_backend": "ROCm",
+      "base_model": "yolo26n.pt",
+      "batch": 8,
+      "confidence_threshold": 0.5,
+      "confidence_threshold_source": "validation_iou_0.50_f1_then_precision_then_higher_threshold",
+      "container_image": "sig-id:local built from rocm/pytorch:rocm10.1.0_ubuntu24.04_py3.12_pytorch_release_2.13.0",
+      "container_image_id": "sha256:8cda5f26587a732b3dfae7b74d6a7d8d66714fec80711d840040a338058a296e",
+      "epochs": 100,
+      "model_sha256": "44aaab87a621258bac3fcb1f8ff7911f77646a014989ef142668f543b283fa61",
+      "model_size_bytes": 5446661,
+      "scope": "isolated controlled synthetic burst-in-noise dataset; artifact and training run kept under /tmp",
+      "seed": 4202026,
+      "torch": "2.13.0+rocm10.1.0",
+      "training_elapsed_hours": 0.165,
+      "ultralytics": "8.4.184"
+    }
+  },
   "pinned_rocm_container_follow_up": {
     "conclusion": "The project-pinned Ultralytics runtime completed training, held-out evaluation, and project-wrapper inference on the passed-through RX 6700 XT. Held-out signal-box recall was lower than the prior host-runtime experiment, and the detector is not suitable for unattended use.",
     "dataset": {
