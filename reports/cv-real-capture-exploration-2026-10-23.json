@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "scope": "Exploratory local scan only. Existing accepted annotations are partial; unannotated regions are not negatives.",
+  "model": {
+    "model_sha256": "2c1c9040c5e7e2e1be146be36a63085691b5ed42c39b54736ae1f8ba7f6d1676",
+    "training_scope": "controlled synthetic burst-in-noise corpus",
+    "confidence_threshold": 0.5,
+    "backend": "ROCm",
+    "container_torch": "2.13.0+rocm10.1.0",
+    "container_ultralytics": "8.4.184"
+  },
+  "scan": {
+    "capture_count": 5,
+    "source_kinds": {
+      "live": 4,
+      "wav": 1
+    },
+    "audio_seconds": 479.75554166666666,
+    "elapsed_seconds": 50.04875795904081,
+    "proposal_count": 11,
+    "accepted_regions_with_geometry": 8,
+    "accepted_regions_matched_at_iou_0_50": 0,
+    "best_accepted_region_iou": 0.4127620582074405
+  },
+  "interpretation": [
+    "This is not a complete real-capture detection evaluation because accepted annotations cover only selected regions.",
+    "No false-detection rate can be estimated without complete reviewed negative windows.",
+    "Existing accepted regions on this exploratory sample did not meet the IoU 0.50 match threshold.",
+    "The scan is evidence of a real-data domain gap, not a performance claim. Complete independent reviews and real-capture training/evaluation are still required.",
+    "MIOpen emitted optional missing gfx1031 grouped-convolution/database warnings; inference completed."
+  ]
+}
