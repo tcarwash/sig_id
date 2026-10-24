@@ -8,6 +8,9 @@ ARG INSTALL_CV=0
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libportaudio2 libsndfile1 \
+    && if [ "$INSTALL_CV" = "1" ]; then \
+        apt-get install -y --no-install-recommends libxcb1 libgl1 libglib2.0-0; \
+    fi \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 sigid \
     && useradd --uid 10001 --gid 10001 --home-dir /data --no-create-home sigid \
@@ -20,7 +23,10 @@ RUN pip install --no-cache-dir --require-hashes -r /tmp/requirements/build.txt \
 COPY pyproject.toml ./
 COPY sigid ./sigid
 RUN if [ "$INSTALL_CV" = "1" ]; then \
-        pip install --no-cache-dir --no-build-isolation '.[cv]'; \
+        pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu \
+            'torch==2.14.1' 'torchvision==0.29.1' \
+        && pip install --no-cache-dir --no-build-isolation '.[cv]' \
+        && python -c 'import cv2, ultralytics'; \
     else \
         pip install --no-cache-dir --no-build-isolation --no-deps .; \
     fi \

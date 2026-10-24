@@ -477,8 +477,9 @@ use the normal selection, classification, and decoding workflow. Proposals do
 not identify a signal type by themselves. CV is disabled when no model path is
 configured, and the default Compose image omits the CV runtime dependencies.
 
-For CPU inference, build the optional dependency into the image and configure a
-trained model stored in the persistent `/data` volume:
+For CPU inference, the CV-enabled image installs CPU-only PyTorch and the OpenCV
+runtime libraries. Build it and configure a trained model stored in the persistent
+`/data` volume:
 
 ```sh
 SIG_ID_INSTALL_CV=1 SIG_ID_CV_MODEL_PATH=/data/cv/signal.pt docker compose up --build -d
@@ -523,7 +524,7 @@ video and render group IDs to the host values (inspect them with
 `getent group video render`), then build and start the service:
 
 ```sh
-SIG_ID_ROCM_VIDEO_GID=44 SIG_ID_ROCM_RENDER_GID=109 SIG_ID_INSTALL_CV=1 SIG_ID_CV_MODEL_PATH=/data/cv/signal.pt docker compose -f compose.yaml -f compose.rocm.yaml up --build -d
+SIG_ID_ROCM_VIDEO_GID=44 SIG_ID_ROCM_RENDER_GID=110 SIG_ID_INSTALL_CV=1 SIG_ID_CV_MODEL_PATH=/data/cv/signal.pt docker compose -f compose.yaml -f compose.rocm.yaml up --build -d
 ```
 
 Replace the example group IDs with the host values. The override passes `/dev/kfd`

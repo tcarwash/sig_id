@@ -9,7 +9,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 USER root
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libportaudio2 libsndfile1 \
+    && apt-get install -y --no-install-recommends libportaudio2 libsndfile1 libxcb1 libgl1 libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 sigid \
     && useradd --uid 10001 --gid 10001 --home-dir /data --no-create-home sigid \
@@ -18,11 +18,12 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY requirements/runtime.txt /tmp/requirements/runtime.txt
-RUN python -m pip install --no-cache-dir --require-hashes -r /tmp/requirements/runtime.txt \
-    && python -m pip install --no-cache-dir 'ultralytics==8.4.184'
+RUN python3 -m pip install --no-cache-dir --require-hashes -r /tmp/requirements/runtime.txt \
+    && python3 -m pip install --no-cache-dir 'ultralytics==8.4.184' \
+    && python3 -c 'import cv2, torch, ultralytics'
 COPY pyproject.toml ./
 COPY sigid ./sigid
-RUN python -m pip install --no-cache-dir --no-build-isolation --no-deps . \
+RUN python3 -m pip install --no-cache-dir --no-build-isolation --no-deps . \
     && rm -rf /app /tmp/requirements
 
 WORKDIR /data

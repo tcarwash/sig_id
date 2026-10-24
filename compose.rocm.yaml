@@ -10,7 +10,7 @@ services:
       - /dev/dri:/dev/dri
     group_add:
       - "${SIG_ID_ROCM_VIDEO_GID:-44}"
-      - "${SIG_ID_ROCM_RENDER_GID:-109}"
+      - "${SIG_ID_ROCM_RENDER_GID:-110}"
     cap_add:
       - SYS_PTRACE
     security_opt:
