@@ -661,8 +661,11 @@ async function refreshModelStatus() {
     const unknownStatus = model.unknown_rejection_validated
       ? ` · held-out ${model.unknown_rejection_scope} rejection`
       : " · unknown rejection unvalidated";
+    const featureScope = model.feature_frequency_scope === "full_audio_passband"
+      ? "full passband features"
+      : `${model.feature_frequency_scope} features`;
     el("model-status").textContent = model.available
-      ? `Method model ready · method ${(100 * model.threshold).toFixed(0)}% · family ${(100 * model.family_threshold).toFixed(0)}%${unknownStatus} · synthetic only`
+      ? `Method model ready · method ${(100 * model.threshold).toFixed(0)}% · family ${(100 * model.family_threshold).toFixed(0)}%${unknownStatus} · ${featureScope} · synthetic only`
       : `No model loaded${model.error ? ` · ${model.error}` : " · configure SIG_ID_MODEL_PATH"}`;
     updateModelButton();
   } catch (error) {

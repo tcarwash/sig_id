@@ -703,6 +703,7 @@ def create_app(
             "available": True,
             "model_type": metadata["model_type"],
             "feature_version": metadata["feature_version"],
+            "feature_frequency_scope": metadata.get("feature_frequency_scope", "full_audio_passband"),
             "classes": metadata["classes"],
             "threshold": metadata["abstention_threshold"],
             "family_threshold": metadata["family_abstention_threshold"],

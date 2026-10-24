@@ -765,6 +765,7 @@ def train_and_evaluate(
         "schema_version": 1,
         "model_type": "multinomial logistic regression",
         "feature_version": feature_version,
+        "feature_frequency_scope": "full_audio_passband",
         "feature_count": int(x_train.shape[1]),
         "sample_rate_hz": int(train_rows[0]["sample_rate"]),
         "classes": classes,
