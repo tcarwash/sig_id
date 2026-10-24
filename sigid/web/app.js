@@ -892,6 +892,7 @@ function renderCvDetections() {
 function detectorEvidenceFor(detection) {
   return {
     detector: "yolo",
+    proposal_id: detection.proposal_id || detection.cv_proposal_id || null,
     model_sha256: detection.model_sha256,
     model_version: detection.model_version,
     confidence: detection.confidence,

@@ -68,6 +68,7 @@ class DetectorSourceWindow(BaseModel):
 
 class DetectorProposalEvidence(BaseModel):
     detector: Literal["yolo"]
+    proposal_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}:[0-9a-f]{32}$")
     model_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     model_version: str = Field(min_length=1, max_length=80)
     confidence: float = Field(ge=0.0, le=1.0)
@@ -85,6 +86,7 @@ class DetectorProposalEvidence(BaseModel):
         x1, y1, x2, y2 = self.box_xyxy_normalized
         if (
             self.model_version != f"sha256:{self.model_sha256}"
+            or (self.proposal_id is not None and not self.proposal_id.startswith(f"{self.model_sha256}:"))
             or not all(0.0 <= value <= 1.0 for value in self.box_xyxy_normalized)
             or x2 <= x1 or y2 <= y1
         ):
@@ -107,6 +109,8 @@ class CVProposalDecisionCreate(BaseModel):
     def validate_bounds(self) -> "CVProposalDecisionCreate":
         if self.frequency_low_hz >= self.frequency_high_hz:
             raise ValueError("CV proposal frequency bounds must be ordered")
+        if self.detector_evidence.proposal_id not in (None, self.proposal_id):
+            raise ValueError("CV proposal evidence id does not match its decision")
         return self
 
 
