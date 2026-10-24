@@ -111,7 +111,7 @@ follow-up work.
 
 ### 5. Connect detections to the existing workflow
 
-- Render boxes as provisional overlays on the waterfall and let users accept, reject, or adjust them. Dismissal decisions are now persisted per capture and model, can be restored into the current scan, and remain review feedback only; they do not create a no-signal label or detector training example.
+- Render boxes as provisional overlays on the waterfall and let users accept, reject, or adjust them. Dismissal decisions are now persisted per capture and model, can be restored into the current scan, and remain review feedback only; the complete event history exports separately with an explicit non-training marker, and decisions do not create a no-signal label or detector training example.
 - Convert accepted boxes into the existing exact time/frequency selection contract and fetch/replay the matching audio range.
 - Run the existing classifier on each accepted region. Keep classifier proposals reviewable and preserve its abstention behavior.
 - When the classifier is uncertain, offer embedding-based nearest examples and an unknown label. The initial UI exposes candidate retrieval for an active selection and points to it after classifier abstention; retrieval remains an explicit user action. Treat embeddings as candidate retrieval, not proof of identity.

@@ -2207,6 +2207,16 @@ def create_app(
             filename="signal-bit-annotations.jsonl",
         )
 
+    @app.get("/api/exports/cv-proposal-decisions.jsonl")
+    def export_cv_proposal_decisions() -> FileResponse:
+        destination = root / "exports" / "cv-proposal-decisions.jsonl"
+        store.export_cv_proposal_decisions_jsonl(destination)
+        return FileResponse(
+            destination,
+            media_type="application/x-ndjson",
+            filename="cv-proposal-review-decisions.jsonl",
+        )
+
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:
         return FileResponse(WEB_DIR / "index.html")

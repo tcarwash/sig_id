@@ -478,7 +478,9 @@ not identify a signal type by themselves. CV is disabled when no model path is
 configured, and the default Compose image omits the CV runtime dependencies.
 Dismissed proposals are remembered for that capture and model and can be restored
 from the review panel. A dismissal is review feedback only, not a no-signal label
-or training example.
+or training example. The complete dismissal/restoration event history can be
+downloaded from `/api/exports/cv-proposal-decisions.jsonl`; exported rows explicitly
+mark themselves as review feedback rather than training labels.
 
 For CPU inference, the CV-enabled image installs CPU-only PyTorch and the OpenCV
 runtime libraries. Build it and configure a trained model stored in the persistent

@@ -1166,6 +1166,25 @@ class CaptureStore:
         dismissed.sort(key=lambda row: int(row["id"]), reverse=True)
         return [self._cv_proposal_decision_record(row) for row in dismissed]
 
+    def export_cv_proposal_decisions_jsonl(self, output: str | Path) -> int:
+        """Export the full CV proposal review-event history without treating it as labels."""
+        with self._connect() as db:
+            rows = db.execute(
+                """SELECT d.*, c.sha256 AS capture_sha256, c.source_kind, c.sample_rate
+                   FROM cv_proposal_decisions d JOIN captures c ON c.id=d.capture_id
+                   ORDER BY d.created_utc,d.id"""
+            ).fetchall()
+        destination = Path(output)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with destination.open("w", encoding="utf-8") as stream:
+            for row in rows:
+                record = dict(row)
+                record["detector_evidence"] = json.loads(record.pop("detector_evidence_json"))
+                record["review_feedback_only"] = True
+                record["training_label"] = False
+                stream.write(json.dumps(record, sort_keys=True) + "\n")
+        return len(rows)
+
     def add_bit_annotation(
         self, capture_id: str, *, mode: str, sample_start: int, sample_count: int,
         settings: dict[str, Any], hypothesis: str, bits: str, bit_start: int,
