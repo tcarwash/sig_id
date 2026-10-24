@@ -557,6 +557,9 @@ SIG_ID_ROCM_VIDEO_GID=44 SIG_ID_ROCM_RENDER_GID=110 SIG_ID_INSTALL_CV=1 SIG_ID_C
 Replace the example group IDs with the host values. The override passes `/dev/kfd`
 and `/dev/dri` through to the container. ROCm availability depends on a compatible
 host driver, GPU, and PyTorch ROCm image; successful startup alone does not verify
-GPU inference. Training can use the same Compose file pair. Keep detector weights,
-exported datasets, and run artifacts in the persistent volume, not the image. See
+GPU inference. `SIG_ID_INSTALL_CV=1` opts into installing Ultralytics and its image
+runtime dependencies in the ROCm image; with the setting omitted or `0`, the image
+keeps ROCm PyTorch but does not install the CV stack. Training can use the same
+Compose file pair when CV is enabled. Keep detector weights, exported datasets,
+and run artifacts in the persistent volume, not the image. See
 [`CV_FLOW_PLAN.md`](CV_FLOW_PLAN.md) for architecture and validation limits.
