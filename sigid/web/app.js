@@ -1108,7 +1108,12 @@ el("model-propose").addEventListener("click", async () => {
     const result = await request(`/api/captures/${state.capture.id}/classify`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sample_start: selection.sample_start, sample_count: Math.min(1_000_000, selection.sample_count) }),
+      body: JSON.stringify({
+        sample_start: selection.sample_start,
+        sample_count: Math.min(1_000_000, selection.sample_count),
+        frequency_low_hz: selection.frequency_low_hz,
+        frequency_high_hz: selection.frequency_high_hz,
+      }),
     });
     if (state.capture !== sourceCapture || state.selection !== selection) return;
     state.classifierProposal = {
@@ -2539,6 +2544,8 @@ el("save-region").addEventListener("click", async () => {
           sample_start: classifierProposal.sample_start,
           sample_count: classifierProposal.sample_count,
           selection_sample_count: classifierProposal.selection_sample_count,
+          frequency_low_hz: classifierProposal.selection_frequency_range_hz?.[0],
+          frequency_high_hz: classifierProposal.selection_frequency_range_hz?.[1],
         } : null,
         family: el("family").value.trim() || null,
         method: el("method").value.trim() || null,

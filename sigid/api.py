@@ -118,6 +118,16 @@ class ClassifierProposalRequest(BaseModel):
     sample_start: int = Field(ge=0)
     sample_count: int = Field(ge=1024, le=1_000_000)
     selection_sample_count: int = Field(gt=0)
+    frequency_low_hz: float | None = Field(default=None, ge=0, le=96000)
+    frequency_high_hz: float | None = Field(default=None, gt=0, le=96000)
+
+    @model_validator(mode="after")
+    def validate_frequency_bounds(self) -> "ClassifierProposalRequest":
+        if (self.frequency_low_hz is None) != (self.frequency_high_hz is None):
+            raise ValueError("classifier frequency bounds must be supplied together")
+        if self.frequency_low_hz is not None and self.frequency_low_hz >= self.frequency_high_hz:
+            raise ValueError("classifier frequency bounds must be ordered")
+        return self
 
 
 class CVSimilarRegionsRequest(BaseModel):
@@ -363,6 +373,16 @@ class QpskDemodRequest(BaseModel):
 class ClassifyRequest(BaseModel):
     sample_start: int = Field(default=0, ge=0)
     sample_count: int = Field(default=120_000, ge=1024, le=1_000_000)
+    frequency_low_hz: float | None = Field(default=None, ge=0, le=96000)
+    frequency_high_hz: float | None = Field(default=None, gt=0, le=96000)
+
+    @model_validator(mode="after")
+    def validate_frequency_bounds(self) -> "ClassifyRequest":
+        if (self.frequency_low_hz is None) != (self.frequency_high_hz is None):
+            raise ValueError("classifier frequency bounds must be supplied together")
+        if self.frequency_low_hz is not None and self.frequency_low_hz >= self.frequency_high_hz:
+            raise ValueError("classifier frequency bounds must be ordered")
+        return self
 
 
 class LayaClassifyRequest(BaseModel):
@@ -1557,6 +1577,7 @@ def create_app(
     def classifier_proposal_for_range(
         capture_id: str, capture: dict[str, Any], sample_start: int,
         classified_sample_count: int, selection_sample_count: int,
+        frequency_low_hz: float | None = None, frequency_high_hz: float | None = None,
     ) -> dict[str, Any]:
         if app.state.classifier is None:
             raise HTTPException(status_code=503, detail="no valid modulation model is configured")
@@ -1565,6 +1586,12 @@ def create_app(
         expected_count = min(1_000_000, selection_sample_count, int(capture["sample_count"]) - sample_start)
         if classified_sample_count != expected_count:
             raise ValueError("classifier proposal range does not match the saved selection")
+        if (frequency_low_hz is None) != (frequency_high_hz is None):
+            raise ValueError("classifier frequency bounds must be supplied together")
+        if frequency_low_hz is not None and (
+            not 0 <= frequency_low_hz < frequency_high_hz <= int(capture["sample_rate"]) / 2
+        ):
+            raise ValueError("classifier frequency bounds are invalid for this capture")
         end = sample_start + classified_sample_count
         values: list[float] = []
         for block in WavSource(capture["audio_path"]).blocks():
@@ -1598,6 +1625,8 @@ def create_app(
             "sample_start": sample_start,
             "sample_count": len(values),
             "selection_sample_count": selection_sample_count,
+            "selection_frequency_range_hz": [frequency_low_hz, frequency_high_hz],
+            "feature_frequency_scope": "full_audio_passband; selected frequency bounds are provenance only",
             "capture_sha256": capture["sha256"],
         }
 
@@ -1612,6 +1641,7 @@ def create_app(
                 capture_id, capture, settings.sample_start,
                 min(settings.sample_count, int(capture["sample_count"]) - settings.sample_start),
                 settings.sample_count,
+                settings.frequency_low_hz, settings.frequency_high_hz,
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -1984,9 +2014,15 @@ def create_app(
                 proposal = data.classifier_proposal
                 if proposal.sample_start != current_region["sample_start"] or proposal.selection_sample_count != current_region["sample_count"]:
                     raise ValueError("classifier proposal selection must match the saved region geometry")
+                if proposal.frequency_low_hz is not None and (
+                    proposal.frequency_low_hz != current_region["frequency_low_hz"]
+                    or proposal.frequency_high_hz != current_region["frequency_high_hz"]
+                ):
+                    raise ValueError("classifier proposal frequency bounds must match the saved region geometry")
                 classifier_evidence = classifier_proposal_for_range(
                     capture_id, store.capture(capture_id), proposal.sample_start,
                     proposal.sample_count, proposal.selection_sample_count,
+                    proposal.frequency_low_hz, proposal.frequency_high_hz,
                 )
             resolved = resolve_mode_label(data.mode_id, {
                 "family": data.family, "method": data.method,
@@ -2200,9 +2236,15 @@ def create_app(
                 proposal = data.classifier_proposal
                 if proposal.sample_start != data.sample_start or proposal.selection_sample_count != data.sample_count:
                     raise ValueError("classifier proposal selection must match the saved region geometry")
+                if proposal.frequency_low_hz is not None and (
+                    proposal.frequency_low_hz != data.frequency_low_hz
+                    or proposal.frequency_high_hz != data.frequency_high_hz
+                ):
+                    raise ValueError("classifier proposal frequency bounds must match the saved region geometry")
                 classifier_evidence = classifier_proposal_for_range(
                     capture_id, capture, proposal.sample_start,
                     proposal.sample_count, proposal.selection_sample_count,
+                    proposal.frequency_low_hz, proposal.frequency_high_hz,
                 )
             region_id = store.add_region(
                 capture_id,
