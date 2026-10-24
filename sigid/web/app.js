@@ -1441,7 +1441,7 @@ async function loadCapture() {
   resetOutputSession();
   state.coverageRecords = [];
   state.cvCoverageQueue = null;
-  el("cv-coverage-queue-status").textContent = "Mark complete or partial detection coverage for each 10-second, 0–3 kHz window.";
+  el("cv-coverage-queue-status").textContent = "Save signal boxes first. A complete window without boxes becomes a negative training example.";
   state.coverageEdit = null;
   state.coverageOnly = false;
   state.coverageWindow = null;
@@ -1589,7 +1589,7 @@ function showCvReviewWindow(window, progress) {
   el("coverage-task").value = "detection";
   el("coverage-scope").value = "";
   el("coverage-notes").value = "";
-  el("coverage-status").textContent = `${progress} · review every in-scope signal in this window; choose Partial / uncertain when unsure.`;
+  el("coverage-status").textContent = `${progress} · check every signal has an accepted box before marking Complete. Complete empty windows train as negatives. Mark Partial if unsure; add/correct boxes and restart the queue.`;
 }
 
 function nextCvReviewWindow() {

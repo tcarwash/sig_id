@@ -489,11 +489,15 @@ To export reviewed windows and train inside the running container, provide fresh
 complete detection coverage reviews and accepted signal-region annotations across
 at least seven independent capture/lineage groups. The exporter reserves at least
 three groups each for validation and test, leaving at least one training group.
-In the workbench, **Review 10-second CV windows** steps through the capture windows
-used by the exporter and opens a detection-coverage review for the full 0–3 kHz
-detector band. Mark uncertain windows partial; only fresh complete reviews are
-exported. Save accepted signal-region boxes separately. Export and train into
-`/data` so outputs survive container rebuilds:
+First use the CV scan and manual selection tools to save accepted boxes for every
+signal that should be labeled. Then **Review 10-second CV windows** steps through
+the capture windows used by the exporter and opens a detection-coverage review for
+the full 0–3 kHz detector band. A complete window with no accepted boxes is exported
+as a negative example, so mark uncertain windows partial and add/correct signal
+boxes before marking them complete. Adding or changing boxes makes overlapping
+coverage reviews stale; restart the queue afterward so those windows are reviewed
+again. Only fresh complete reviews are exported. Export and train into `/data` so
+outputs survive container rebuilds:
 
 ```sh
 docker compose exec workbench sig-id-export-cv-dataset --output /data/cv/dataset

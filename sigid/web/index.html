@@ -116,7 +116,7 @@
                 <button id="start-scene-review" type="button" disabled>Review scene coverage</button>
                 <div class="save-row">
                   <button id="start-cv-coverage-queue" type="button" disabled>Review 10-second CV windows</button>
-                  <span id="cv-coverage-queue-status" class="muted" aria-live="polite">Mark complete or partial detection coverage for each 10-second, 0–3 kHz window.</span>
+                  <span id="cv-coverage-queue-status" class="muted" aria-live="polite">Save signal boxes first. A complete window without boxes becomes a negative training example.</span>
                 </div>
                 <label class="notes-label">Known mode (search by name or alias)<input id="mode-search" list="mode-results" autocomplete="off" placeholder="Type e.g. PSK31, BPSK31, RTTY"><datalist id="mode-results"></datalist></label>
                 <p id="mode-resolution" class="subhead">Choose a known mode to fill its family and protocol, or leave blank for an unknown/partial label.</p>
