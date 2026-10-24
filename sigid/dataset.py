@@ -1479,6 +1479,40 @@ class CaptureStore:
             result.append(item)
         return result
 
+    def current_cv_embedding_regions(self) -> dict[tuple[str, str], dict[str, Any]]:
+        """Snapshot active accepted regions eligible to back current CV embeddings."""
+        with self._connect() as db:
+            rows = db.execute(
+                """SELECT r.id AS region_id,r.capture_id,c.sha256 AS capture_sha256,
+                          g.revision AS geometry_revision,g.sample_start,g.sample_count,
+                          g.frequency_low_hz,g.frequency_high_hz,
+                          l.revision AS label_revision,l.family,l.method,l.protocol,l.variant,
+                          l.review_state,l.evidence_json,
+                          CASE WHEN EXISTS(SELECT 1 FROM region_lineage rl WHERE rl.source_region_id=r.id)
+                               THEN 0 ELSE 1 END AS is_active
+                   FROM regions r
+                   JOIN captures c ON c.id=r.capture_id
+                   JOIN region_geometry_revisions g ON g.region_id=r.id AND g.revision=(
+                       SELECT MAX(revision) FROM region_geometry_revisions WHERE region_id=r.id
+                   )
+                   JOIN label_revisions l ON l.region_id=r.id AND l.revision=(
+                       SELECT MAX(revision) FROM label_revisions WHERE region_id=r.id
+                   )"""
+            ).fetchall()
+        current: dict[tuple[str, str], dict[str, Any]] = {}
+        for row in rows:
+            item = dict(row)
+            evidence = json.loads(item.pop("evidence_json"))
+            if (
+                not item.pop("is_active")
+                or item["review_state"] != "accepted"
+                or evidence.get("generator") == "sig-id-noise"
+                or evidence.get("noise_only") is True
+            ):
+                continue
+            current[(item["capture_id"], item["region_id"])] = item
+        return current
+
     def label_history(self, region_id: str) -> list[dict[str, Any]]:
         with self._connect() as db:
             rows = db.execute(

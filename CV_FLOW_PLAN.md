@@ -130,7 +130,7 @@ follow-up work.
 
 - The base application installs and runs without CV dependencies or a CV model.
 - ROCm is an opt-in Compose override with device pass-through; actual GPU support still depends on the host driver and GPU compatibility with the chosen AMD image.
-- Similarity search uses a model-hash-bound index of reviewed regions and clearly labels results as candidates rather than identifications.
+- Similarity search uses a model-hash-bound index of reviewed regions, skips stale capture/label/geometry revisions, and clearly labels results as candidates rather than identifications.
 - With CV enabled, a 10-second window produces boxes that map back to the correct sample and frequency ranges.
 - Users can correct or reject boxes, and reviewed labels export reproducibly with preprocessing and source metadata.
 - Evaluation uses source/session-held-out data and reports detection misses and false detections, including empty/no-signal windows.

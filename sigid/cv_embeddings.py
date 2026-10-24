@@ -15,6 +15,10 @@ from .dataset import CaptureStore
 from .wav import WavSource
 
 
+EMBEDDING_INDEX_SCHEMA_VERSION = 2
+EMBEDDING_PREPROCESSING_VERSION = "sig-id-cv-region-embedding-v2"
+
+
 def read_audio_range(path: str | Path, start: int, count: int) -> tuple[int, np.ndarray]:
     if start < 0 or count <= 0:
         raise ValueError("audio range must have a non-negative start and positive count")
@@ -85,6 +89,8 @@ def build_embedding_index(
                     "capture_id": capture["id"],
                     "capture_sha256": capture["sha256"],
                     "region_id": region["id"],
+                    "label_revision": int(region["revision"]),
+                    "geometry_revision": int(region["geometry_revision"]),
                     "segment_index": segment_index,
                     "sample_start": start,
                     "sample_count": count,
@@ -105,9 +111,9 @@ def build_embedding_index(
     output_path = Path(output).expanduser().resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     metadata = {
-        "schema_version": 1,
+        "schema_version": EMBEDDING_INDEX_SCHEMA_VERSION,
         "model_sha256": detector.model_sha256,
-        "preprocessing_version": "sig-id-cv-region-embedding-v1",
+        "preprocessing_version": EMBEDDING_PREPROCESSING_VERSION,
         "count": len(entries),
         "embedding_dimensions": int(vectors.shape[1]),
         "entries": entries,
@@ -126,7 +132,7 @@ def load_embedding_index(path: str | Path, *, model_sha256: str) -> tuple[np.nda
     with np.load(Path(path).expanduser(), allow_pickle=False) as stored:
         vectors = np.asarray(stored["vectors"], dtype=np.float32)
         metadata = json.loads(str(stored["metadata"].item()))
-    if metadata.get("schema_version") != 1 or metadata.get("preprocessing_version") != "sig-id-cv-region-embedding-v1":
+    if metadata.get("schema_version") != EMBEDDING_INDEX_SCHEMA_VERSION or metadata.get("preprocessing_version") != EMBEDDING_PREPROCESSING_VERSION:
         raise ValueError("unsupported CV embedding index format")
     if metadata.get("model_sha256") != model_sha256:
         raise ValueError("CV embedding index was built with a different detector model")
@@ -135,6 +141,13 @@ def load_embedding_index(path: str | Path, *, model_sha256: str) -> tuple[np.nda
         raise ValueError("CV embedding index entries and vectors are inconsistent")
     if not np.all(np.isfinite(vectors)):
         raise ValueError("CV embedding index contains non-finite values")
+    if any(
+        not isinstance(entry, dict)
+        or not isinstance(entry.get("label_revision"), int)
+        or not isinstance(entry.get("geometry_revision"), int)
+        for entry in entries
+    ):
+        raise ValueError("CV embedding index lacks region revision metadata; rebuild it from current reviewed regions")
     return vectors, entries
 
 

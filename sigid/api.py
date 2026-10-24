@@ -1453,8 +1453,27 @@ def create_app(
         scores = vectors @ query_vector
         ordered = np.argsort(scores)[::-1]
         neighbors = []
+        current_regions = store.current_cv_embedding_regions()
+        stale_index_entries = 0
         for index in ordered:
             entry = entries[int(index)]
+            current = current_regions.get((entry.get("capture_id"), entry.get("region_id")))
+            if current is None or any(
+                entry.get(key) != current.get(current_key)
+                for key, current_key in (
+                    ("capture_sha256", "capture_sha256"),
+                    ("label_revision", "label_revision"),
+                    ("geometry_revision", "geometry_revision"),
+                    ("sample_start", "sample_start"),
+                    ("sample_count", "sample_count"),
+                    ("frequency_low_hz", "frequency_low_hz"),
+                    ("frequency_high_hz", "frequency_high_hz"),
+                    ("family", "family"), ("method", "method"),
+                    ("protocol", "protocol"), ("variant", "variant"),
+                )
+            ):
+                stale_index_entries += 1
+                continue
             if entry["capture_id"] == capture_id and entry["region_id"] == settings.exclude_region_id:
                 continue
             neighbors.append({
@@ -1469,6 +1488,7 @@ def create_app(
             "model_sha256": detector.model_sha256,
             "index_path": app.state.cv_embedding_index_path,
             "count": len(neighbors),
+            "stale_index_entries_skipped": stale_index_entries,
             "neighbors": neighbors,
             "interpretation": "Nearest image embeddings are review candidates, not identifications.",
         }

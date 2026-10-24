@@ -535,6 +535,9 @@ train, validation, and test splits. It fails when the reviewed data does not mee
 those requirements. After training, set `SIG_ID_CV_MODEL_PATH=/data/cv/signal.pt`
 for the service and recreate it so the detector loads the new artifact.
 
+Build the model-bound nearest-region index from the current accepted regions with
+`sig-id-build-cv-embedding-index --data-dir /data --model /data/cv/signal.pt --output /data/cv/regions.npz`, then configure `SIG_ID_CV_EMBEDDING_INDEX=/data/cv/regions.npz`. Rebuild it after retraining the detector; stale label or geometry revisions are skipped during retrieval, and older index formats need rebuilding.
+
 For AMD ROCm, use the supplied PyTorch ROCm image and device override. Set the
 video and render group IDs to the host values (inspect them with
 `getent group video render`), then build and start the service:
