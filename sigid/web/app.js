@@ -747,9 +747,15 @@ el("cv-similar-search").addEventListener("click", async () => {
     });
     if (state.capture !== capture || state.selection !== selection) return;
     renderCvSimilarResults(result.neighbors);
+    const staleCount = Number(result.stale_index_entries_skipped || 0);
+    const staleNote = staleCount
+      ? ` · ${staleCount} stale reference${staleCount === 1 ? " was" : "s were"} skipped; rebuild the index to refresh it`
+      : "";
     el("cv-similar-status").textContent = result.count
-      ? `Nearest ${result.count} saved patch${result.count === 1 ? "" : "es"} · similarity is not an identification`
-      : "No other reviewed regions are in the embedding index.";
+      ? `Nearest ${result.count} saved patch${result.count === 1 ? "" : "es"} · similarity is not an identification${staleNote}`
+      : staleCount
+        ? `No other current references found · ${staleCount} stale reference${staleCount === 1 ? " was" : "s were"} skipped; rebuild the index to refresh it`
+        : "No other reviewed regions are in the embedding index.";
   } catch (error) {
     if (state.capture === capture) el("cv-similar-status").textContent = `Similarity search failed · ${error.message}`;
   } finally {
