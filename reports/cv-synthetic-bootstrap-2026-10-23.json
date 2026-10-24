@@ -199,7 +199,8 @@
     "One epoch was used only to exercise export, training, threshold selection, evaluation, metadata packaging and ROCm model loading.",
     "Zero held-out signal-box detections; no claims about real signals, classifier routing, decoding, or interoperability.",
     "The stratified ten-epoch run reduced held-out misses but still produced 13 false detections on 3 short negative windows; the resulting model was not retained as a usable detector.",
-    "The 100-epoch pinned ROCm run shows that the earlier zero BPSK/QPSK recall was partly an undertraining result on this synthetic corpus; performance still varies by signal type and real-capture quality is unknown."
+    "The 100-epoch pinned ROCm run shows that the earlier zero BPSK/QPSK recall was partly an undertraining result on this synthetic corpus; performance still varies by signal type and real-capture quality is unknown.",
+    "A CV-only source builder now adds deterministic OOK, 4-ASK and PPM examples without expanding the six known-modulation classifier classes; its expanded synthetic experiment is recorded in pinned_rocm_diverse_100_epoch_follow_up."
   ],
   "pinned_rocm_100_epoch_follow_up": {
     "conclusion": "A 100-epoch run in the pinned ROCm container materially improved held-out performance over the earlier 10-epoch run on the same source-lineage split: 29/36 boxes matched at IoU 0.50, with 2 false detections. It now detects some BPSK and QPSK, though misses remain. The detector still has no independent real-capture validation.",
@@ -464,6 +465,350 @@
       "scope": "isolated controlled synthetic burst-in-noise dataset; artifact and training run kept under /tmp",
       "seed": 4202026,
       "torch": "2.13.0+rocm10.1.0",
+      "ultralytics": "8.4.184"
+    }
+  },
+  "pinned_rocm_diverse_100_epoch_follow_up": {
+    "conclusion": "Adding 60 independently generated OOK, 4-ASK and PPM sources produced a broader 180-source synthetic corpus. The pinned 100-epoch run matched 63/69 held-out boxes at IoU 0.50, with one false box across 710.32 seconds of held-out audio. All three new families were detected; QPSK recall remains weaker. This supports the CV-only corpus addition as a way to increase detector visual diversity without changing the classifier class set, but does not establish real-capture quality.",
+    "dataset": {
+      "base_corpus": {
+        "path": "/tmp/sig-id-cv-bursts/corpus/corpus.json",
+        "sha256": "a03f6446a74002ff606ee8e42487f612d6961109cce153b92b7abc68d3614e71",
+        "signal_source_groups": 120
+      },
+      "cv_only_source_corpus": {
+        "classifier_classes_unchanged": true,
+        "examples_per_type": 20,
+        "path": "/tmp/sig-id-cv-bursts/cv-extra-sources/cv-signals.json",
+        "record_count": 60,
+        "sha256": "6d7e5997081e74f5c6b0407af64d3b99a243b5a0dc585ffe73420a201a4d0da2",
+        "types": [
+          "ook",
+          "ask",
+          "ppm"
+        ]
+      },
+      "export_report": {
+        "captures_with_windows": 590,
+        "group_count": 136,
+        "negative_images": 215,
+        "negative_images_by_split": {
+          "test": 33,
+          "train": 150,
+          "validation": 32
+        },
+        "path": "/tmp/sig-id-cv-diverse/export/export-report.json",
+        "positive_images": 375,
+        "positive_images_by_split": {
+          "test": 58,
+          "train": 263,
+          "validation": 54
+        },
+        "sha256": "6e625cdc63af573ce334837b9bff7954876d727a10f9a075ad78467129f72d99",
+        "skipped_windows": {
+          "unreviewed_window": 0,
+          "unsupported_region": 0
+        },
+        "split_groups": {
+          "test": 20,
+          "train": 96,
+          "validation": 20
+        }
+      },
+      "lineage_groups": 136,
+      "scene_corpus": {
+        "overlap_rate": 0.25,
+        "path": "/tmp/sig-id-cv-diverse/scenes/cv-scenes.json",
+        "scene_count": 144,
+        "sha256": "9c57bb7dd8587e2342fc4858a02d8254b5c957ae0102168ef46be1d26e71498b",
+        "signal_source_count": 180
+      },
+      "seed": 4202026,
+      "test_audio_seconds": 710.3199999999996,
+      "test_windows": 91
+    },
+    "held_out_test": {
+      "condition_breakdowns_iou_0_50": {
+        "boundary_truncation": {
+          "not_truncated": {
+            "false_negative": 5,
+            "false_positive": 1,
+            "precision": 0.984375,
+            "recall": 0.9264705882352942,
+            "reviewed_windows": 90,
+            "true_positive": 63
+          },
+          "truncated": {
+            "false_negative": 1,
+            "false_positive": 0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "reviewed_windows": 1,
+            "true_positive": 0
+          }
+        },
+        "drift_condition": {
+          "drifted": {
+            "false_negative": 4,
+            "false_positive": 1,
+            "precision": 0.9722222222222222,
+            "recall": 0.8974358974358975,
+            "reviewed_windows": 28,
+            "true_positive": 35
+          },
+          "no_drift": {
+            "false_negative": 0,
+            "false_positive": 0,
+            "precision": 1.0,
+            "recall": 1.0,
+            "reviewed_windows": 2,
+            "true_positive": 2
+          },
+          "unknown": {
+            "false_negative": 2,
+            "false_positive": 0,
+            "precision": 1.0,
+            "recall": 0.9285714285714286,
+            "reviewed_windows": 61,
+            "true_positive": 26
+          }
+        },
+        "noise_condition": {
+          "noise_component": {
+            "false_negative": 4,
+            "false_positive": 1,
+            "precision": 0.9736842105263158,
+            "recall": 0.9024390243902439,
+            "reviewed_windows": 30,
+            "true_positive": 37
+          },
+          "noise_only": {
+            "false_negative": 0,
+            "false_positive": 0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "reviewed_windows": 33,
+            "true_positive": 0
+          },
+          "not_tagged": {
+            "false_negative": 2,
+            "false_positive": 0,
+            "precision": 1.0,
+            "recall": 0.9285714285714286,
+            "reviewed_windows": 28,
+            "true_positive": 26
+          }
+        },
+        "signal_overlap": {
+          "multiple": {
+            "false_negative": 4,
+            "false_positive": 1,
+            "precision": 0.9473684210526315,
+            "recall": 0.8181818181818182,
+            "reviewed_windows": 11,
+            "true_positive": 18
+          },
+          "none": {
+            "false_negative": 0,
+            "false_positive": 0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "reviewed_windows": 33,
+            "true_positive": 0
+          },
+          "single": {
+            "false_negative": 2,
+            "false_positive": 0,
+            "precision": 1.0,
+            "recall": 0.9574468085106383,
+            "reviewed_windows": 47,
+            "true_positive": 45
+          }
+        },
+        "snr_condition": {
+          "not_available": {
+            "false_negative": 6,
+            "false_positive": 1,
+            "precision": 0.984375,
+            "recall": 0.9130434782608695,
+            "reviewed_windows": 91,
+            "true_positive": 63
+          }
+        },
+        "source_kind": {
+          "synthetic": {
+            "false_negative": 6,
+            "false_positive": 1,
+            "precision": 0.984375,
+            "recall": 0.9130434782608695,
+            "reviewed_windows": 91,
+            "true_positive": 63
+          }
+        }
+      },
+      "false_detections_on_pure_noise": 0,
+      "false_detections_per_audio_hour": 5.0681383038630505,
+      "metrics_iou_0_25": {
+        "false_negative": 5,
+        "false_positive": 0,
+        "precision": 1.0,
+        "recall": 0.927536231884058,
+        "true_positive": 64
+      },
+      "metrics_iou_0_50": {
+        "false_negative": 6,
+        "false_positive": 1,
+        "precision": 0.984375,
+        "recall": 0.9130434782608695,
+        "true_positive": 63
+      },
+      "pure_noise_windows": 33,
+      "reviewed_audio_seconds": 710.3199999999996,
+      "reviewed_windows": 91,
+      "runtime_measurements": {
+        "accelerator_memory_measured": true,
+        "inference_windows": 91,
+        "mean_latency_ms_per_window": 13.282836034285047,
+        "p50_latency_ms_per_window": 12.253385968506336,
+        "p95_latency_ms_per_window": 16.257037001196295,
+        "peak_accelerator_allocated_mb": 127.69677734375,
+        "peak_accelerator_reserved_mb": 176.0,
+        "prediction_confidence_floor": 0.5,
+        "process_rss_mb_after_evaluation": 3049.34765625,
+        "throughput_windows_per_second": 75.28512716853885
+      },
+      "signal_type_recall_iou_0_50": {
+        "16-ary frequency shift keying": {
+          "ground_truth_boxes": 6,
+          "matched_boxes": 6,
+          "missed_boxes": 0,
+          "recall": 1.0
+        },
+        "4-ary amplitude shift keying": {
+          "ground_truth_boxes": 10,
+          "matched_boxes": 9,
+          "missed_boxes": 1,
+          "recall": 0.9
+        },
+        "4-ary frequency shift keying": {
+          "ground_truth_boxes": 8,
+          "matched_boxes": 8,
+          "missed_boxes": 0,
+          "recall": 1.0
+        },
+        "8-ary frequency shift keying": {
+          "ground_truth_boxes": 8,
+          "matched_boxes": 7,
+          "missed_boxes": 1,
+          "recall": 0.875
+        },
+        "binary frequency shift keying": {
+          "ground_truth_boxes": 14,
+          "matched_boxes": 13,
+          "missed_boxes": 1,
+          "recall": 0.9285714285714286
+        },
+        "binary phase-shift keying": {
+          "ground_truth_boxes": 3,
+          "matched_boxes": 3,
+          "missed_boxes": 0,
+          "recall": 1.0
+        },
+        "binary pulse-position modulation": {
+          "ground_truth_boxes": 2,
+          "matched_boxes": 2,
+          "missed_boxes": 0,
+          "recall": 1.0
+        },
+        "on-off keying (OOK)": {
+          "ground_truth_boxes": 12,
+          "matched_boxes": 11,
+          "missed_boxes": 1,
+          "recall": 0.9166666666666666
+        },
+        "quadrature phase-shift keying": {
+          "ground_truth_boxes": 6,
+          "matched_boxes": 4,
+          "missed_boxes": 2,
+          "recall": 0.6666666666666666
+        }
+      }
+    },
+    "held_out_validation": {
+      "confidence_sweep_iou_0_50": {
+        "0.05": {
+          "f1": 0.8085106382978723,
+          "false_negative": 5,
+          "false_positive": 22,
+          "precision": 0.7215189873417721,
+          "recall": 0.9193548387096774,
+          "true_positive": 57
+        },
+        "0.1": {
+          "f1": 0.8507462686567164,
+          "false_negative": 5,
+          "false_positive": 15,
+          "precision": 0.7916666666666666,
+          "recall": 0.9193548387096774,
+          "true_positive": 57
+        },
+        "0.25": {
+          "f1": 0.9193548387096774,
+          "false_negative": 5,
+          "false_positive": 5,
+          "precision": 0.9193548387096774,
+          "recall": 0.9193548387096774,
+          "true_positive": 57
+        },
+        "0.5": {
+          "f1": 0.9344262295081968,
+          "false_negative": 5,
+          "false_positive": 3,
+          "precision": 0.95,
+          "recall": 0.9193548387096774,
+          "true_positive": 57
+        },
+        "0.75": {
+          "f1": 0.923076923076923,
+          "false_negative": 8,
+          "false_positive": 1,
+          "precision": 0.9818181818181818,
+          "recall": 0.8709677419354839,
+          "true_positive": 54
+        }
+      },
+      "metrics_iou_0_50": {
+        "false_negative": 5,
+        "false_positive": 5,
+        "precision": 0.9193548387096774,
+        "recall": 0.9193548387096774,
+        "true_positive": 57
+      }
+    },
+    "limitations": [
+      "Synthetic-only data; reviewed independent radio captures are not included.",
+      "There are no false detections in 33 pure-noise windows, but this short sample does not establish a low false-alarm rate.",
+      "Held-out QPSK recall is 4/6; performance by modulation type remains uneven.",
+      "Generator families and parameters are controlled synthetic examples, not representative of all real signal conditions.",
+      "MIOpen reported missing optional gfx1031 grouped-convolution/database files; training and evaluation completed.",
+      "No claims about classifier-selected decoding, radio performance, protocol framing, or interoperability."
+    ],
+    "training": {
+      "accelerator": "AMD Radeon RX 6700 XT",
+      "accelerator_backend": "ROCm",
+      "base_model": "yolo26n.pt",
+      "batch": 8,
+      "confidence_threshold": 0.5,
+      "confidence_threshold_source": "validation_iou_0.50_f1_then_precision_then_higher_threshold",
+      "container_image": "sig-id:local built from rocm/pytorch:rocm10.1.0_ubuntu24.04_py3.12_pytorch_release_2.13.0",
+      "container_image_id": "sha256:8cda5f26587a732b3dfae7b74d6a7d8d66714fec80711d840040a338058a296e",
+      "epochs": 100,
+      "model_sha256": "2c1c9040c5e7e2e1be146be36a63085691b5ed42c39b54736ae1f8ba7f6d1676",
+      "model_size_bytes": 5446661,
+      "scope": "isolated controlled synthetic burst-in-noise dataset; model and run kept under /tmp",
+      "seed": 4202026,
+      "torch": "2.13.0+rocm10.1.0",
+      "training_elapsed_hours": 0.275,
       "ultralytics": "8.4.184"
     }
   },
