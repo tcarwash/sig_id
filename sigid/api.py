@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field, model_validator
 
 from .dataset import CaptureStore, SignalLabel, LabelRevisionConflict
-from .classifier import FEATURE_VERSION, extract_features, load_model, propose
+from .classifier import FEATURE_VERSION, ROI_FEATURE_VERSION, extract_features, load_model, propose
 from .cv_detector import (
     FFT_SIZE,
     MAX_FREQUENCY_HZ,
@@ -1605,10 +1605,19 @@ def create_app(
             right = min(block.sample_count, end - block.first_sample)
             values.extend(block.samples[left:right])
         model = app.state.classifier
+        feature_version = model["metadata"]["feature_version"]
+        classifier_frequency_range = None
+        if feature_version == ROI_FEATURE_VERSION:
+            classifier_frequency_range = (
+                (frequency_low_hz, frequency_high_hz)
+                if frequency_low_hz is not None
+                else (200.0, min(3800.0, int(capture["sample_rate"]) / 2 - 20.0))
+            )
         features = extract_features(
             values,
             int(capture["sample_rate"]),
-            feature_version=model["metadata"]["feature_version"],
+            feature_version=feature_version,
+            frequency_range_hz=classifier_frequency_range,
         )
         result = propose(
             features,
@@ -1627,7 +1636,11 @@ def create_app(
             "sample_count": len(values),
             "selection_sample_count": selection_sample_count,
             "selection_frequency_range_hz": [frequency_low_hz, frequency_high_hz],
-            "feature_frequency_scope": "full_audio_passband; selected frequency bounds are provenance only",
+            "feature_frequency_scope": (
+                "roi_bandpass_expanded" if feature_version == ROI_FEATURE_VERSION and frequency_low_hz is not None
+                else "full_audio_passband" if feature_version != ROI_FEATURE_VERSION
+                else "full_range_roi_bandpass"
+            ),
             "capture_sha256": capture["sha256"],
         }
 

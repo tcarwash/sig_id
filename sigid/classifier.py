@@ -15,12 +15,15 @@ from .corpus import MODES
 
 LEGACY_FEATURE_VERSION = "passband-log-spectrum-v1"
 FEATURE_VERSION = "passband-log-spectrum-envelope-v2"
-FEATURE_COUNT_BY_VERSION = {LEGACY_FEATURE_VERSION: 260, FEATURE_VERSION: 266}
+ROI_FEATURE_VERSION = "passband-log-spectrum-envelope-roi-v3"
+NOVELTY_FEATURE_VERSIONS = {FEATURE_VERSION, ROI_FEATURE_VERSION}
+FEATURE_COUNT_BY_VERSION = {LEGACY_FEATURE_VERSION: 260, FEATURE_VERSION: 266, ROI_FEATURE_VERSION: 266}
 NOISE_CLASS = "noise"
 
 
 def extract_features(
-    samples: Any, sample_rate: int, *, feature_version: str = FEATURE_VERSION
+    samples: Any, sample_rate: int, *, feature_version: str = FEATURE_VERSION,
+    frequency_range_hz: tuple[float, float] | None = None,
 ) -> np.ndarray:
     """Create fixed-size, gain-normalized spectral and optional envelope features."""
     if feature_version not in FEATURE_COUNT_BY_VERSION:
@@ -30,6 +33,23 @@ def extract_features(
         raise ValueError("classifier input must be finite mono audio with at least 1024 samples")
     if not isinstance(sample_rate, int) or isinstance(sample_rate, bool) or sample_rate < 8000:
         raise ValueError("classifier sample rate must be an integer of at least 8000 Hz")
+    if feature_version == ROI_FEATURE_VERSION:
+        nyquist = sample_rate / 2.0
+        low, high = frequency_range_hz or (200.0, min(3800.0, nyquist - 20.0))
+        if not np.isfinite(low) or not np.isfinite(high) or not 0 <= low < high <= min(nyquist, 3800.0):
+            raise ValueError("ROI classifier frequency bounds must be finite, ordered and inside 0–3800 Hz")
+        margin = max(100.0, (high - low) * 0.25)
+        passband_low = max(20.0, low - margin)
+        passband_high = min(nyquist - 20.0, high + margin)
+        if passband_low >= passband_high:
+            raise ValueError("ROI classifier passband is too narrow for this sample rate")
+        from scipy.signal import butter, sosfiltfilt
+
+        sections = butter(4, (passband_low, passband_high), btype="bandpass", fs=sample_rate, output="sos")
+        try:
+            values = sosfiltfilt(sections, values)
+        except ValueError as exc:
+            raise ValueError(f"ROI classifier filter could not process this audio range: {exc}") from exc
     frame_size = 1024
     hop_size = 512
     frames = 1 + (values.size - frame_size) // hop_size
@@ -68,7 +88,7 @@ def extract_features(
         temporal_activity / 128,
     ])
     result = np.concatenate((mean_log, variation_log, summary))
-    if feature_version == FEATURE_VERSION:
+    if feature_version in NOVELTY_FEATURE_VERSIONS:
         from scipy.signal import hilbert
 
         envelope = np.abs(hilbert(values))
@@ -236,7 +256,7 @@ def load_model(path: str | Path) -> tuple[dict[str, Any], dict[str, np.ndarray]]
         raise ValueError("unsupported model feature version")
     with np.load(path, allow_pickle=False) as archive:
         parameters = {name: archive[name].copy() for name in ("mean", "scale", "weights", "bias")}
-        if feature_version == FEATURE_VERSION:
+        if feature_version in NOVELTY_FEATURE_VERSIONS:
             if "support_centers" not in archive.files:
                 raise ValueError("model lacks modulation novelty support prototypes")
             parameters["support_centers"] = archive["support_centers"].copy()
@@ -257,7 +277,7 @@ def load_model(path: str | Path) -> tuple[dict[str, Any], dict[str, np.ndarray]]
         raise ValueError("model feature arrays do not match metadata")
     if parameters["weights"].shape != (expected, len(metadata["classes"])) or parameters["bias"].shape != (len(metadata["classes"]),):
         raise ValueError("model classifier arrays do not match taxonomy")
-    if feature_version == FEATURE_VERSION:
+    if feature_version in NOVELTY_FEATURE_VERSIONS:
         novelty_threshold = metadata.get("novelty_distance_threshold")
         if not isinstance(novelty_threshold, (int, float)) or not np.isfinite(novelty_threshold):
             raise ValueError("model novelty threshold is invalid")

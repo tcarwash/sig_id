@@ -379,6 +379,14 @@ sig-id-train-method-model --split /tmp/sig-id-ask-benchmark/known/splits.json \
   --feature-version passband-log-spectrum-envelope-v2
 ```
 
+For an ROI-aware classifier experiment, train a separate artifact with
+`--feature-version passband-log-spectrum-envelope-roi-v3`. Training uses verified
+synthetic region frequency bounds, applies the same expanded bandpass used at
+inference, and samples deterministic narrow bands for noise negatives. At
+inference, CV selections supply detector box bounds; manual selections without
+frequency bounds use the full supported classifier range. Keep this artifact
+separate until its held-out results justify replacing a full-passband model.
+
 The measured result is preserved in
 [`reports/ask-ppm-novelty-benchmark-2026-10-21.json`](reports/ask-ppm-novelty-benchmark-2026-10-21.json).
 On this split it retains 84.6% known test coverage at 86.4% accepted accuracy, while

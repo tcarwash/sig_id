@@ -12,7 +12,7 @@ from typing import Any
 
 import numpy as np
 
-from .classifier import FEATURE_COUNT_BY_VERSION, FEATURE_VERSION, NOISE_CLASS, extract_features, fit_softmax, predict_probabilities, support_distances
+from .classifier import FEATURE_COUNT_BY_VERSION, FEATURE_VERSION, ROI_FEATURE_VERSION, NOVELTY_FEATURE_VERSIONS, NOISE_CLASS, extract_features, fit_softmax, predict_probabilities, support_distances
 from .corpus import MODES
 from .dataset import CaptureStore
 from .ood_corpus import load_ood_corpus
@@ -102,7 +102,13 @@ def _validated_rows(split_path: Path, store: CaptureStore) -> list[dict[str, Any
             )
         if not valid_label:
             raise ValueError(f"split capture {capture_id} label does not match the claimed modulation method")
-        rows.append({**record, "audio_path": capture["audio_path"], "sample_rate": capture["sample_rate"]})
+        rows.append({
+            **record,
+            "audio_path": capture["audio_path"],
+            "sample_rate": capture["sample_rate"],
+            "frequency_low_hz": label["frequency_low_hz"],
+            "frequency_high_hz": label["frequency_high_hz"],
+        })
 
     for split in allowed_splits:
         present = {row["mode"] for row in rows if row["split"] == split}
@@ -116,6 +122,32 @@ def _validated_rows(split_path: Path, store: CaptureStore) -> list[dict[str, Any
     return rows
 
 
+def _noise_roi_range(row: dict[str, Any]) -> tuple[float, float]:
+    """Choose one reproducible detector-sized noise band for ROI feature training."""
+    digest = hashlib.sha256(str(row.get("sha256", row.get("waveform_sha256", row.get("lineage_group", "noise")))).encode()).digest()
+    nyquist = int(row["sample_rate"]) / 2.0
+    upper = min(3000.0, nyquist - 40.0)
+    width = 120.0 + int.from_bytes(digest[2:4], "little") / 65535.0 * 480.0
+    available = upper - 40.0
+    if available <= 40:
+        return (0.0, upper)
+    center = 40.0 + int.from_bytes(digest[:2], "little") / 65535.0 * available
+    low = max(0.0, center - width / 2.0)
+    high = min(upper, center + width / 2.0)
+    return (low, high) if high > low else (0.0, upper)
+
+
+def _feature_range_for(row: dict[str, Any], feature_version: str) -> tuple[float, float] | None:
+    if feature_version != ROI_FEATURE_VERSION:
+        return None
+    if row["mode"] == "noise":
+        return _noise_roi_range(row)
+    low, high = row.get("frequency_low_hz"), row.get("frequency_high_hz")
+    if low is None or high is None:
+        raise ValueError(f"ROI feature training requires reviewed frequency bounds for {row.get('capture_id', 'source')}")
+    return float(low), float(high)
+
+
 def _features_for(
     rows: list[dict[str, Any]], feature_version: str = FEATURE_VERSION
 ) -> tuple[np.ndarray, np.ndarray, list[str]]:
@@ -123,7 +155,10 @@ def _features_for(
     labels = []
     for row in rows:
         values = np.asarray([sample for block in WavSource(row["audio_path"]).blocks() for sample in block.samples])
-        feature_rows.append(extract_features(values, int(row["sample_rate"]), feature_version=feature_version))
+        feature_rows.append(extract_features(
+            values, int(row["sample_rate"]), feature_version=feature_version,
+            frequency_range_hz=_feature_range_for(row, feature_version),
+        ))
         labels.append(NOISE_CLASS if row["mode"] == "noise" else row["mode"])
     return np.asarray(feature_rows, dtype=np.float32), np.asarray(labels, dtype=object), [row["lineage_group"] for row in rows]
 
@@ -131,11 +166,20 @@ def _features_for(
 def _ood_features_for(rows: list[dict[str, Any]], feature_version: str = FEATURE_VERSION) -> np.ndarray:
     features = []
     for row in rows:
+        if feature_version == ROI_FEATURE_VERSION and (row.get("frequency_low_hz") is None or row.get("frequency_high_hz") is None):
+            raise ValueError(f"ROI feature evaluation requires frequency bounds for OOD source {row.get('index')}")
         values = np.asarray(
             [sample for block in WavSource(row["waveform_path"]).blocks() for sample in block.samples],
             dtype=np.float64,
         )
-        features.append(extract_features(values, int(row["sample_rate"]), feature_version=feature_version))
+        features.append(extract_features(
+            values, int(row["sample_rate"]), feature_version=feature_version,
+            frequency_range_hz=(
+                float(row["frequency_low_hz"]), float(row["frequency_high_hz"])
+            ) if feature_version == ROI_FEATURE_VERSION
+            and row.get("frequency_low_hz") is not None and row.get("frequency_high_hz") is not None
+            else None,
+        ))
     return np.asarray(features, dtype=np.float32)
 
 
@@ -300,7 +344,18 @@ def _mixed_scene_features(
             if segment.size < 1024:
                 skipped_components += 1
                 continue
-            features.append(extract_features(segment, int(scene["sample_rate"]), feature_version=feature_version))
+            if feature_version == ROI_FEATURE_VERSION and (
+                region["frequency_low_hz"] is None or region["frequency_high_hz"] is None
+            ):
+                raise ValueError(f"ROI feature training requires frequency bounds for scene region {region['id']}")
+            features.append(extract_features(
+                segment, int(scene["sample_rate"]), feature_version=feature_version,
+                frequency_range_hz=(
+                    float(region["frequency_low_hz"]), float(region["frequency_high_hz"])
+                ) if feature_version == ROI_FEATURE_VERSION
+                and region["frequency_low_hz"] is not None and region["frequency_high_hz"] is not None
+                else None,
+            ))
             labels.append(mode)
             scene_ids.add(scene_id)
         scene_groups.update(scene_lineages)
@@ -604,7 +659,7 @@ def train_and_evaluate(
     parameters = fit_softmax(x_train, y_train_names, classes, epochs=epochs)
     novelty_calibration = None
     novelty_threshold = None
-    if feature_version == FEATURE_VERSION:
+    if feature_version in NOVELTY_FEATURE_VERSIONS:
         normalized_train = (x_train - parameters["mean"]) / parameters["scale"]
         parameters["support_centers"] = np.asarray([
             normalized_train[y_train_names == mode].mean(axis=0) for mode in MODES
@@ -613,10 +668,10 @@ def train_and_evaluate(
     validation_indices = np.asarray([class_indices.get(name, -1) for name in y_validation_names], dtype=np.int64)
     test_indices = np.asarray([class_indices.get(name, -1) for name in y_test_names], dtype=np.int64)
     validation_probabilities = predict_probabilities(x_validation, parameters)
-    validation_novelty = support_distances(x_validation, parameters) if feature_version == FEATURE_VERSION else None
-    test_novelty = support_distances(x_test, parameters) if feature_version == FEATURE_VERSION else None
-    ood_validation_novelty = support_distances(x_ood_validation, parameters) if len(x_ood_validation) and feature_version == FEATURE_VERSION else None
-    ood_test_novelty = support_distances(x_ood_test, parameters) if len(x_ood_test) and feature_version == FEATURE_VERSION else None
+    validation_novelty = support_distances(x_validation, parameters) if feature_version in NOVELTY_FEATURE_VERSIONS else None
+    test_novelty = support_distances(x_test, parameters) if feature_version in NOVELTY_FEATURE_VERSIONS else None
+    ood_validation_novelty = support_distances(x_ood_validation, parameters) if len(x_ood_validation) and feature_version in NOVELTY_FEATURE_VERSIONS else None
+    ood_test_novelty = support_distances(x_ood_test, parameters) if len(x_ood_test) and feature_version in NOVELTY_FEATURE_VERSIONS else None
     if validation_novelty is not None:
         novelty_calibration = _calibrate_novelty_threshold(
             validation_novelty,
@@ -711,13 +766,14 @@ def train_and_evaluate(
         mixed_scene_probabilities = predict_probabilities(mixed_scene_x, parameters)
         mixed_scene_evaluation = _evaluate(
             mixed_scene_probabilities, mixed_scene_indices, classes, threshold, family_threshold,
-            support_distances(mixed_scene_x, parameters) if feature_version == FEATURE_VERSION else None,
+            support_distances(mixed_scene_x, parameters) if feature_version in NOVELTY_FEATURE_VERSIONS else None,
             novelty_threshold,
         )
     evaluation = {
         "schema_version": 1,
         "model_type": "multinomial logistic regression",
         "feature_version": feature_version,
+        "feature_frequency_scope": "roi_bandpass_expanded" if feature_version == ROI_FEATURE_VERSION else "full_audio_passband",
         "split_manifest_sha256": split_digest,
         "calibration": calibration,
         "family_calibration": family_calibration,
@@ -765,7 +821,7 @@ def train_and_evaluate(
         "schema_version": 1,
         "model_type": "multinomial logistic regression",
         "feature_version": feature_version,
-        "feature_frequency_scope": "full_audio_passband",
+        "feature_frequency_scope": "roi_bandpass_expanded" if feature_version == ROI_FEATURE_VERSION else "full_audio_passband",
         "feature_count": int(x_train.shape[1]),
         "sample_rate_hz": int(train_rows[0]["sample_rate"]),
         "classes": classes,

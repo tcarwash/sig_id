@@ -12,7 +12,7 @@ from typing import Any
 import numpy as np
 
 from .synthetic import generate_ask_wav, generate_ook_wav, generate_ppm_wav
-from .synthetic_dataset import _validate_manifest
+from .synthetic_dataset import _validate_manifest, synthetic_frequency_bounds
 
 
 MAX_EXAMPLES = 1000
@@ -131,6 +131,7 @@ def build_ood_corpus(
                 )
         manifest = json.loads(sidecar.read_text(encoding="utf-8"))
         _validate_manifest(manifest, waveform)
+        occupied_band = synthetic_frequency_bounds(manifest)
         record = {
             "index": index,
             "source_seed": source_seed,
@@ -265,6 +266,8 @@ def load_ood_corpus(index_path: str | Path) -> list[dict[str, Any]]:
             "waveform_path": str(waveform),
             "manifest_path": str(sidecar),
             "sample_rate": manifest["sample_rate"],
+            "frequency_low_hz": occupied_band[0] if occupied_band else None,
+            "frequency_high_hz": occupied_band[1] if occupied_band else None,
         })
     if seen_indices != set(range(config["examples"])):
         raise ValueError("OOD corpus indices must cover the configured independent sources exactly once")

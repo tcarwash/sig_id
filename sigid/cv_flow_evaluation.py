@@ -11,7 +11,7 @@ from typing import Any
 
 import numpy as np
 
-from .classifier import extract_features, load_model, propose
+from .classifier import ROI_FEATURE_VERSION, extract_features, load_model, propose
 from .cv_dataset import _lineage_groups
 from .cv_detector import MAX_FREQUENCY_HZ, YoloSignalDetector, audio_windows
 from .cv_training import _match_pairs, _read_yolo_boxes
@@ -407,6 +407,10 @@ def evaluate_cv_classifier_flow(
                     cropped_audio,
                     sample_rate,
                     feature_version=classifier_metadata["feature_version"],
+                    frequency_range_hz=(
+                        (float(detection["frequency_low_hz"]), float(detection["frequency_high_hz"]))
+                        if classifier_metadata["feature_version"] == ROI_FEATURE_VERSION else None
+                    ),
                 )
                 proposal = propose(
                     features,
