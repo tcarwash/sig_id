@@ -129,6 +129,13 @@ class YoloSignalDetector:
         self.confidence_threshold = float(confidence_threshold)
         self.held_out_test = metadata.get("held_out_test")
         self.training_scope = metadata.get("scope")
+        self.training_source_kinds = metadata.get("dataset_source_kinds")
+        self.held_out_test_source_kinds = metadata.get("held_out_test_source_kinds")
+        if self.held_out_test_source_kinds is None and isinstance(self.held_out_test, dict):
+            breakdown = self.held_out_test.get("condition_breakdowns_iou_0_50", {})
+            source_kinds = breakdown.get("source_kind", {}) if isinstance(breakdown, dict) else {}
+            if isinstance(source_kinds, dict):
+                self.held_out_test_source_kinds = sorted(source_kinds)
         if torch.version.hip:
             self.compute_backend = "rocm" if torch.cuda.is_available() else "rocm-unavailable"
         elif torch.cuda.is_available():

@@ -700,6 +700,8 @@ def create_app(
             "confidence_threshold": detector.confidence_threshold if detector else None,
             "held_out_test": held_out_summary,
             "training_scope": detector.training_scope if detector else None,
+            "training_source_kinds": detector.training_source_kinds if detector else None,
+            "held_out_test_source_kinds": detector.held_out_test_source_kinds if detector else None,
             "similarity_search_available": app.state.cv_embedding_vectors is not None,
             "similarity_search_error": app.state.cv_embedding_error,
             "preprocessing_version": PREPROCESSING_VERSION,

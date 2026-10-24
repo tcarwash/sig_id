@@ -687,8 +687,14 @@ async function refreshCvStatus() {
       : groundTruthBoxes
         ? `${heldOut.true_positive}/${groundTruthBoxes} held-out boxes matched at IoU 0.50`
         : "held-out report has no signal boxes";
+    const trainingKinds = Array.isArray(status.training_source_kinds) && status.training_source_kinds.length
+      ? status.training_source_kinds.join(", ")
+      : "not recorded";
+    const testKinds = Array.isArray(status.held_out_test_source_kinds) && status.held_out_test_source_kinds.length
+      ? status.held_out_test_source_kinds.join(", ")
+      : "not recorded";
     el("cv-status").textContent = status.available
-      ? `YOLO signal detector loaded · ${backendDescription} · ${evaluationDescription} · ${status.window_seconds}s windows · confidence ${(100 * status.confidence_threshold).toFixed(0)}% · class agnostic`
+      ? `YOLO signal detector loaded · ${backendDescription} · ${evaluationDescription} · train sources: ${trainingKinds} · held-out sources: ${testKinds} · ${status.training_scope || "training scope not recorded"} · ${status.window_seconds}s windows · confidence ${(100 * status.confidence_threshold).toFixed(0)}% · class agnostic`
       : `Optional CV detector unavailable${status.error ? ` · ${status.error}` : " · install the cv extra and configure SIG_ID_CV_MODEL_PATH"}`;
     updateCvButton();
     updateCvSimilarButton();

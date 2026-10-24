@@ -447,6 +447,18 @@ def train_cv_detector(
         "training_run": str(run_root / "run"),
         "held_out_validation": validation_metrics,
         "held_out_test": test_metrics,
+        "dataset_source_kinds": sorted({
+            str(row["conditions"]["source_kind"])
+            for row in manifest_rows
+            if isinstance(row.get("conditions"), dict) and row["conditions"].get("source_kind") is not None
+        }),
+        "held_out_test_source_kinds": sorted({
+            str(row["conditions"]["source_kind"])
+            for row in manifest_rows
+            if row.get("split") == "test"
+            and isinstance(row.get("conditions"), dict)
+            and row["conditions"].get("source_kind") is not None
+        }),
         "model_size_bytes": destination.stat().st_size,
         "scope": "reviewed capture windows from the exported dataset; not a radio or decoder validation result",
     }

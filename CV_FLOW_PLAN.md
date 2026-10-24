@@ -102,6 +102,7 @@ follow-up work.
 
 - Keep CV libraries out of base runtime dependencies. Add an explicit optional install extra for inference; isolate training dependencies in a separate extra or training environment if that avoids burdening deployment.
 - Load the detector only when CV is enabled and a model artifact is configured. Report a clear unavailable/disabled state when dependencies or weights are absent.
+- Persist training and held-out source-kind lists in model metadata and expose them in detector status so synthetic metrics are visibly distinct from live or WAV capture evidence. Legacy artifacts derive held-out source kinds from their test-condition breakdown when present; missing training-source provenance is shown as unrecorded rather than inferred.
 - Optional Compose inference can use the CPU-capable base image or an AMD ROCm/PyTorch image with explicit `/dev/kfd` and `/dev/dri` pass-through.
 - Container paths were built and exercised locally: the default image omits Ultralytics, the optional CPU image uses CPU-only PyTorch, and the pinned ROCm image completed an Ultralytics model forward pass on the RX 6700 XT. The ROCm test used the host's render GID 110; Compose and `.env.example` use that default while still allowing host-specific overrides. MIOpen emitted missing optional gfx1031 kernel/database warnings during the successful forward pass.
 - Keep inference failures isolated so the classifier, manual selection, capture, and decoding workflows remain usable.
