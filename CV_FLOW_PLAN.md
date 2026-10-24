@@ -72,6 +72,7 @@ follow-up work.
   selection and geometry-editing controls; those reviewed regions feed the CV
   export path.
 - Store box geometry in sample and frequency coordinates, not display pixels. Preserve capture/session lineage and annotation revision history.
+- A capture-wide review queue now steps through the exporter's non-overlapping 10-second windows over the detector's 0–3 kHz band. It skips fresh complete reviews, revisits missing or stale coverage, advances after each saved complete/partial review, and leaves uncertain windows out of export. Accepted signal boxes remain separate annotations.
 - Deterministic synthetic imports now derive signal-frequency geometry from their validated generator manifests. The CV exporter can recover missing geometry on older imports only when the sidecar hash matches the stored capture provenance.
 - Synthetic scene imports now transform frequency bounds with applied frequency offset and drift, including folding at Nyquist, so scene-derived detector boxes match the rendered signal.
 - A CV-only deterministic source-corpus command now adds OOK, 4-ASK and PPM captures with validated manifests and accepted regions. It feeds the existing scene builder without changing the six known-modulation classifier classes; its generated artifacts remain isolated from the user's live data when following the documented `--data-dir` recipe.

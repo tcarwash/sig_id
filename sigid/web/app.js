@@ -11,6 +11,7 @@ state.layaAvailable = false;
 state.coverageWindow = null;
 state.coverageMasks = { ignore_regions: [], uncertain_regions: [] };
 state.coverageMaskMode = null;
+state.cvCoverageQueue = null;
 let lastExpandedOutputHeight = 180;
 const baseCanvas = el("waterfall");
 const overlayCanvas = el("overlay");
@@ -1433,6 +1434,8 @@ async function loadCapture() {
   state.liveSessionId = null;
   resetOutputSession();
   state.coverageRecords = [];
+  state.cvCoverageQueue = null;
+  el("cv-coverage-queue-status").textContent = "Mark complete or partial detection coverage for each 10-second, 0–3 kHz window.";
   state.coverageEdit = null;
   state.coverageOnly = false;
   state.coverageWindow = null;
@@ -1442,6 +1445,7 @@ async function loadCapture() {
   state.editRegion = null;
   state.classifierProposal = null;
   el("start-scene-review").disabled = true;
+  updateSceneReviewAvailability();
   updateCoverageMaskControls();
   state.waterfall = null;
   baseCanvas.getContext("2d").clearRect(0, 0, baseCanvas.width, baseCanvas.height);
@@ -1518,16 +1522,18 @@ async function loadCapture() {
 }
 
 async function refreshSceneCoverage(captureId = state.capture?.id) {
-  if (!captureId) return;
+  if (!captureId) return [];
   try {
     const records = await request(`/api/captures/${captureId}/coverage`);
-    if (state.capture?.id !== captureId) return;
+    if (state.capture?.id !== captureId) return [];
     state.coverageRecords = records;
     renderSceneCoverage();
+    return records;
   } catch (error) {
     if (state.capture?.id === captureId) {
       el("coverage-list").textContent = `Scene reviews unavailable · ${error.message}`;
     }
+    return [];
   }
 }
 
@@ -1535,6 +1541,96 @@ function updateSceneReviewAvailability() {
   const selection = state.selection;
   const valid = Boolean(state.capture && !state.liveView && !state.coverageOnly && selection && Number.isInteger(selection.sample_start) && Number.isInteger(selection.sample_count) && selection.sample_count > 0 && !state.adjustingGeometry && !state.splitMode);
   el("start-scene-review").disabled = !valid;
+  el("start-cv-coverage-queue").disabled = !state.capture || state.liveView || state.capture.sample_rate < 6000;
+}
+
+const CV_REVIEW_WINDOW_SECONDS = 10;
+const CV_REVIEW_MIN_SAMPLES = 4096;
+const CV_REVIEW_MAX_FREQUENCY_HZ = 3000;
+
+function cvReviewWindows(capture) {
+  const windowSamples = capture.sample_rate * CV_REVIEW_WINDOW_SECONDS;
+  const windows = [];
+  for (let start = 0; start < capture.sample_count; start += windowSamples) {
+    const count = Math.min(windowSamples, capture.sample_count - start);
+    if (count >= CV_REVIEW_MIN_SAMPLES) windows.push({ sample_start: start, sample_count: count });
+  }
+  return windows;
+}
+
+function hasCompleteCvCoverage(window) {
+  const end = window.sample_start + window.sample_count;
+  return state.coverageRecords.some((record) => {
+    if (record.task !== "detection" || record.state !== "complete" || record.is_stale) return false;
+    if (record.sample_start > window.sample_start || record.sample_start + record.sample_count < end) return false;
+    if (record.frequency_low_hz !== null && (record.frequency_low_hz > 0 || record.frequency_high_hz < CV_REVIEW_MAX_FREQUENCY_HZ)) return false;
+    return !(record.ignore_regions?.length || record.uncertain_regions?.length);
+  });
+}
+
+function showCvReviewWindow(window, progress) {
+  if (!state.capture || state.liveView) return;
+  state.coverageEdit = null;
+  state.coverageOnly = false;
+  state.selection = {
+    ...window,
+    frequency_low_hz: 0,
+    frequency_high_hz: CV_REVIEW_MAX_FREQUENCY_HZ,
+  };
+  beginNewRegion();
+  updateSceneReviewAvailability();
+  updateCarrierFromSelection(state.selection);
+  reprojectSelection();
+  drawOverlays();
+  startSceneCoverageReview();
+  el("coverage-task").value = "detection";
+  el("coverage-scope").value = "";
+  el("coverage-notes").value = "";
+  el("coverage-status").textContent = `${progress} · review every in-scope signal in this window; choose Partial / uncertain when unsure.`;
+}
+
+function nextCvReviewWindow() {
+  const queue = state.cvCoverageQueue;
+  if (!queue || state.capture?.id !== queue.captureId) return;
+  const next = queue.windows.find((window) => !queue.visited.has(window.sample_start) && !hasCompleteCvCoverage(window));
+  if (!next) {
+    const pendingPartial = queue.windows.filter((window) => !hasCompleteCvCoverage(window)).length;
+    const message = pendingPartial
+      ? `Review queue finished · ${queue.alreadyComplete + queue.completeCount}/${queue.totalWindows} complete, ${queue.partialCount} partial/uncertain; ${pendingPartial} windows still need complete review.`
+      : `Review queue finished · all ${queue.totalWindows} CV windows have fresh complete detection coverage.`;
+    state.cvCoverageQueue = null;
+    exitSceneCoverageReview();
+    el("cv-coverage-queue-status").textContent = message;
+    return;
+  }
+  const progress = `${queue.alreadyComplete + queue.visited.size + 1}/${queue.totalWindows} accounted for · ${queue.completeCount} complete, ${queue.partialCount} partial/uncertain this pass`;
+  el("cv-coverage-queue-status").textContent = progress;
+  showCvReviewWindow(next, progress);
+}
+
+async function startCvCoverageQueue() {
+  const capture = state.capture;
+  if (!capture || state.liveView || capture.sample_rate < 6000) return;
+  const records = await refreshSceneCoverage(capture.id);
+  if (state.capture !== capture) return;
+  state.coverageRecords = records;
+  const windows = cvReviewWindows(capture);
+  const pending = windows.filter((window) => !hasCompleteCvCoverage(window));
+  if (!pending.length) {
+    state.cvCoverageQueue = null;
+    el("cv-coverage-queue-status").textContent = `All ${windows.length} CV windows have fresh complete detection coverage.`;
+    return;
+  }
+  state.cvCoverageQueue = {
+    captureId: capture.id,
+    windows: pending,
+    totalWindows: windows.length,
+    alreadyComplete: windows.length - pending.length,
+    visited: new Set(),
+    completeCount: 0,
+    partialCount: 0,
+  };
+  nextCvReviewWindow();
 }
 
 function updateCoverageMaskControls() {
@@ -2450,7 +2546,11 @@ el("merge-regions").addEventListener("click", async () => {
 });
 
 el("start-scene-review").addEventListener("click", startSceneCoverageReview);
-el("cancel-coverage").addEventListener("click", exitSceneCoverageReview);
+el("start-cv-coverage-queue").addEventListener("click", startCvCoverageQueue);
+el("cancel-coverage").addEventListener("click", () => {
+  state.cvCoverageQueue = null;
+  exitSceneCoverageReview();
+});
 el("mark-coverage-uncertain").addEventListener("click", () => beginCoverageMask("uncertain_regions"));
 el("mark-coverage-ignore").addEventListener("click", () => beginCoverageMask("ignore_regions"));
 el("cancel-coverage-mask").addEventListener("click", cancelCoverageMask);
@@ -2497,8 +2597,16 @@ el("save-coverage").addEventListener("click", async () => {
     renderSceneCoverageMasks();
     state.coverageRecords = await request(`/api/captures/${captureId}/coverage`);
     renderSceneCoverage();
-    button.textContent = `Save review revision ${result.revision + 1}`;
-    el("coverage-status").textContent = `${result.state} ${result.task} review saved · revision ${result.revision} · ${result.annotation_set_digest.slice(0, 12)}…`;
+    const queue = state.cvCoverageQueue;
+    if (queue && queue.captureId === captureId) {
+      queue.visited.add(selection.sample_start);
+      if (result.state === "complete") queue.completeCount += 1;
+      else queue.partialCount += 1;
+      nextCvReviewWindow();
+    } else {
+      button.textContent = `Save review revision ${result.revision + 1}`;
+      el("coverage-status").textContent = `${result.state} ${result.task} review saved · revision ${result.revision} · ${result.annotation_set_digest.slice(0, 12)}…`;
+    }
   } catch (error) {
     if (state.capture?.id !== captureId) return;
     el("coverage-status").textContent = error.status === 409
