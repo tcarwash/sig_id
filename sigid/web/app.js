@@ -12,6 +12,9 @@ state.coverageWindow = null;
 state.coverageMasks = { ignore_regions: [], uncertain_regions: [] };
 state.coverageMaskMode = null;
 state.cvCoverageQueue = null;
+state.cvReviewWindowSeconds = 10;
+state.cvReviewMinSamples = 4096;
+state.cvReviewMaxFrequencyHz = 3000;
 let lastExpandedOutputHeight = 180;
 const baseCanvas = el("waterfall");
 const overlayCanvas = el("overlay");
@@ -670,6 +673,9 @@ async function refreshCvStatus() {
     const status = await request("/api/cv/status");
     state.cvAvailable = Boolean(status.available);
     state.cvSimilarAvailable = Boolean(status.similarity_search_available);
+    state.cvReviewWindowSeconds = status.window_seconds;
+    state.cvReviewMinSamples = status.fft_size;
+    state.cvReviewMaxFrequencyHz = status.max_frequency_hz;
     const backend = status.compute_backend || "unknown backend";
     const backendDescription = backend === "rocm-unavailable"
       ? "ROCm runtime unavailable; inference will use CPU"
@@ -1445,9 +1451,9 @@ async function loadCapture() {
   state.editRegion = null;
   state.classifierProposal = null;
   el("start-scene-review").disabled = true;
-  updateSceneReviewAvailability();
   updateCoverageMaskControls();
   state.waterfall = null;
+  updateSceneReviewAvailability();
   baseCanvas.getContext("2d").clearRect(0, 0, baseCanvas.width, baseCanvas.height);
   overlayCanvas.getContext("2d").clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
   el("signal-labels")?.replaceChildren();
@@ -1491,6 +1497,7 @@ async function loadCapture() {
   if (generation !== state.captureGeneration || state.liveView) return;
   state.waterfall = spectrum;
   drawWaterfall();
+  updateSceneReviewAvailability();
   const regions = await request(`/api/captures/${c.id}/regions`);
   if (generation !== state.captureGeneration || state.liveView) return;
   state.regions = regions;
@@ -1522,10 +1529,10 @@ async function loadCapture() {
 }
 
 async function refreshSceneCoverage(captureId = state.capture?.id) {
-  if (!captureId) return [];
+  if (!captureId) return null;
   try {
     const records = await request(`/api/captures/${captureId}/coverage`);
-    if (state.capture?.id !== captureId) return [];
+    if (state.capture?.id !== captureId) return null;
     state.coverageRecords = records;
     renderSceneCoverage();
     return records;
@@ -1533,7 +1540,7 @@ async function refreshSceneCoverage(captureId = state.capture?.id) {
     if (state.capture?.id === captureId) {
       el("coverage-list").textContent = `Scene reviews unavailable · ${error.message}`;
     }
-    return [];
+    return null;
   }
 }
 
@@ -1541,19 +1548,15 @@ function updateSceneReviewAvailability() {
   const selection = state.selection;
   const valid = Boolean(state.capture && !state.liveView && !state.coverageOnly && selection && Number.isInteger(selection.sample_start) && Number.isInteger(selection.sample_count) && selection.sample_count > 0 && !state.adjustingGeometry && !state.splitMode);
   el("start-scene-review").disabled = !valid;
-  el("start-cv-coverage-queue").disabled = !state.capture || state.liveView || state.capture.sample_rate < 6000;
+  el("start-cv-coverage-queue").disabled = !state.capture || !state.waterfall || state.liveView || state.capture.sample_rate / 2 < state.cvReviewMaxFrequencyHz;
 }
 
-const CV_REVIEW_WINDOW_SECONDS = 10;
-const CV_REVIEW_MIN_SAMPLES = 4096;
-const CV_REVIEW_MAX_FREQUENCY_HZ = 3000;
-
 function cvReviewWindows(capture) {
-  const windowSamples = capture.sample_rate * CV_REVIEW_WINDOW_SECONDS;
+  const windowSamples = capture.sample_rate * state.cvReviewWindowSeconds;
   const windows = [];
   for (let start = 0; start < capture.sample_count; start += windowSamples) {
     const count = Math.min(windowSamples, capture.sample_count - start);
-    if (count >= CV_REVIEW_MIN_SAMPLES) windows.push({ sample_start: start, sample_count: count });
+    if (count >= state.cvReviewMinSamples) windows.push({ sample_start: start, sample_count: count });
   }
   return windows;
 }
@@ -1563,7 +1566,7 @@ function hasCompleteCvCoverage(window) {
   return state.coverageRecords.some((record) => {
     if (record.task !== "detection" || record.state !== "complete" || record.is_stale) return false;
     if (record.sample_start > window.sample_start || record.sample_start + record.sample_count < end) return false;
-    if (record.frequency_low_hz !== null && (record.frequency_low_hz > 0 || record.frequency_high_hz < CV_REVIEW_MAX_FREQUENCY_HZ)) return false;
+    if (record.frequency_low_hz !== null && (record.frequency_low_hz > 0 || record.frequency_high_hz < state.cvReviewMaxFrequencyHz)) return false;
     return !(record.ignore_regions?.length || record.uncertain_regions?.length);
   });
 }
@@ -1575,7 +1578,7 @@ function showCvReviewWindow(window, progress) {
   state.selection = {
     ...window,
     frequency_low_hz: 0,
-    frequency_high_hz: CV_REVIEW_MAX_FREQUENCY_HZ,
+    frequency_high_hz: state.cvReviewMaxFrequencyHz,
   };
   beginNewRegion();
   updateSceneReviewAvailability();
@@ -1610,9 +1613,13 @@ function nextCvReviewWindow() {
 
 async function startCvCoverageQueue() {
   const capture = state.capture;
-  if (!capture || state.liveView || capture.sample_rate < 6000) return;
+  if (!capture || !state.waterfall || state.liveView || capture.sample_rate / 2 < state.cvReviewMaxFrequencyHz) return;
   const records = await refreshSceneCoverage(capture.id);
   if (state.capture !== capture) return;
+  if (!records) {
+    el("cv-coverage-queue-status").textContent = "Could not load scene reviews; retry after checking the workbench connection.";
+    return;
+  }
   state.coverageRecords = records;
   const windows = cvReviewWindows(capture);
   const pending = windows.filter((window) => !hasCompleteCvCoverage(window));

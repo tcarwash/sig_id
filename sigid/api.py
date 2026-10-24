@@ -24,6 +24,8 @@ from pydantic import BaseModel, Field, model_validator
 from .dataset import CaptureStore, SignalLabel, LabelRevisionConflict
 from .classifier import FEATURE_VERSION, extract_features, load_model, propose
 from .cv_detector import (
+    FFT_SIZE,
+    MAX_FREQUENCY_HZ,
     OVERLAP_DEDUP_IOU,
     PREPROCESSING_VERSION,
     WINDOW_SECONDS,
@@ -702,6 +704,8 @@ def create_app(
             "similarity_search_error": app.state.cv_embedding_error,
             "preprocessing_version": PREPROCESSING_VERSION,
             "window_seconds": WINDOW_SECONDS,
+            "fft_size": FFT_SIZE,
+            "max_frequency_hz": MAX_FREQUENCY_HZ,
             "class_agnostic": True,
         }
 
