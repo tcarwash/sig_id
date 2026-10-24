@@ -424,6 +424,9 @@ textarea {
   align-items: center;
   gap: 8px;
 }
+#decoder-recommendations { display: block; }
+#decoder-recommendations[hidden] { display: none; }
+#decoder-recommendation-list { justify-content: flex-start; }
 .decode-runs {
   display: grid;
   gap: 6px;

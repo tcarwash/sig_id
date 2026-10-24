@@ -285,6 +285,7 @@ async function refreshFldigiStatus() {
       label.textContent = `Fldigi disconnected · ${status.error || "start Fldigi with its XML-RPC server enabled"}`;
       el("connection").lastChild.textContent = " Decoder offline";
       el("fldigi-mode").disabled = true;
+      state.fldigiModes = [];
       el("fldigi-select").disabled = true;
       el("fldigi-check-wefax").disabled = true;
       updateDecoderSelectionControls();
@@ -294,6 +295,7 @@ async function refreshFldigiStatus() {
     el("connection").lastChild.textContent = ` ${status.name} receive connected`;
     if (fldigiOffset === null) fldigiOffset = status.receive_text_length;
     const modes = await request("/api/fldigi/modes");
+    state.fldigiModes = modes;
     const select = el("fldigi-mode");
     const previous = select.value;
     select.replaceChildren(...modes.map((name) => new Option(name, name)));
@@ -1089,6 +1091,7 @@ el("model-propose").addEventListener("click", async () => {
   const selection = state.selection;
   const sourceCapture = state.capture;
   state.classifierProposal = null;
+  clearDecoderRecommendations();
   const button = el("model-propose");
   button.disabled = true;
   button.textContent = "Analyzing…";
@@ -1106,6 +1109,7 @@ el("model-propose").addEventListener("click", async () => {
       result: { ...result, selection_sample_count: selection.sample_count },
     };
     if (!result.family && !result.method) {
+      clearDecoderRecommendations();
       el("label-state").textContent = result.novelty_rejected
         ? `Model abstained · outside trained modulation range (distance ${result.novelty_distance.toFixed(2)} > ${result.novelty_threshold.toFixed(2)})`
         : `Model abstained · top guess ${result.top_candidate} at ${(100 * result.confidence).toFixed(1)}%`;
@@ -1123,6 +1127,7 @@ el("model-propose").addEventListener("click", async () => {
       const evidence = `Model proposal ${result.method || result.family} (${(100 * (result.method ? result.confidence : result.family_confidence)).toFixed(1)}%; calibrated threshold).${noveltyEvidence} Review before saving; protocol remains unknown.`;
       el("notes").value = [el("notes").value.trim(), evidence].filter(Boolean).join(" ");
       el("label-state").textContent = `Proposed ${result.method || result.family} · review then save to accept`;
+      await updateDecoderRecommendations(result, selection);
     }
   } catch (error) {
     el("label-state").textContent = `Model proposal failed · ${error.message}`;
@@ -1131,6 +1136,67 @@ el("model-propose").addEventListener("click", async () => {
     updateModelButton();
   }
 });
+
+let decoderRecommendationRequest = 0;
+function clearDecoderRecommendations(message = "Run the classifier on a selected signal to see compatible modes.") {
+  decoderRecommendationRequest += 1;
+  const panel = el("decoder-recommendations");
+  if (!panel) return;
+  panel.hidden = true;
+  el("decoder-recommendation-status").textContent = message;
+  el("decoder-recommendation-list").replaceChildren();
+}
+
+async function updateDecoderRecommendations(result, selection) {
+  const requestId = ++decoderRecommendationRequest;
+  const panel = el("decoder-recommendations");
+  const status = el("decoder-recommendation-status");
+  const list = el("decoder-recommendation-list");
+  panel.hidden = false;
+  list.replaceChildren();
+  if (!result.method) {
+    status.textContent = "No specific modulation method was proposed, so no decoder modes are suggested.";
+    return;
+  }
+  if (!state.fldigiModes?.length) {
+    status.textContent = "Connect to Fldigi to compare classifier results with its selectable mode catalog.";
+    return;
+  }
+  status.textContent = `Checking selectable Fldigi modes compatible with ${result.method}…`;
+  try {
+    const response = await request(`/api/modes?q=${encodeURIComponent(result.method)}&limit=50`);
+    if (requestId !== decoderRecommendationRequest || state.selection !== selection) return;
+    const method = result.method.trim().toLocaleLowerCase();
+    const catalog = new Map(state.fldigiModes.map((name) => [name.toLocaleLowerCase(), name]));
+    const candidates = [...new Set(response.modes
+      .filter((item) => item.method?.trim().toLocaleLowerCase() === method
+        || item.display_name?.trim().toLocaleLowerCase() === method
+        || item.variant?.trim().toLocaleLowerCase() === method)
+      .map((item) => catalog.get(item.display_name.toLocaleLowerCase()))
+      .filter(Boolean))];
+    if (!candidates.length) {
+      status.textContent = `No selectable Fldigi modes in the current catalog match ${result.method}.`;
+      return;
+    }
+    status.textContent = `${candidates.length} selectable mode${candidates.length === 1 ? "" : "s"} match the proposed ${result.method} modulation:`;
+    for (const name of candidates) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = `Stage ${name}`;
+      button.addEventListener("click", () => {
+        if (state.selection !== selection || !state.fldigiModes?.includes(name)) return;
+        el("fldigi-mode").value = name;
+        updateDecoderSelectionControls();
+        el("fldigi-status").textContent = `${name} staged from classifier suggestion · select receive mode to apply it`;
+        openInspector("decode");
+      });
+      list.append(button);
+    }
+  } catch (error) {
+    if (requestId !== decoderRecommendationRequest || state.selection !== selection) return;
+    status.textContent = `Could not load compatible mode suggestions · ${error.message}`;
+  }
+}
 
 async function refreshAudioDevices() {
   try {
@@ -1569,6 +1635,7 @@ async function loadCapture() {
   el("coverage-panel").hidden = true;
   state.editRegion = null;
   state.classifierProposal = null;
+  clearDecoderRecommendations();
   el("start-scene-review").disabled = true;
   updateCoverageMaskControls();
   state.waterfall = null;
@@ -2188,6 +2255,8 @@ function drawOverlays() {
 
 function selectTrack(track) {
   stopSelectedAudioPlayback(null);
+  state.classifierProposal = null;
+  clearDecoderRecommendations();
   const data = state.waterfall;
   if (!data) return;
   if (!state.view) resetWaterfallView(false);
@@ -2473,6 +2542,7 @@ el("save-region").addEventListener("click", async () => {
     if (state.capture?.id !== captureId) return;
     state.regions = regions;
     state.classifierProposal = null;
+    clearDecoderRecommendations();
     beginNewRegion();
     renderRegions();
     await refreshSceneCoverage(captureId);

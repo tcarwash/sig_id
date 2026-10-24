@@ -299,6 +299,12 @@
                     <option>Connect to Fldigi</option>
                   </select></label
                 >
+                <section id="decoder-recommendations" class="decoder-evidence" hidden aria-live="polite">
+                  <strong>Classifier-based mode suggestions</strong>
+                  <p id="decoder-recommendation-status" class="subhead">Run the classifier on a selected signal to see compatible modes.</p>
+                  <div id="decoder-recommendation-list" class="save-row"></div>
+                  <p class="subhead">Suggestions reflect modulation compatibility only. Choose a mode, select it explicitly, then start decoding.</p>
+                </section>
                 <label class="fldigi-carrier-label"
                   >Audio carrier (Hz)<input
                     id="fldigi-carrier-hz"
