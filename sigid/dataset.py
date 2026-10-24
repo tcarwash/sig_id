@@ -56,7 +56,7 @@ class CaptureStore:
     def _initialize(self) -> None:
         with self._connect() as db:
             version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17):
+            if version not in (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18):
                 raise RuntimeError(f"unsupported dataset schema version: {version}")
             db.executescript(
                 """
@@ -208,6 +208,7 @@ class CaptureStore:
                     output_scope TEXT NOT NULL DEFAULT 'shared_live_input',
                     association TEXT NOT NULL DEFAULT 'track_window_tentative',
                     classifier_evidence_json TEXT NOT NULL DEFAULT '{}',
+                    detector_evidence_json TEXT NOT NULL DEFAULT '{}',
                     created_utc TEXT NOT NULL,
                     updated_utc TEXT NOT NULL,
                     CHECK(sample_start IS NULL OR sample_start >= 0),
@@ -281,6 +282,8 @@ class CaptureStore:
                 db.execute("ALTER TABLE decoder_runs ADD COLUMN region_id TEXT REFERENCES regions(id) ON DELETE SET NULL")
             if "classifier_evidence_json" not in columns:
                 db.execute("ALTER TABLE decoder_runs ADD COLUMN classifier_evidence_json TEXT NOT NULL DEFAULT '{}'")
+            if "detector_evidence_json" not in columns:
+                db.execute("ALTER TABLE decoder_runs ADD COLUMN detector_evidence_json TEXT NOT NULL DEFAULT '{}'")
             db.execute("CREATE INDEX IF NOT EXISTS decoder_runs_by_region ON decoder_runs(region_id, created_utc DESC)")
             region_columns = {row[1] for row in db.execute("PRAGMA table_info(regions)")}
             if "origin" not in region_columns:
@@ -299,7 +302,7 @@ class CaptureStore:
                 ) WHERE geometry_revision IS NULL""")
             if "resulting_revision" not in feedback_columns:
                 db.execute("ALTER TABLE annotation_feedback ADD COLUMN resulting_revision INTEGER")
-            db.execute("PRAGMA user_version = 17")
+            db.execute("PRAGMA user_version = 18")
 
     @staticmethod
     def _sha256(path: Path) -> str:
@@ -1365,6 +1368,7 @@ class CaptureStore:
         carrier_hz: float | None = None,
         region_id: str | None = None,
         classifier_evidence: dict[str, Any] | None = None,
+        detector_evidence: dict[str, Any] | None = None,
     ) -> str:
         if not session_id or not track_id:
             raise ValueError("decoder run requires a live session and track")
@@ -1383,12 +1387,13 @@ class CaptureStore:
                    (id, session_id, capture_id, region_id, track_id, sample_start, sample_count, sample_rate, carrier_hz,
                     modulation_hypothesis, backend, modes_json, attempted_modes_json,
                     current_mode, output_offset, output_end, output_text, status, note,
-                    output_scope, association, classifier_evidence_json, created_utc, updated_utc)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '', ?, ?, ?, ?, ?, ?, ?)""",
+                    output_scope, association, classifier_evidence_json, detector_evidence_json, created_utc, updated_utc)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '', ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (run_id, session_id, capture_id, region_id, track_id, sample_start, sample_count, sample_rate, carrier_hz,
                  modulation_hypothesis, backend, json.dumps(modes),
                  json.dumps(attempted_modes), current_mode, output_offset, status,
-                 note, output_scope, association, json.dumps(classifier_evidence or {}, sort_keys=True), now, now),
+                 note, output_scope, association, json.dumps(classifier_evidence or {}, sort_keys=True),
+                 json.dumps(detector_evidence or {}, sort_keys=True), now, now),
             )
         return run_id
 
@@ -1434,6 +1439,7 @@ class CaptureStore:
             item["modes"] = json.loads(item.pop("modes_json"))
             item["attempted_modes"] = json.loads(item.pop("attempted_modes_json"))
             item["classifier_evidence"] = json.loads(item.pop("classifier_evidence_json"))
+            item["detector_evidence"] = json.loads(item.pop("detector_evidence_json"))
             # Scope and association are explicit so shared live audio can never
             # be mistaken for an isolated decode of the candidate region.
             result.append(item)

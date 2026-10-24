@@ -538,6 +538,8 @@ el("decode-selection").addEventListener("click", async () => {
         track_id: state.selectedTrack?.track_id || null,
         carrier_hz: carrierHz,
         region_id: liveSessionId ? null : linkedRegion?.id || null,
+        detector_evidence: !liveSessionId && state.selectedTrack?.cv_proposal_id
+          ? state.selectedTrack.detector_evidence || null : null,
       }),
     });
     el("replay-status").textContent = `Decode ${result.status} · ${mode} · ${carrierStatus} · isolated ${liveSessionId ? "live track" : "selected region"} input`;
@@ -2027,10 +2029,11 @@ function renderDecodeRuns() {
     const carrier = Number.isFinite(run.carrier_hz) ? ` · carrier ${run.carrier_hz.toFixed(0)} Hz` : "";
     const regionLink = run.region_id ? " · linked saved region" : "";
     const classifierLink = run.classifier_evidence?.model_sha256 ? " · classifier evidence saved" : "";
-    button.textContent = `${run.current_mode || "Fldigi"} · ${run.status}${carrier}${interval}${regionLink}${classifierLink}`;
+    const detectorLink = run.detector_evidence?.proposal_id ? ` · CV proposal ${run.detector_evidence.proposal_id.slice(-8)}` : "";
+    button.textContent = `${run.current_mode || "Fldigi"} · ${run.status}${carrier}${interval}${regionLink}${classifierLink}${detectorLink}`;
     button.addEventListener("click", () => {
       showOutput("text");
-      state.textOutputContext = `Saved run ${run.id.slice(0,8)}${run.region_id ? ` · region ${run.region_id.slice(0,8)}` : ""}${run.classifier_evidence?.model_sha256 ? ` · classifier ${run.classifier_evidence.model_sha256.slice(0,8)}` : ""} · ${run.output_scope} · ${run.association}`;
+      state.textOutputContext = `Saved run ${run.id.slice(0,8)}${run.region_id ? ` · region ${run.region_id.slice(0,8)}` : ""}${run.classifier_evidence?.model_sha256 ? ` · classifier ${run.classifier_evidence.model_sha256.slice(0,8)}` : ""}${run.detector_evidence?.proposal_id ? ` · CV proposal ${run.detector_evidence.proposal_id.slice(-8)}` : ""} · ${run.output_scope} · ${run.association}`;
       el("output-context").textContent = state.textOutputContext;
       const classifierSummary = classifierEvidenceSummary(run.classifier_evidence);
       el("decoded-text").textContent = `${run.status.toUpperCase()} · ${run.current_mode || "Fldigi"}\n${run.note}${classifierSummary ? `\n\n${classifierSummary}` : ""}\n\n${run.output_text || "No decoded text was recorded."}`;

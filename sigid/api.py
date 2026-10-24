@@ -294,6 +294,7 @@ class FldigiReplayRequest(BaseModel):
     track_id: str | None = Field(default=None, max_length=128)
     carrier_hz: float | None = Field(default=None, ge=0, le=20000)
     region_id: str | None = Field(default=None, max_length=80)
+    detector_evidence: DetectorProposalEvidence | None = None
 
 
 class FldigiTrackTrialRequest(BaseModel):
@@ -1123,6 +1124,29 @@ def create_app(
                 raise HTTPException(status_code=422, detail="decoder region must be an active region in this capture")
             if (settings.sample_start, settings.sample_count) != (linked_region["sample_start"], linked_region["sample_count"]):
                 raise HTTPException(status_code=422, detail="decoder sample bounds must match the linked region")
+        detector_evidence = settings.detector_evidence
+        if detector_evidence is not None:
+            window_start = detector_evidence.window_sample_start
+            window_end = window_start + detector_evidence.window_sample_count
+            if detector_evidence.sample_rate != int(capture["sample_rate"]):
+                raise HTTPException(status_code=422, detail="detector evidence sample rate does not match the capture")
+            if window_end > int(capture["sample_count"]):
+                raise HTTPException(status_code=422, detail="detector evidence window exceeds the capture sample range")
+            if settings.sample_start < window_start or settings.sample_start + settings.sample_count > window_end:
+                raise HTTPException(status_code=422, detail="decoder range must remain inside its detector proposal window")
+        if detector_evidence is not None and linked_region is not None:
+            saved_region_evidence = linked_region["evidence"].get("detector_proposal") or {}
+            if (
+                saved_region_evidence.get("proposal_id")
+                and detector_evidence.proposal_id
+                and saved_region_evidence["proposal_id"] != detector_evidence.proposal_id
+            ):
+                raise HTTPException(status_code=422, detail="detector evidence does not match the linked region proposal")
+        saved_detector_evidence = None
+        if detector_evidence is not None:
+            saved_detector_evidence = detector_evidence.model_dump()
+        elif linked_region is not None:
+            saved_detector_evidence = linked_region["evidence"].get("detector_proposal")
         try:
             modes = fldigi.mode_names()
         except Exception as exc:
@@ -1144,6 +1168,7 @@ def create_app(
                 carrier_hz=settings.carrier_hz,
                 region_id=settings.region_id,
                 classifier_evidence=(linked_region["evidence"].get("classifier_proposal") if linked_region else None),
+                detector_evidence=saved_detector_evidence,
                 output_scope="isolated_region_replay", association="exact_capture_window",
             )
             decode_executor.submit(run_saved_replay, run_id, capture, settings)
