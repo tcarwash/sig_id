@@ -529,14 +529,18 @@ synthetic component manifests and keeps each source lineage within one split:
 ```sh
 sig-id-build-corpus --output-dir data/cv-seed/corpus --data-dir data/cv-seed/store --examples-per-mode 20 --snr-db --seed 4192026
 sig-id-build-cv-signal-corpus --output-dir data/cv-seed/cv-signals --data-dir data/cv-seed/store --examples-per-type 20 --seed 4192026
-sig-id-build-cv-scene-corpus --data-dir data/cv-seed/store --output-dir data/cv-seed/scenes --seed 4192026 --overlap-rate 0.25
+sig-id-build-cv-scene-corpus --data-dir data/cv-seed/store --output-dir data/cv-seed/scenes --seed 4192026 --overlap-rate 0.25 --noise-only-examples 360
 sig-id-export-cv-dataset --data-dir data/cv-seed/store --output data/cv-seed/export --seed 4192026
 sig-id-train-cv-detector --dataset data/cv-seed/export --output-model data/cv-seed/signal.pt --epochs 100
 ```
 
 These generated scenes broaden synthetic burst timing, overlap, and background
 coverage. They remain synthetic-only evidence and do not replace reviewed real
-recordings.
+recordings. `--noise-only-examples` optionally adds that many independent,
+manifest-backed 10-second uniform-noise windows as reviewed negatives; lineage
+splitting keeps each negative capture in one partition. Increase the count when
+you need more held-out negative audio to estimate false detections, and preserve
+the generated count and seeds with the dataset recipe.
 
 The exporter requires signal windows and completely reviewed no-signal windows in
 train, validation, and test splits. It fails when the reviewed data does not meet

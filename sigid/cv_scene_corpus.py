@@ -23,6 +23,7 @@ SIGNAL_GENERATORS = {
     "sig-id-ook", "sig-id-ask", "sig-id-ppm",
 }
 SCHEMA_VERSION = 1
+MAX_NOISE_ONLY_EXAMPLES = 5000
 
 
 def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
@@ -130,17 +131,24 @@ def build_cv_synthetic_scenes(
     *,
     seed: int = 1,
     overlap_rate: float = 0.25,
+    noise_only_examples: int = 0,
 ) -> dict[str, Any]:
     """Generate reviewed, source-held-out-ready signal bursts over known noise.
 
     Inputs must be accepted, manifest-backed synthetic modulation captures.
     Each source is used in at most one scene, and each scene gets its own
     independently seeded 10-second noise capture so lineage groups stay distinct.
+    Optional noise-only captures add independent reviewed negative windows.
     """
     if not isinstance(seed, int) or isinstance(seed, bool) or not 0 <= seed <= 2**32 - 1:
         raise ValueError("seed must be an unsigned 32-bit integer")
     if not isinstance(overlap_rate, (int, float)) or isinstance(overlap_rate, bool) or not 0 <= overlap_rate <= 1:
         raise ValueError("overlap_rate must be between 0 and 1")
+    if (
+        not isinstance(noise_only_examples, int) or isinstance(noise_only_examples, bool)
+        or not 0 <= noise_only_examples <= MAX_NOISE_ONLY_EXAMPLES
+    ):
+        raise ValueError(f"noise_only_examples must be between 0 and {MAX_NOISE_ONLY_EXAMPLES}")
     root = Path(data_dir).expanduser().resolve()
     output = Path(output_dir).expanduser().resolve()
     store = CaptureStore(root / "dataset.sqlite3")
@@ -187,6 +195,8 @@ def build_cv_synthetic_scenes(
         "signal_generators": sorted(SIGNAL_GENERATORS),
         "source_pool_sha256": source_pool_sha256,
     }
+    if noise_only_examples:
+        config["noise_only_examples"] = noise_only_examples
     if existing_index is not None:
         if existing_index.get("config") != config:
             raise ValueError("existing scene index uses a different recipe or source pool; choose another output directory")
@@ -212,6 +222,56 @@ def build_cv_synthetic_scenes(
                 store, capture,
                 "Controlled noise-only capture; validated generator manifest provides complete no-signal truth.",
             )
+
+    noise_only_records = list(index.get("noise_only_records", []))
+    if noise_only_examples:
+        records_by_index = {int(record["index"]): record for record in noise_only_records}
+        for item_index in range(noise_only_examples):
+            noise_seed = _derived_seed(seed, f"noise-only:{item_index}")
+            waveform = output / "noise-only" / f"{item_index:05d}.wav"
+            manifest_path = waveform.with_suffix(waveform.suffix + ".json")
+            if not waveform.is_file() or not manifest_path.is_file():
+                generate_noise_wav(
+                    waveform, seed=noise_seed, sample_rate=12_000,
+                    sample_count=12_000 * WINDOW_SECONDS, amplitude=0.35,
+                )
+            digest = hashlib.sha256(waveform.read_bytes()).hexdigest()
+            manifest_digest = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+            previous_record = records_by_index.get(item_index)
+            if previous_record and (
+                previous_record.get("sha256") != digest
+                or previous_record.get("manifest_sha256") != manifest_digest
+            ):
+                raise ValueError(f"noise-only source {item_index} no longer matches its generated index record")
+            noise_capture = store.capture_by_sha256(digest)
+            if noise_capture is None:
+                noise_capture = import_synthetic_wav(
+                    waveform, manifest_path, store=store, capture_dir=root / "captures",
+                )["capture"]
+            if (
+                noise_capture["source_kind"] != "synthetic"
+                or noise_capture["source_metadata"].get("generator") != "sig-id-noise"
+                or noise_capture["sha256"] != digest
+                or int(noise_capture["sample_rate"]) != 12_000
+                or int(noise_capture["sample_count"]) != 12_000 * WINDOW_SECONDS
+            ):
+                raise ValueError("noise-only corpus source hash is registered with incompatible provenance")
+            _ensure_synthetic_review(
+                store, noise_capture,
+                "Independent controlled noise-only window; validated generator manifest provides complete no-signal truth.",
+            )
+            records_by_index[item_index] = {
+                "index": item_index,
+                "capture_id": noise_capture["id"],
+                "sha256": digest,
+                "manifest_sha256": manifest_digest,
+                "seed": noise_seed,
+                "sample_rate": 12_000,
+                "duration_seconds": WINDOW_SECONDS,
+            }
+            index["noise_only_records"] = [records_by_index[key] for key in sorted(records_by_index)]
+            _atomic_json(index_path, index)
+        noise_only_records = index["noise_only_records"]
 
     output_records = list(index.get("records", []))
     processed = {
@@ -315,6 +375,7 @@ def build_cv_synthetic_scenes(
         "scene_count": len(output_records),
         "scenes_created_this_run": scenes_created,
         "noise_only_windows": len(output_records),
+        "additional_noise_only_windows": len(noise_only_records),
         "lineage_split_required": True,
     }
 
@@ -325,10 +386,15 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--overlap-rate", type=float, default=0.25)
+    parser.add_argument(
+        "--noise-only-examples", type=int, default=0,
+        help=f"add this many independent reviewed 10-second uniform-noise captures (max {MAX_NOISE_ONLY_EXAMPLES})",
+    )
     args = parser.parse_args()
     try:
         report = build_cv_synthetic_scenes(
             args.data_dir, args.output_dir, seed=args.seed, overlap_rate=args.overlap_rate,
+            noise_only_examples=args.noise_only_examples,
         )
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
