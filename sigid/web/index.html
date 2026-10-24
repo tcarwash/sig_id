@@ -690,6 +690,11 @@ Select a saved capture or region to analyze.</div>
                 <button id="cv-scan" type="button" disabled>Scan capture with CV</button>
                 <p id="cv-status" class="subhead" aria-live="polite">Checking optional CV detector…</p>
                 <div id="cv-detection-list" class="track-list"></div>
+                <details id="cv-dismissed-details" hidden>
+                  <summary id="cv-dismissed-summary">Saved dismissed CV proposals</summary>
+                  <p class="subhead">Dismissal history is review feedback only; it does not label this region as noise or create a training example.</p>
+                  <div id="cv-dismissed-list" class="track-list"></div>
+                </details>
                 <div id="track-list" class="track-list">
                   <p class="subhead">No candidates analyzed yet.</p>
                 </div>

@@ -476,6 +476,9 @@ selection flow. It proposes signal boxes on completed captures; review a box to
 use the normal selection, classification, and decoding workflow. Proposals do
 not identify a signal type by themselves. CV is disabled when no model path is
 configured, and the default Compose image omits the CV runtime dependencies.
+Dismissed proposals are remembered for that capture and model and can be restored
+from the review panel. A dismissal is review feedback only, not a no-signal label
+or training example.
 
 For CPU inference, the CV-enabled image installs CPU-only PyTorch and the OpenCV
 runtime libraries. Build it and configure a trained model stored in the persistent

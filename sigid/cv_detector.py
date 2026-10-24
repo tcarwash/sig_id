@@ -263,3 +263,16 @@ def _deduplicate_window_detections(
             }
             item["supporting_windows"] = list(unique.values())
     return sorted(kept, key=lambda item: (int(item["sample_start"]), float(item["frequency_low_hz"])))
+
+
+def proposal_id(detection: dict[str, Any]) -> str:
+    """Stable identity for a model's proposal geometry across repeated scans."""
+    geometry = {
+        "model_sha256": detection["model_sha256"],
+        "sample_start": int(detection["sample_start"]),
+        "sample_count": int(detection["sample_count"]),
+        "frequency_low_millihz": round(float(detection["frequency_low_hz"]) * 1000),
+        "frequency_high_millihz": round(float(detection["frequency_high_hz"]) * 1000),
+    }
+    digest = hashlib.sha256(json.dumps(geometry, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    return f"{detection['model_sha256']}:{digest[:32]}"

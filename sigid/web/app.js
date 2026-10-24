@@ -6,7 +6,7 @@ import { narrowKnownModes } from "/mode-candidates.mjs";
 import { layoutSignalLabels, signalCaption, hitSignal } from "/signal-overlays.mjs";
 
 const el = (id) => document.getElementById(id);
-const state = { capture: null, waterfall: null, drag: null, selection: null, regions: [], tracks: [], cvDetections: [], cvDismissedCount: 0, cvAvailable: false, cvSimilarAvailable: false, bitAnnotations: [], protocolStencils: [], liveView: false, liveSessionId: null, modelAvailable: false, view: null, demodExports: {}, selectedTrack: null, classifierProposal: null, frozen: false, labelModeId: null, modeSearchResults: [], modeSearchRequest: 0, applyingMode: false, adjustingGeometry: false, geometryDraft: false, splitMode: false, splitChildren: [], splitParentSelection: null, mergeRegionIds: new Set(), modeProposalRegion: null, proposalCaptureRequest: 0, proposalEvidenceCaptures: [] };
+const state = { capture: null, waterfall: null, drag: null, selection: null, regions: [], tracks: [], cvDetections: [], cvDismissedCount: 0, cvRejectedProposals: [], cvAvailable: false, cvSimilarAvailable: false, bitAnnotations: [], protocolStencils: [], liveView: false, liveSessionId: null, modelAvailable: false, view: null, demodExports: {}, selectedTrack: null, classifierProposal: null, frozen: false, labelModeId: null, modeSearchResults: [], modeSearchRequest: 0, applyingMode: false, adjustingGeometry: false, geometryDraft: false, splitMode: false, splitChildren: [], splitParentSelection: null, mergeRegionIds: new Set(), modeProposalRegion: null, proposalCaptureRequest: 0, proposalEvidenceCaptures: [] };
 state.layaAvailable = false;
 state.coverageWindow = null;
 state.coverageMasks = { ignore_regions: [], uncertain_regions: [] };
@@ -802,13 +802,19 @@ el("cv-scan").addEventListener("click", async () => {
   try {
     const result = await request(`/api/captures/${encodeURIComponent(capture.id)}/cv-detections`, { method: "POST" });
     if (state.capture !== capture || state.liveView) return;
-    state.cvDetections = result.detections.map((detection, index) => ({
-      ...detection,
-      cv_proposal_id: `${result.model_sha256 || "model"}:${index}:${detection.sample_start}`,
-    }));
+    state.cvRejectedProposals = result.dismissed_proposals || [];
+    const dismissedIds = new Set(state.cvRejectedProposals.map((item) => item.proposal_id));
+    state.cvDetections = result.detections
+      .map((detection) => ({
+        ...detection,
+        cv_proposal_id: detection.proposal_id,
+        detector_evidence: detectorEvidenceFor(detection),
+      }))
+      .filter((detection) => !dismissedIds.has(detection.cv_proposal_id));
     state.cvDismissedCount = 0;
     renderCvDetections();
-    el("cv-status").textContent = `CV proposed ${result.detections.length} signal box${result.detections.length === 1 ? "" : "es"} · overlapping windows deduplicated; provisional, review before labeling or decoding`;
+    renderCvDismissedProposals();
+    el("cv-status").textContent = `CV proposed ${result.detections.length} box${result.detections.length === 1 ? "" : "es"} · ${state.cvDetections.length} remain after ${state.cvRejectedProposals.length} saved dismissals · provisional; review before labeling or decoding`;
     drawOverlays();
   } catch (error) {
     if (state.capture === capture) el("cv-status").textContent = `CV scan failed · ${error.message}`;
@@ -841,21 +847,34 @@ function renderCvDetections() {
     reject.type = "button";
     reject.textContent = "Reject box";
     reject.title = "Remove this proposal from the current scan; this does not create a training label.";
-    reject.addEventListener("click", () => {
-      state.cvDetections = state.cvDetections.filter((item) => item !== detection);
-      state.cvDismissedCount += 1;
-      if (state.selectedTrack?.cv_proposal_id === detection.cv_proposal_id) {
-        state.selection = null;
-        beginNewRegion();
-        el("selection-summary").textContent = "No selection";
-        el("selection-details").textContent = "The dismissed CV proposal was cleared from the label editor.";
-        el("inspector-context").textContent = "Select a signal region to inspect or label it.";
+    reject.addEventListener("click", async () => {
+      const capture = state.capture;
+      if (!capture || state.liveView) return;
+      reject.disabled = true;
+      reject.textContent = "Saving dismissal…";
+      try {
+        const saved = await saveCvProposalDecision(capture.id, detection, "dismissed");
+        if (state.capture !== capture) return;
+        state.cvDetections = state.cvDetections.filter((item) => item !== detection);
+        state.cvRejectedProposals = [saved, ...state.cvRejectedProposals.filter((item) => item.proposal_id !== saved.proposal_id)];
+        state.cvDismissedCount += 1;
+        if (state.selectedTrack?.cv_proposal_id === detection.cv_proposal_id) {
+          state.selection = null;
+          beginNewRegion();
+          el("selection-summary").textContent = "No selection";
+          el("selection-details").textContent = "The dismissed CV proposal was cleared from the label editor.";
+          el("inspector-context").textContent = "Select a signal region to inspect or label it.";
+        }
+        renderCvDetections();
+        renderCvDismissedProposals();
+        drawOverlays();
+        el("cv-status").textContent = `${state.cvDetections.length} proposals remain · ${state.cvDismissedCount} dismissed from this scan and saved as review history; no training label was recorded`;
+      } catch (error) {
+        if (state.capture !== capture) return;
+        reject.disabled = false;
+        reject.textContent = "Reject box";
+        el("cv-status").textContent = `Could not save proposal dismissal · ${error.message}`;
       }
-      renderCvDetections();
-      drawOverlays();
-      el("cv-status").textContent = state.cvDetections.length
-        ? `${state.cvDetections.length} CV proposal${state.cvDetections.length === 1 ? "" : "s"} remain · ${state.cvDismissedCount} rejected from this scan`
-        : `All CV proposals rejected from this scan · ${state.cvDismissedCount} dismissed; no training label was recorded`;
     });
     row.append(summary, detail, button, reject);
     list.append(row);
@@ -867,6 +886,110 @@ function renderCvDetections() {
       ? `No proposals remain · ${state.cvDismissedCount} rejected from this scan; dismissals are not training labels.`
       : "No boxes proposed. The detector may miss weak or unfamiliar signals.";
     list.append(empty);
+  }
+}
+
+function detectorEvidenceFor(detection) {
+  return {
+    detector: "yolo",
+    model_sha256: detection.model_sha256,
+    model_version: detection.model_version,
+    confidence: detection.confidence,
+    box_xyxy_normalized: detection.box_xyxy_normalized,
+    image_width: detection.image_width,
+    image_height: detection.image_height,
+    preprocessing_version: detection.preprocessing_version,
+    window_sample_start: detection.window_sample_start,
+    window_sample_count: detection.window_sample_count,
+    sample_rate: detection.sample_rate,
+    supporting_windows: detection.supporting_windows || [],
+  };
+}
+
+async function saveCvProposalDecision(captureId, proposal, decision) {
+  return request(`/api/captures/${encodeURIComponent(captureId)}/cv-proposal-decisions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      proposal_id: proposal.cv_proposal_id || proposal.proposal_id,
+      decision,
+      sample_start: proposal.sample_start,
+      sample_count: proposal.sample_count,
+      frequency_low_hz: proposal.frequency_low_hz,
+      frequency_high_hz: proposal.frequency_high_hz,
+      confidence: proposal.confidence,
+      detector_evidence: proposal.detector_evidence || detectorEvidenceFor(proposal),
+      note: "Operator dismissed this proposal; this is not a no-signal annotation.",
+    }),
+  });
+}
+
+function detectionFromCvDecision(decision) {
+  const evidence = decision.detector_evidence;
+  return {
+    sample_start: decision.sample_start,
+    sample_count: decision.sample_count,
+    frequency_low_hz: decision.frequency_low_hz,
+    frequency_high_hz: decision.frequency_high_hz,
+    confidence: decision.confidence,
+    model_sha256: decision.model_sha256,
+    model_version: `sha256:${decision.model_sha256}`,
+    box_xyxy_normalized: evidence.box_xyxy_normalized,
+    image_width: evidence.image_width,
+    image_height: evidence.image_height,
+    preprocessing_version: evidence.preprocessing_version,
+    window_sample_start: evidence.window_sample_start,
+    window_sample_count: evidence.window_sample_count,
+    sample_rate: evidence.sample_rate,
+    supporting_windows: evidence.supporting_windows || [],
+    cv_proposal_id: decision.proposal_id,
+    detector_evidence: evidence,
+  };
+}
+
+function renderCvDismissedProposals() {
+  const details = el("cv-dismissed-details");
+  const list = el("cv-dismissed-list");
+  const proposals = state.cvRejectedProposals || [];
+  details.hidden = !proposals.length;
+  el("cv-dismissed-summary").textContent = `Saved dismissed CV proposals · ${proposals.length}`;
+  list.replaceChildren();
+  for (const decision of proposals) {
+    const row = document.createElement("div");
+    row.className = "track-row";
+    const summary = document.createElement("div");
+    summary.className = "track-summary";
+    summary.textContent = `Dismissed proposal · ${(decision.confidence * 100).toFixed(1)}% detector score · review feedback only`;
+    const detail = document.createElement("div");
+    detail.className = "region-detail";
+    detail.textContent = `${decision.frequency_low_hz.toFixed(0)}–${decision.frequency_high_hz.toFixed(0)} Hz · ${(decision.sample_start / decision.detector_evidence.sample_rate).toFixed(2)}–${((decision.sample_start + decision.sample_count) / decision.detector_evidence.sample_rate).toFixed(2)} s`;
+    const restore = document.createElement("button");
+    restore.type = "button";
+    restore.textContent = "Restore proposal";
+    restore.addEventListener("click", async () => {
+      const capture = state.capture;
+      if (!capture || state.liveView) return;
+      restore.disabled = true;
+      restore.textContent = "Restoring…";
+      try {
+        const restored = await saveCvProposalDecision(capture.id, detectionFromCvDecision(decision), "restored");
+        if (state.capture !== capture) return;
+        state.cvRejectedProposals = state.cvRejectedProposals.filter((item) => item.proposal_id !== restored.proposal_id);
+        const detection = detectionFromCvDecision(restored);
+        state.cvDetections = [...state.cvDetections, detection].sort((left, right) => left.sample_start - right.sample_start);
+        renderCvDetections();
+        renderCvDismissedProposals();
+        drawOverlays();
+        el("cv-status").textContent = "Dismissal restored; proposal is visible in this scan again. It remains provisional and is not a training label.";
+      } catch (error) {
+        if (state.capture !== capture) return;
+        restore.disabled = false;
+        restore.textContent = "Restore proposal";
+        el("cv-status").textContent = `Could not restore proposal · ${error.message}`;
+      }
+    });
+    row.append(summary, detail, restore);
+    list.append(row);
   }
 }
 
@@ -885,20 +1008,7 @@ function selectCvDetection(detection) {
     tone_count_candidate: "unknown",
     time_start_seconds: detection.sample_start / data.sample_rate,
     time_end_seconds: (detection.sample_start + detection.sample_count) / data.sample_rate,
-    detector_evidence: {
-      detector: "yolo",
-      model_sha256: detection.model_sha256,
-      model_version: detection.model_version,
-      confidence: detection.confidence,
-      box_xyxy_normalized: detection.box_xyxy_normalized,
-      image_width: detection.image_width,
-      image_height: detection.image_height,
-      preprocessing_version: detection.preprocessing_version,
-      window_sample_start: detection.window_sample_start,
-      window_sample_count: detection.window_sample_count,
-      sample_rate: detection.sample_rate,
-      supporting_windows: detection.supporting_windows || [],
-    },
+    detector_evidence: detection.detector_evidence || detectorEvidenceFor(detection),
   };
   selectTrack(proposal);
   el("cv-presence-row").hidden = false;
@@ -1048,7 +1158,9 @@ el("live-start").addEventListener("click", async () => {
     state.capture = null;
     state.cvDetections = [];
     state.cvDismissedCount = 0;
+    state.cvRejectedProposals = [];
     renderCvDetections();
+    renderCvDismissedProposals();
     updateCvButton();
     state.liveView = true;
     state.liveSessionId = started.session_id;
@@ -1467,6 +1579,8 @@ async function loadCapture() {
   state.selection = null;
   state.cvDetections = [];
   state.cvDismissedCount = 0;
+  state.cvRejectedProposals = [];
+  renderCvDismissedProposals();
   el("cv-similar-results")?.replaceChildren();
   el("cv-similar-status").textContent = "";
   renderCvDetections();

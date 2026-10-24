@@ -31,6 +31,7 @@ from .cv_detector import (
     WINDOW_SECONDS,
     WINDOW_STRIDE_SECONDS,
     YoloSignalDetector,
+    proposal_id as cv_proposal_id,
 )
 from .cv_embeddings import load_embedding_index, read_audio_range, region_image
 from .laya import LayaError, classify as classify_with_laya, configured as laya_configured, load_reference_examples
@@ -88,6 +89,24 @@ class DetectorProposalEvidence(BaseModel):
             or x2 <= x1 or y2 <= y1
         ):
             raise ValueError("detector evidence must contain an ordered normalized box and matching model version")
+        return self
+
+
+class CVProposalDecisionCreate(BaseModel):
+    proposal_id: str = Field(min_length=1, max_length=110)
+    decision: Literal["dismissed", "restored"]
+    sample_start: int = Field(ge=0)
+    sample_count: int = Field(gt=0)
+    frequency_low_hz: float = Field(ge=0, le=3000)
+    frequency_high_hz: float = Field(gt=0, le=3000)
+    confidence: float = Field(ge=0, le=1)
+    detector_evidence: DetectorProposalEvidence
+    note: str = Field(default="", max_length=2000)
+
+    @model_validator(mode="after")
+    def validate_bounds(self) -> "CVProposalDecisionCreate":
+        if self.frequency_low_hz >= self.frequency_high_hz:
+            raise ValueError("CV proposal frequency bounds must be ordered")
         return self
 
 
@@ -1354,6 +1373,8 @@ def create_app(
         except Exception as exc:
             logging.getLogger(__name__).exception("Optional CV detection failed for capture %s", capture_id)
             raise HTTPException(status_code=503, detail=f"CV inference failed: {exc}") from exc
+        for detection in detections:
+            detection["proposal_id"] = cv_proposal_id(detection)
         return {
             "capture_id": capture_id,
             "model_sha256": detector.model_sha256,
@@ -1364,7 +1385,40 @@ def create_app(
             "overlap_deduplication_iou": OVERLAP_DEDUP_IOU,
             "confidence_threshold": detector.confidence_threshold,
             "detections": detections,
+            "dismissed_proposals": store.cv_proposal_decisions(
+                capture_id, model_sha256=detector.model_sha256,
+            ),
         }
+
+    @app.post("/api/captures/{capture_id}/cv-proposal-decisions", status_code=201)
+    def record_cv_proposal_decision(capture_id: str, data: CVProposalDecisionCreate) -> dict[str, Any]:
+        try:
+            capture = store.capture(capture_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="capture not found") from exc
+        evidence = data.detector_evidence.model_dump()
+        if data.proposal_id != cv_proposal_id({
+            "model_sha256": evidence["model_sha256"],
+            "sample_start": data.sample_start,
+            "sample_count": data.sample_count,
+            "frequency_low_hz": data.frequency_low_hz,
+            "frequency_high_hz": data.frequency_high_hz,
+        }):
+            raise HTTPException(status_code=422, detail="proposal id does not match its model and geometry")
+        if evidence["sample_rate"] != capture["sample_rate"]:
+            raise HTTPException(status_code=422, detail="proposal sample rate does not match the capture")
+        try:
+            return store.record_cv_proposal_decision(
+                capture_id, proposal_id=data.proposal_id,
+                model_sha256=evidence["model_sha256"], decision=data.decision,
+                sample_start=data.sample_start, sample_count=data.sample_count,
+                frequency_low_hz=data.frequency_low_hz, frequency_high_hz=data.frequency_high_hz,
+                confidence=data.confidence, detector_evidence=evidence, note=data.note,
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.post("/api/captures/{capture_id}/cv-similar-regions")
     def find_similar_cv_regions(capture_id: str, settings: CVSimilarRegionsRequest) -> dict[str, Any]:

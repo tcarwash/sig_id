@@ -56,7 +56,7 @@ class CaptureStore:
     def _initialize(self) -> None:
         with self._connect() as db:
             version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16):
+            if version not in (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17):
                 raise RuntimeError(f"unsupported dataset schema version: {version}")
             db.executescript(
                 """
@@ -250,6 +250,24 @@ class CaptureStore:
                     created_utc TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS protocol_stencils_by_name ON protocol_stencils(name);
+                CREATE TABLE IF NOT EXISTS cv_proposal_decisions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    capture_id TEXT NOT NULL REFERENCES captures(id) ON DELETE CASCADE,
+                    proposal_id TEXT NOT NULL,
+                    model_sha256 TEXT NOT NULL CHECK(length(model_sha256)=64),
+                    decision TEXT NOT NULL CHECK(decision IN ('dismissed','restored')),
+                    sample_start INTEGER NOT NULL CHECK(sample_start >= 0),
+                    sample_count INTEGER NOT NULL CHECK(sample_count > 0),
+                    frequency_low_hz REAL NOT NULL,
+                    frequency_high_hz REAL NOT NULL,
+                    confidence REAL NOT NULL CHECK(confidence >= 0 AND confidence <= 1),
+                    detector_evidence_json TEXT NOT NULL,
+                    note TEXT NOT NULL,
+                    created_utc TEXT NOT NULL,
+                    CHECK(frequency_low_hz < frequency_high_hz)
+                );
+                CREATE INDEX IF NOT EXISTS cv_proposal_decisions_by_capture
+                    ON cv_proposal_decisions(capture_id, model_sha256, proposal_id, id DESC);
                 """
             )
             columns = {row[1] for row in db.execute("PRAGMA table_info(decoder_runs)")}
@@ -281,7 +299,7 @@ class CaptureStore:
                 ) WHERE geometry_revision IS NULL""")
             if "resulting_revision" not in feedback_columns:
                 db.execute("ALTER TABLE annotation_feedback ADD COLUMN resulting_revision INTEGER")
-            db.execute("PRAGMA user_version = 16")
+            db.execute("PRAGMA user_version = 17")
 
     @staticmethod
     def _sha256(path: Path) -> str:
@@ -1052,6 +1070,101 @@ class CaptureStore:
             item["correction"] = json.loads(item.pop("correction_json"))
             result.append(item)
         return result
+
+    @staticmethod
+    def _cv_proposal_decision_record(row: sqlite3.Row) -> dict[str, Any]:
+        item = dict(row)
+        item["detector_evidence"] = json.loads(item.pop("detector_evidence_json"))
+        return item
+
+    def record_cv_proposal_decision(
+        self, capture_id: str, *, proposal_id: str, model_sha256: str,
+        decision: str, sample_start: int, sample_count: int,
+        frequency_low_hz: float, frequency_high_hz: float, confidence: float,
+        detector_evidence: dict[str, Any], note: str = "",
+    ) -> dict[str, Any]:
+        if decision not in {"dismissed", "restored"}:
+            raise ValueError("unsupported CV proposal decision")
+        if not proposal_id or len(proposal_id) > 256:
+            raise ValueError("CV proposal id must be between 1 and 256 characters")
+        if not re.fullmatch(r"[0-9a-f]{64}", model_sha256):
+            raise ValueError("CV proposal model hash must be a lowercase SHA-256 digest")
+        if sample_start < 0 or sample_count <= 0:
+            raise ValueError("CV proposal sample bounds must be non-negative and non-empty")
+        if not all(math.isfinite(value) for value in (frequency_low_hz, frequency_high_hz, confidence)):
+            raise ValueError("CV proposal geometry and confidence must be finite")
+        if not 0 <= frequency_low_hz < frequency_high_hz <= 3000 or not 0 <= confidence <= 1:
+            raise ValueError("CV proposal geometry must be ordered within 0-3000 Hz and confidence within 0-1")
+        if len(note) > 2000:
+            raise ValueError("CV proposal decision note is too long")
+        if detector_evidence.get("model_sha256") != model_sha256:
+            raise ValueError("CV proposal evidence hash does not match its decision model")
+        if len(json.dumps(detector_evidence)) > 1_000_000:
+            raise ValueError("CV proposal evidence is too large")
+
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            capture = db.execute(
+                "SELECT sample_count,sample_rate FROM captures WHERE id=?", (capture_id,),
+            ).fetchone()
+            if capture is None:
+                raise KeyError(f"unknown capture: {capture_id}")
+            if sample_start + sample_count > int(capture["sample_count"]):
+                raise ValueError("CV proposal exceeds the capture sample range")
+            if detector_evidence.get("sample_rate") != int(capture["sample_rate"]):
+                raise ValueError("CV proposal sample rate does not match its capture")
+            source_windows = [
+                {
+                    "sample_start": detector_evidence.get("window_sample_start"),
+                    "sample_count": detector_evidence.get("window_sample_count"),
+                },
+                *detector_evidence.get("supporting_windows", []),
+            ]
+            if not any(
+                isinstance(window.get("sample_start"), int)
+                and isinstance(window.get("sample_count"), int)
+                and window["sample_start"] <= sample_start
+                and window["sample_start"] + window["sample_count"] >= sample_start + sample_count
+                for window in source_windows
+            ):
+                raise ValueError("CV proposal bounds are outside their supporting detector windows")
+            latest = db.execute(
+                """SELECT * FROM cv_proposal_decisions
+                   WHERE capture_id=? AND proposal_id=? AND model_sha256=?
+                   ORDER BY id DESC LIMIT 1""",
+                (capture_id, proposal_id, model_sha256),
+            ).fetchone()
+            if decision == "restored" and (latest is None or latest["decision"] != "dismissed"):
+                raise ValueError("only a currently dismissed CV proposal can be restored")
+            if decision == "dismissed" and latest is not None and latest["decision"] == "dismissed":
+                return self._cv_proposal_decision_record(latest)
+            cursor = db.execute(
+                """INSERT INTO cv_proposal_decisions
+                   (capture_id,proposal_id,model_sha256,decision,sample_start,sample_count,
+                    frequency_low_hz,frequency_high_hz,confidence,detector_evidence_json,note,created_utc)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (capture_id, proposal_id, model_sha256, decision, sample_start, sample_count,
+                 frequency_low_hz, frequency_high_hz, confidence,
+                 json.dumps(detector_evidence, sort_keys=True), note.strip(), datetime.now(timezone.utc).isoformat()),
+            )
+            row = db.execute("SELECT * FROM cv_proposal_decisions WHERE id=?", (cursor.lastrowid,)).fetchone()
+        return self._cv_proposal_decision_record(row)
+
+    def cv_proposal_decisions(self, capture_id: str, *, model_sha256: str) -> list[dict[str, Any]]:
+        with self._connect() as db:
+            if db.execute("SELECT 1 FROM captures WHERE id=?", (capture_id,)).fetchone() is None:
+                raise KeyError(f"unknown capture: {capture_id}")
+            rows = db.execute(
+                """SELECT * FROM cv_proposal_decisions
+                   WHERE capture_id=? AND model_sha256=? ORDER BY id""",
+                (capture_id, model_sha256),
+            ).fetchall()
+        latest: dict[str, sqlite3.Row] = {}
+        for row in rows:
+            latest[row["proposal_id"]] = row
+        dismissed = [row for row in latest.values() if row["decision"] == "dismissed"]
+        dismissed.sort(key=lambda row: int(row["id"]), reverse=True)
+        return [self._cv_proposal_decision_record(row) for row in dismissed]
 
     def add_bit_annotation(
         self, capture_id: str, *, mode: str, sample_start: int, sample_count: int,
