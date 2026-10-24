@@ -50,8 +50,9 @@ The first slice reuses the existing selection and geometry correction tools to
 inspect and adjust proposed boxes. A held-out downstream evaluator now measures
 detection-to-classifier behavior and limited oracle-assisted bit recovery on direct
 synthetic captures. Live YOLO scanning, independent real-capture quality evidence,
-classifier-selected decoding, and protocol interoperability validation remain
-follow-up work.
+automatic classifier-driven mode selection, and protocol interoperability
+validation remain follow-up work. The classifier now offers explicit compatible
+Fldigi mode suggestions without selecting or running a decoder automatically.
 
 ### 1. Define the detection contract
 
@@ -142,5 +143,5 @@ follow-up work.
 
 - Which spectrogram scaling and normalization best preserve weak and strong signals across recordings?
 - Should inference run only after capture completion initially, or also on a user-requested live window?
-- What minimum real-capture coverage is required before enabling automatic decoder suggestions?
+- What minimum real-capture coverage is required before automatically preselecting decoder modes from classifier results?
 - Should the first detector artifact run through a PyTorch-based runtime or be exported to a lighter inference format after training?
