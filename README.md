@@ -497,14 +497,17 @@ docker compose exec workbench sig-id-train-cv-detector --dataset /data/cv/datase
 ```
 
 For a reproducible controlled-synthetic starting corpus, use a separate data
-directory. The scene builder places short portions of accepted synthetic signals
-at varied positions over independently generated 10-second noise backgrounds,
-sometimes with two overlapping signals. It records complete detection coverage
-from the validated synthetic component manifests and keeps each source lineage
-within one split:
+directory. The standard corpus covers six FSK/PSK methods. The CV-only source
+builder adds deterministic OOK, 4-ASK, and PPM examples without adding those
+types to the application's known-modulation classifier classes. The scene builder
+places short portions of accepted synthetic signals at varied positions over
+independently generated 10-second noise backgrounds, sometimes with two
+overlapping signals. It records complete detection coverage from the validated
+synthetic component manifests and keeps each source lineage within one split:
 
 ```sh
 sig-id-build-corpus --output-dir data/cv-seed/corpus --data-dir data/cv-seed/store --examples-per-mode 20 --snr-db --seed 4192026
+sig-id-build-cv-signal-corpus --output-dir data/cv-seed/cv-signals --data-dir data/cv-seed/store --examples-per-type 20 --seed 4192026
 sig-id-build-cv-scene-corpus --data-dir data/cv-seed/store --output-dir data/cv-seed/scenes --seed 4192026 --overlap-rate 0.25
 sig-id-export-cv-dataset --data-dir data/cv-seed/store --output data/cv-seed/export --seed 4192026
 sig-id-train-cv-detector --dataset data/cv-seed/export --output-model data/cv-seed/signal.pt --epochs 100
