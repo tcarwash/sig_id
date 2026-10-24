@@ -200,6 +200,105 @@
     "Zero held-out signal-box detections; no claims about real signals, classifier routing, decoding, or interoperability.",
     "The stratified ten-epoch run reduced held-out misses but still produced 13 false detections on 3 short negative windows; the resulting model was not retained as a usable detector."
   ],
+  "pinned_rocm_container_follow_up": {
+    "conclusion": "The project-pinned Ultralytics runtime completed training, held-out evaluation, and project-wrapper inference on the passed-through RX 6700 XT. Held-out signal-box recall was lower than the prior host-runtime experiment, and the detector is not suitable for unattended use.",
+    "dataset": {
+      "independent_lineage_groups": 112,
+      "negative_images_by_split": {
+        "test": 17,
+        "train": 78,
+        "validation": 17
+      },
+      "positive_images_by_split": {
+        "test": 32,
+        "train": 150,
+        "validation": 30
+      },
+      "seed": 4202026,
+      "test_windows": 49
+    },
+    "held_out_test": {
+      "false_detections_on_pure_noise": 0,
+      "false_detections_per_audio_hour": 161.218092252575,
+      "mean_latency_ms_per_window": 10.080928818028116,
+      "metrics_iou_0_50": {
+        "false_negative": 17,
+        "false_positive": 16,
+        "precision": 0.5428571428571428,
+        "recall": 0.5277777777777778,
+        "true_positive": 19
+      },
+      "pure_noise_windows": 17,
+      "signal_type_recall_iou_0_50": {
+        "16-ary frequency shift keying": {
+          "ground_truth_boxes": 8,
+          "matched_boxes": 5,
+          "missed_boxes": 3,
+          "recall": 0.625
+        },
+        "4-ary frequency shift keying": {
+          "ground_truth_boxes": 4,
+          "matched_boxes": 4,
+          "missed_boxes": 0,
+          "recall": 1.0
+        },
+        "8-ary frequency shift keying": {
+          "ground_truth_boxes": 6,
+          "matched_boxes": 3,
+          "missed_boxes": 3,
+          "recall": 0.5
+        },
+        "binary frequency shift keying": {
+          "ground_truth_boxes": 10,
+          "matched_boxes": 7,
+          "missed_boxes": 3,
+          "recall": 0.7
+        },
+        "binary phase-shift keying": {
+          "ground_truth_boxes": 6,
+          "matched_boxes": 0,
+          "missed_boxes": 6,
+          "recall": 0.0
+        },
+        "quadrature phase-shift keying": {
+          "ground_truth_boxes": 2,
+          "matched_boxes": 0,
+          "missed_boxes": 2,
+          "recall": 0.0
+        }
+      },
+      "throughput_windows_per_second": 99.19720871470308
+    },
+    "limitations": [
+      "Synthetic-only data; no reviewed real-capture windows were available.",
+      "The detector missed all 6 held-out BPSK and 2 held-out QPSK boxes at IoU 0.50.",
+      "All 16 false boxes occurred on the 32 held-out signal-containing windows; there were no false boxes on the 17 pure-noise windows.",
+      "MIOpen reported missing optional gfx1031 grouped-convolution/database files; training and inference still completed.",
+      "No claims about classifier-selected decoding, radio performance, protocol framing, or interoperability."
+    ],
+    "runtime_wrapper": {
+      "backend": "rocm",
+      "held_out_positive_image_confidence": 0.415,
+      "held_out_positive_image_detections": 1,
+      "model_version": "sha256:76570c4f0d606803184f3a45f68168b1f5a48d59dc632cace51aefd9e9b958ce"
+    },
+    "training": {
+      "accelerator": "AMD Radeon RX 6700 XT",
+      "base_model": "yolo11n.pt",
+      "batch": 8,
+      "confidence_threshold": 0.25,
+      "confidence_threshold_source": "validation_iou_0.50_f1_then_precision_then_higher_threshold",
+      "container_image": "rocm/pytorch:rocm10.1.0_ubuntu24.04_py3.12_pytorch_release_2.13.0",
+      "epochs": 10,
+      "hip": "7.16.26385",
+      "model_sha256": "76570c4f0d606803184f3a45f68168b1f5a48d59dc632cace51aefd9e9b958ce",
+      "model_size_bytes": 5485082,
+      "scope": "isolated controlled synthetic burst-in-noise dataset; artifact and training run kept under /tmp",
+      "seed": 4202026,
+      "torch": "2.13.0+rocm10.1.0",
+      "ultralytics": "8.4.184"
+    }
+  },
   "scene_geometry_smoke": {
     "frequency_drift_hz_per_second": 10.0,
     "frequency_offset_hz": 200.0,
