@@ -294,6 +294,15 @@ Begin this track after milestone 1; do not wait for the model.
   backend; additional decoders can be registered without making its XML-RPC
   catalog or text buffer the application-wide decoder API. A backend only counts
   as supported after its own routing and output tests pass.
+- Load separately installed adapters through the `sigid.decoder_backends` entry
+  point group. Each adapter declares its native application, mode bindings, input
+  types, typed output products, connection state, and backend version. Do not bundle
+  a decoder merely to make its classification/annotation labels available.
+- Keep WSJT-X/FT8-family and Data2G mode candidates independent of adapter
+  availability. The initial WSJT-X `jt9` adapter accepts saved FT8 windows and the
+  UDP listener accepts live application events. Add Data2G clip decoding as a
+  separately installed adapter, preserving the selected window and native mode and
+  returning decode provenance.
 - Expose every validated mode through manual selection immediately. Expand
   automatic candidate policies and synthetic generation independently.
 

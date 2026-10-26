@@ -10,7 +10,7 @@ from typing import Any
 
 import numpy as np
 
-from .classifier import ROI_FEATURE_VERSION, extract_features, load_model, propose
+from .classifier import CLASSIFIER_WINDOW_SECONDS, ROI_FEATURE_VERSIONS, extract_features, load_model, propose
 from .splits import METHOD_BY_MODE
 from .synthetic_dataset import _validate_manifest, synthetic_frequency_bounds
 from .wav import WavSource
@@ -35,7 +35,7 @@ def evaluate_unmodeled_wavs(model_path: str | Path, waveforms: list[str | Path])
         manifest = json.loads(sidecar.read_text(encoding="utf-8"))
         _validate_manifest(manifest, wav_path)
         occupied_band = synthetic_frequency_bounds(manifest)
-        if metadata["feature_version"] == ROI_FEATURE_VERSION and occupied_band is None:
+        if metadata["feature_version"] in ROI_FEATURE_VERSIONS and occupied_band is None:
             raise ValueError(f"ROI feature evaluation requires verified frequency bounds for {wav_path}")
         labels = manifest["labels"]
         method = labels.get("modulation_method")
@@ -50,7 +50,8 @@ def evaluate_unmodeled_wavs(model_path: str | Path, waveforms: list[str | Path])
             values,
             int(manifest["sample_rate"]),
             feature_version=metadata["feature_version"],
-            frequency_range_hz=occupied_band if metadata["feature_version"] == ROI_FEATURE_VERSION else None,
+            frequency_range_hz=occupied_band if metadata["feature_version"] in ROI_FEATURE_VERSIONS else None,
+            classifier_window_seconds=float(metadata.get("classifier_window_seconds") or CLASSIFIER_WINDOW_SECONDS),
         )
         prediction = propose(
             feature,

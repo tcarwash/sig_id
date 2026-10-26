@@ -13,6 +13,7 @@ from typing import Any
 
 from .corpus import MODES
 from .dataset import CaptureStore
+from .modes import MODE_REGISTRY
 
 
 METHOD_BY_MODE = {
@@ -31,6 +32,60 @@ FAMILY_BY_MODE = {
     "bpsk": "PSK",
     "qpsk": "PSK",
 }
+
+# Generated baseline classes above remain stable. Add recognized IDs from the
+# dataset mode catalog so the classifier can learn reviewed classes as they
+# enter its train split without changing the synthetic generator's six modes.
+for _mode_id, _definition in MODE_REGISTRY.items():
+    _family = _definition.get("family")
+    _method = _definition.get("method")
+    if isinstance(_family, str) and _family and isinstance(_method, str) and _method:
+        METHOD_BY_MODE.setdefault(_mode_id, _method)
+        FAMILY_BY_MODE.setdefault(_mode_id, _family)
+
+
+def families_for_modes(modes: list[str] | tuple[str, ...]) -> tuple[str, ...]:
+    """Families present for the supplied classifier mode IDs, in stable order."""
+    present = {FAMILY_BY_MODE[mode] for mode in modes if mode in FAMILY_BY_MODE}
+    preferred = ["FSK", "MFSK", "PSK"]
+    return tuple([family for family in preferred if family in present]
+                 + sorted(present - set(preferred)))
+
+
+def classifier_family_for_mode(mode_id: str) -> str:
+    """Return the modulation-family stage used by the hierarchical classifier.
+
+    Catalog ``family`` values can describe a protocol community (for example,
+    weak-signal digital) rather than the waveform's modulation family. Group
+    recognizable FSK and PSK methods by modulation, keeping other catalog
+    families as their own first-stage category.
+    """
+    method = str(METHOD_BY_MODE.get(mode_id, "")).casefold().replace(" ", "")
+    catalog_family = FAMILY_BY_MODE.get(mode_id, "")
+    if "gfsk" in method or "frequencyshiftkeying" in method or "fsk" in method:
+        if any(token in method for token in ("binary", "2-fsk", "2fsk")):
+            return "FSK"
+        return "MFSK"
+    if "psk" in method or "phase-shiftkeying" in method or "phaseshiftkeying" in method:
+        return "PSK"
+    return catalog_family
+
+
+def register_mode_definitions(definitions: list[dict[str, Any]]) -> None:
+    """Make accepted dataset mode IDs available to classifier train/inference."""
+    for definition in definitions:
+        mode_id = definition.get("id")
+        family = definition.get("family")
+        method = definition.get("method")
+        if not all(isinstance(value, str) and value.strip() for value in (mode_id, family, method)):
+            continue
+        key = mode_id.strip().casefold()
+        if key in METHOD_BY_MODE and (
+            METHOD_BY_MODE[key] != method.strip() or FAMILY_BY_MODE[key] != family.strip()
+        ):
+            raise ValueError(f"dataset mode {mode_id!r} conflicts with the classifier's existing taxonomy")
+        METHOD_BY_MODE[key] = method.strip()
+        FAMILY_BY_MODE[key] = family.strip()
 
 
 def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
@@ -69,6 +124,7 @@ def _scene_aware_assignments(
     fractions: tuple[float, float, float],
 ) -> tuple[dict[str, str], list[dict[str, Any]], list[dict[str, Any]], dict[str, int]]:
     """Keep every set of source lineages used by a scene in one split."""
+    modes = (*MODES, *sorted(set(group_modes.values()) - set(MODES)))
     parent = {group: group for group in group_modes}
 
     def find(group: str) -> str:
@@ -95,14 +151,21 @@ def _scene_aware_assignments(
         if not isinstance(component_ids, list) or len(component_ids) < 2:
             exclusions.append({"capture_id": scene["id"], "reason": "scene has no valid component list"})
             continue
-        if any(component_id not in capture_groups for component_id in component_ids):
+        signal_component_ids = metadata.get("signal_component_capture_ids", component_ids)
+        if (
+            not isinstance(signal_component_ids, list) or not signal_component_ids
+            or any(component_id not in component_ids for component_id in signal_component_ids)
+        ):
+            exclusions.append({"capture_id": scene["id"], "reason": "scene has no valid signal component list"})
+            continue
+        if any(component_id not in capture_groups for component_id in signal_component_ids):
             exclusions.append({
                 "capture_id": scene["id"],
-                "reason": "one or more scene components are absent from the source corpus",
-                "missing_component_capture_ids": [item for item in component_ids if item not in capture_groups],
+                "reason": "one or more signal components are absent from the source corpus",
+                "missing_component_capture_ids": [item for item in signal_component_ids if item not in capture_groups],
             })
             continue
-        groups = sorted({capture_groups[component_id] for component_id in component_ids})
+        groups = sorted({capture_groups[component_id] for component_id in signal_component_ids})
         for group in groups[1:]:
             union(groups[0], group)
         dependencies.append({
@@ -121,7 +184,7 @@ def _scene_aware_assignments(
     }
     independent_cluster_counts = {
         mode: sum(mode in modes for modes in cluster_modes.values())
-        for mode in (*MODES, "noise")
+        for mode in (*modes, "noise")
     }
     for mode, independent_clusters in independent_cluster_counts.items():
         if independent_clusters < 3:
@@ -131,7 +194,7 @@ def _scene_aware_assignments(
 
     split_names = ("train", "validation", "test")
     targets: dict[str, tuple[int, int, int]] = {}
-    for mode in (*MODES, "noise"):
+    for mode in (*modes, "noise"):
         count = sum(mode in modes for modes in cluster_modes.values())
         targets[mode] = _split_counts(count, fractions)
 
@@ -161,7 +224,7 @@ def _scene_aware_assignments(
         for dependency in dependencies
         for group in dependency["lineage_groups"]
     }
-    assigned_counts = {split: {mode: 0 for mode in (*MODES, "noise")} for split in split_names}
+    assigned_counts = {split: {mode: 0 for mode in (*modes, "noise")} for split in split_names}
     assignment: dict[str, str] = {}
     held_out_scene_assigned = False
     for root in ordered:
@@ -189,7 +252,7 @@ def _scene_aware_assignments(
 
     for split in split_names:
         present = {mode for mode, count in assigned_counts[split].items() if count}
-        if not set((*MODES, "noise")).issubset(present):
+        if not set((*modes, "noise")).issubset(present):
             raise ValueError(f"scene-aware split assignment cannot place every method and noise in {split}")
     for scene in dependencies:
         component_splits = {assignment[group] for group in scene["lineage_groups"]}
@@ -233,7 +296,7 @@ def create_split_manifest(
         capture_id = record.get("capture_id")
         mode = record.get("mode")
         group = record.get("lineage_group")
-        if not isinstance(capture_id, str) or not isinstance(group, str) or mode not in (*MODES, "noise"):
+        if not isinstance(capture_id, str) or not isinstance(group, str) or mode not in (*METHOD_BY_MODE, "noise"):
             raise ValueError("corpus record is missing capture, mode or lineage group")
         if capture_id in unique_captures:
             raise ValueError(f"capture {capture_id} appears more than once in the corpus")
@@ -307,10 +370,11 @@ def create_split_manifest(
     if any(record["kind"] not in {"clean", "awgn", "noise"} for record in validated_records):
         raise ValueError("corpus contains an unsupported generated record kind")
 
-    grouped: dict[str, list[str]] = {mode: [] for mode in (*MODES, "noise")}
+    modes = (*MODES, *sorted(set(group_modes.values()) - set(MODES)))
+    grouped: dict[str, list[str]] = {mode: [] for mode in (*modes, "noise")}
     for group, mode in group_modes.items():
         grouped[mode].append(group)
-    for mode in (*MODES, "noise"):
+    for mode in (*modes, "noise"):
         if len(grouped[mode]) < 3:
             raise ValueError(f"mode {mode} needs at least three independent source groups for three-way evaluation")
 
@@ -349,7 +413,7 @@ def create_split_manifest(
             "source_groups": len(group_sets[split]),
             "by_mode": {
                 mode: len({record["lineage_group"] for record in validated_records if record["split"] == split and record["mode"] == mode})
-                for mode in (*MODES, "noise")
+                for mode in (*modes, "noise")
             },
         }
         for split in split_names

@@ -11,7 +11,7 @@ import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
@@ -126,6 +126,9 @@ def _evaluate_test_set(
         expected = _read_yolo_boxes(label_path)
         with Image.open(image_path) as opened:
             image = np.asarray(opened.convert("RGB"))
+        # Ultralytics' numpy inference API expects BGR arrays, although its
+        # file-based dataset loader reads RGB. Match the same colors in both.
+        model_image = np.ascontiguousarray(image[..., ::-1])
         if accelerator_available:
             torch.cuda.synchronize()
         inference_start = time.perf_counter()
@@ -135,7 +138,7 @@ def _evaluate_test_set(
         }
         if device:
             predict_options["device"] = device
-        results = model.predict(image, **predict_options)
+        results = model.predict(model_image, **predict_options)
         if accelerator_available:
             torch.cuda.synchronize()
         inference_latencies.append(time.perf_counter() - inference_start)
@@ -317,6 +320,7 @@ def train_cv_detector(
     device: str | None = None,
     workers: int = 4,
     confidence: float | None = None,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> dict[str, Any]:
     dataset = Path(dataset_dir).expanduser().resolve()
     destination = Path(output_model).expanduser().resolve()
@@ -341,7 +345,12 @@ def train_cv_detector(
         for split in ("train", "validation", "test")
     }
     if len(groups_by_split["validation"]) < 3 or len(groups_by_split["test"]) < 3:
-        raise ValueError("CV validation and test splits each need at least three independent capture/lineage groups")
+        raise ValueError(
+            "CV validation and test splits each need at least three independent reviewed lineages; "
+            f"the exported windows contain {len(groups_by_split['validation'])} validation and "
+            f"{len(groups_by_split['test'])} test lineages. Add fully reviewed recordings from "
+            "more independent capture sessions, then export the combined datasets again."
+        )
     if report.get("split_images", {}).get("train", 0) < 1 or report.get("split_images", {}).get("validation", 0) < 1:
         raise ValueError("training and validation splits must both contain reviewed images")
     for split in ("train", "validation", "test"):
@@ -353,8 +362,18 @@ def train_cv_detector(
         raise ValueError("training split has no labels")
     try:
         from ultralytics import YOLO
+        from importlib.metadata import version
+        from packaging.version import Version
     except ImportError as exc:
         raise RuntimeError("CV training requires the optional 'cv' install extra") from exc
+    ultralytics_version = Version(version("ultralytics"))
+    minimum_ultralytics_version = Version("8.4.184")
+    if Path(base_model).name.lower().startswith("yolo26") and ultralytics_version < minimum_ultralytics_version:
+        raise RuntimeError(
+            f"CV training with the default YOLO26 model requires ultralytics>={minimum_ultralytics_version}; "
+            f"this Python environment has {ultralytics_version}. Upgrade the environment that provides "
+            "sig-id-train-cv-detector with: python -m pip install -e '.[cv]'"
+        )
     if epochs <= 0 or batch <= 0 or workers < 0 or (
         confidence is not None and not 0.0 < confidence < 1.0
     ):
@@ -388,6 +407,11 @@ def train_cv_detector(
     }
     if device:
         train_options["device"] = device
+    if progress_callback:
+        def report_epoch(trainer: Any) -> None:
+            progress_callback(int(trainer.epoch) + 1, int(trainer.epochs))
+
+        model.add_callback("on_train_epoch_end", report_epoch)
     model.train(**train_options)
     best = run_root / "run" / "weights" / "best.pt"
     if not best.is_file():

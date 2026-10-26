@@ -5,6 +5,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     SIG_ID_DATA_DIR=/data
 
 ARG INSTALL_CV=0
+ARG INSTALL_HUB_S3=0
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libportaudio2 libsndfile1 \
@@ -22,6 +23,10 @@ RUN pip install --no-cache-dir --require-hashes -r /tmp/requirements/build.txt \
     && pip install --no-cache-dir --require-hashes -r /tmp/requirements/runtime.txt
 COPY pyproject.toml ./
 COPY sigid ./sigid
+COPY requirements/hub-s3.txt /tmp/requirements/hub-s3.txt
+RUN if [ "$INSTALL_HUB_S3" = "1" ]; then \
+        pip install --no-cache-dir --require-hashes -r /tmp/requirements/hub-s3.txt; \
+    fi
 RUN if [ "$INSTALL_CV" = "1" ]; then \
         pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu \
             'torch==2.14.1' 'torchvision==0.29.1' \

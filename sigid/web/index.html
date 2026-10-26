@@ -13,6 +13,18 @@
         ><span class="brand-mark">S</span>Signal ID</a
       >
       <div class="transport">
+        <select id="live-capture-mode" aria-label="Live capture mode" title="Choose whether to keep a full recording, scan without saving, or queue selected ten-second clips">
+          <option value="record">Record + review windows</option>
+          <option value="scan_only">Scan only · don’t save</option>
+          <option value="unattended">Unattended · save selected clips</option>
+        </select>
+        <label id="noise-interval-wrap" class="live-noise-interval" hidden>
+          Noise clip every
+          <select id="noise-interval-minutes" aria-label="Periodic noise clip interval">
+            <option value="1">1 min</option><option value="5" selected>5 min</option>
+            <option value="10">10 min</option><option value="15">15 min</option>
+          </select>
+        </label>
         <button id="live-start" type="button">Start live capture</button
         ><button id="live-stop" type="button" disabled>Stop and review</button
         ><button id="freeze-view" type="button" disabled>Freeze view</button>
@@ -21,6 +33,8 @@
       <button id="open-recording" type="button">Open recording</button
       ><button id="show-signals" type="button">Signals</button>
       <button id="show-library" type="button">Library</button
+      ><button id="show-review-queue" type="button">Review queue <span id="review-queue-badge" class="count-badge" hidden>0</span></button
+      ><button id="review-random-dataset" type="button">Review random from dataset</button
       ><button id="show-settings" type="button">Settings</button>
     </header>
     <main class="app-shell">
@@ -64,8 +78,10 @@
                       aria-label="Waterfall with time on the vertical axis and audio frequency on the horizontal axis. Drag to mark a signal region."
                     ></canvas>
                     <canvas id="overlay" aria-hidden="true"></canvas>
+                    <div id="frequency-notches" class="frequency-notches" aria-label="Frequency notch filters"></div>
+                    <div id="notch-place-strip" class="notch-place-strip" aria-hidden="true"></div>
                     <div id="hint" class="canvas-hint">
-                      Drag across a signal to mark its time and frequency bounds
+                      Click a signal label to select it, or drag on the waterfall to draw bounds
                     </div>
                   </div>
                   <div class="axis-x">
@@ -76,6 +92,8 @@
               </div>
               <div class="capture-controls">
                 <audio id="audio-player" controls preload="none"></audio>
+                <button id="notch-mode" type="button" aria-pressed="false" title="Drag across the top of the waterfall to block detections in a frequency band">Place notch</button>
+                <button id="clear-notches" type="button" hidden>Clear notches</button>
                 <span id="waterfall-state" class="muted">WAV spectrum</span>
               </div>
             </div>
@@ -87,7 +105,7 @@
           aria-label="Signal inspector"
         >
           <div class="inspector-heading">
-            <strong>Signal inspector</strong
+            <strong>Signal workspace</strong
             ><button
               id="close-inspector"
               type="button"
@@ -96,10 +114,19 @@
               ×
             </button>
           </div>
-          <nav class="inspector-tabs" aria-label="Signal tools">
+          <nav class="inspector-modes" aria-label="Workflow mode">
+            <button data-inspector-mode="classify" type="button">Classify</button>
+            <button data-inspector-mode="annotate" type="button">Annotate</button>
+          </nav>
+          <nav class="inspector-detail-modes" aria-label="View detail">
+            <span>View</span>
+            <button data-detail-level="simple" type="button">Simple</button>
+            <button data-detail-level="advanced" type="button">Advanced</button>
+          </nav>
+          <nav id="inspector-tabs" class="inspector-tabs" aria-label="Signal workflow">
             <button data-inspector-tab="label" type="button">Label</button
             ><button data-inspector-tab="decode" type="button">Decode</button
-            ><button data-inspector-tab="raw" type="button">Raw symbols</button
+            ><button data-inspector-tab="raw" type="button" title="Recover raw symbols and bits without assuming a protocol">Raw symbols</button
             ><button data-inspector-tab="signals" type="button">Signals</button>
           </nav>
           <p id="inspector-context" class="inspector-context">
@@ -107,20 +134,38 @@
           </p>
           <div class="inspector-content">
             <div data-inspector-view="label">
-              <section class="panel selection-panel">
-                <p class="eyebrow">SELECTED REGION</p>
-                <h2 id="selection-summary">No region selected</h2>
-                <p id="selection-details" class="subhead">
-                  Drag over the waterfall to mark a signal.
-                </p>
-                <button id="start-scene-review" type="button" disabled>Review scene coverage</button>
+              <section class="panel annotation-workspace">
+              <div id="batch-box-panel" class="batch-box-panel annotation-box-workspace">
+                <span id="batch-box-summary" class="count" hidden>0 boxes</span>
                 <div class="save-row">
-                  <button id="start-cv-coverage-queue" type="button" disabled>Review 10-second CV windows</button>
-                  <span id="cv-coverage-queue-status" class="muted" aria-live="polite">Save signal boxes first. A complete window without boxes becomes a negative training example.</span>
+                  <button id="batch-box-toggle" class="primary" type="button" aria-keyshortcuts="B" hidden>Draw boxes</button>
+                  <button id="batch-box-clear" type="button" disabled>Clear drafts</button>
+                  <button id="batch-box-classify" class="advanced-only" type="button" disabled>Suggest labels for all</button>
                 </div>
-                <label class="notes-label">Known mode (search by name or alias)<input id="mode-search" list="mode-results" autocomplete="off" placeholder="Type e.g. PSK31, BPSK31, RTTY"><datalist id="mode-results"></datalist></label>
-                <p id="mode-resolution" class="subhead">Choose a known mode to fill its family and protocol, or leave blank for an unknown/partial label.</p>
-                <details id="mode-proposal-details">
+                <p id="batch-box-status" class="muted" aria-live="polite">Drag on the waterfall to add a signal box. Select a box to label or adjust it.</p>
+                <button id="refresh-window-regions" type="button" hidden>Refresh saved signals</button>
+                <div id="batch-box-list" class="batch-box-list"></div>
+              </div>
+              <div class="selection-panel">
+                <p class="eyebrow">SELECTED SIGNAL</p>
+                <h2 id="selection-summary">No signal selected</h2>
+                <p id="selection-details" class="subhead">
+                  Select a signal or drag a box on the waterfall.
+                </p>
+                <div id="selection-merge-actions" class="selection-merge-actions" hidden>
+                  <div id="selection-merge-candidates" class="selection-merge-candidates"></div>
+                  <button id="merge-selection-boxes" class="primary" type="button" aria-keyshortcuts="M">Merge crossed boxes into this selection</button>
+                  <p id="selection-merge-status" class="muted" aria-live="polite"></p>
+                </div>
+                <p class="workflow-hint">Choose the closest known mode. You can label signals even when they cannot yet be classified or decoded.</p>
+                <button id="same-signal-current" type="button" disabled>Same signal as…</button>
+                <button id="report-window-pdf" type="button" disabled>Window report (PDF)</button>
+
+                <label class="notes-label">Known mode (search by name or alias)<input id="mode-search" autocomplete="off" placeholder="Type e.g. PSK31, BPSK31, RTTY"></label>
+                <div id="mode-results" class="mode-results" role="listbox" aria-label="Matching modes"></div>
+                <p id="mode-resolution" class="subhead">The catalog includes collection labels even when automatic identification or decoding is not implemented. Choose a mode to fill its taxonomy, or leave it unknown/partial.</p>
+                <label id="batch-unknown-row" class="demod-check" hidden><input id="batch-unknown-confirmed" type="checkbox"> Keep this as a signal with identity unknown</label>
+                <details id="mode-proposal-details" class="advanced-only">
                   <summary>Propose a new mode for the registry</summary>
                   <p class="subhead">A proposal stays out of mode search until locally reviewed. Attach two independent recordings and specific distinguishing evidence; local acceptance is not peer verification.</p>
                   <p id="mode-proposal-source-one" class="muted">Select a saved region first to attach it as the first evidence source.</p>
@@ -152,7 +197,7 @@
                   <label class="notes-label">Local review rationale<textarea id="mode-proposal-review-note" minlength="40" maxlength="2000" rows="2" placeholder="Required to accept/reject a proposal; this decision is local, not peer review."></textarea></label>
                   <div id="mode-proposal-list"></div>
                 </details>
-                <div class="form-grid">
+                <div class="form-grid advanced-only">
                   <label
                     >Modulation family<input
                       id="family"
@@ -172,110 +217,50 @@
                     >Variant<input id="variant" placeholder="e.g. THOR16"
                   /></label>
                 </div>
-                <label class="demod-check"><input id="missed-signal" type="checkbox"> I added this signal because the detector missed it</label>
+                <label class="demod-check advanced-only"><input id="missed-signal" type="checkbox"> I added this signal because the detector missed it</label>
                 <label id="cv-presence-row" class="demod-check" hidden><input id="cv-presence-confirmed" type="checkbox"> Confirm this CV box is a signal; identity can stay unknown</label>
-                <label class="notes-label"
+                <label class="notes-label advanced-only"
                   >Notes<textarea
                     id="notes"
                     rows="2"
                     placeholder="What supports this label? What remains uncertain?"
                   ></textarea>
                 </label>
-                <details id="label-history" class="label-history" hidden>
+                <details id="label-history" class="label-history advanced-only" hidden>
                   <summary>Label history</summary>
                   <div id="label-history-list"></div>
                 </details>
-                <div class="save-row">
+                <div class="save-row advanced-only">
                   <button id="model-propose" type="button" disabled>
                     Suggest method</button
                   ><span id="model-status" class="muted"
                     >No model loaded · configure SIG_ID_MODEL_PATH</span
                   >
                 </div>
-                <div class="save-row">
+                <div class="save-row advanced-only">
                   <button id="cv-similar-search" type="button" disabled hidden>Find similar signal examples</button>
                   <span id="cv-similar-status" class="muted" aria-live="polite"></span>
                 </div>
-                <div id="cv-similar-results" class="track-list"></div>
-                <div class="save-row">
-                  <button id="laya-propose" type="button" disabled>Auto ID with Laya</button>
-                  <span id="laya-status" class="muted" aria-live="polite">Checking Laya System One…</span>
-                </div>
-                <div class="save-row">
+                <div id="cv-similar-results" class="track-list advanced-only"></div>
+                <div id="annotation-save-row" class="save-row annotation-save-row">
                   <span id="label-state" class="muted"
                     >Partial labels are welcome.</span
-                  ><button id="save-region" class="primary" disabled>
-                    Save region label
-                  </button>
+                  ><div class="region-save-actions">
+                    <button id="save-annotations" class="primary" type="button" disabled hidden>
+                      Save annotations
+                    </button>
+                    <button id="save-region" class="advanced-only" type="button" disabled>
+                      Save region label
+                    </button>
+                    <button id="save-annotations-close" class="primary" type="button" disabled>
+                      Save annotations and close
+                    </button>
+                    <button id="save-annotations-complete" class="primary finish-review-button" type="button" disabled hidden>
+                      Save and finish
+                    </button>
+                  </div>
                 </div>
-                <section id="coverage-panel" class="panel" hidden>
-                  <p class="eyebrow">SCENE REVIEW</p>
-                  <p class="subhead">Record whether this exact waterfall window was fully reviewed. Later label or bound changes mark this review stale.</p>
-                  <div class="form-grid">
-                    <label>Review task<select id="coverage-task">
-                      <option value="detection">Signal detection</option>
-                      <option value="modulation">Modulation identity</option>
-                      <option value="protocol">Protocol identity</option>
-                      <option value="decoder">Decoder outcome</option>
-                    </select></label>
-                    <label>Coverage state<select id="coverage-state">
-                      <option value="complete">Complete</option>
-                      <option value="partial">Partial / uncertain</option>
-                    </select></label>
-                  </div>
-                  <label class="notes-label">Taxonomy scope (comma-separated, optional)<input id="coverage-scope" maxlength="500" placeholder="e.g. PSK, FSK"></label>
-                  <fieldset class="coverage-masks"><legend>Ignore and uncertain subregions</legend>
-                    <label class="notes-label">Reason for the next marked area<input id="coverage-mask-reason" maxlength="200" placeholder="e.g. weak overlap, receiver artifact"></label>
-                    <div class="save-row">
-                      <button id="mark-coverage-uncertain" type="button" disabled>Draw uncertain area</button>
-                      <button id="mark-coverage-ignore" type="button" disabled>Draw ignored artifact</button>
-                      <button id="cancel-coverage-mask" type="button" hidden>Cancel area draw</button>
-                    </div>
-                    <p id="coverage-mask-status" class="muted" aria-live="polite">Start a scene review to mark bounded subregions.</p>
-                    <div id="coverage-mask-list"></div>
-                  </fieldset>
-                  <label class="notes-label">Review notes<textarea id="coverage-notes" rows="2" maxlength="2000" placeholder="What was checked? Note uncertainty or capture-edge limitations."></textarea></label>
-                  <div class="save-row">
-                    <button id="save-coverage" class="primary" type="button">Record reviewed window</button>
-                    <button id="refresh-coverage" type="button">Refresh reviews</button>
-                    <button id="cancel-coverage" type="button">Exit scene review</button>
-                  </div>
-                  <p id="coverage-status" class="muted" aria-live="polite"></p>
-                  <details id="coverage-history">
-                    <summary>Scene review history</summary>
-                    <div id="coverage-list"></div>
-                  </details>
-                </section>
-                <section id="bounds-panel" class="panel" hidden>
-                  <p class="eyebrow">SIGNAL EXTENT</p>
-                  <div class="save-row">
-                    <button id="edit-region-bounds" type="button">Adjust bounds</button>
-                    <button id="save-region-bounds" class="primary" type="button" hidden>Save corrected bounds</button>
-                    <button id="cancel-region-bounds" type="button" hidden>Discard bounds edit</button>
-                  </div>
-                  <p id="geometry-status" class="muted" aria-live="polite"></p>
-                  <div class="save-row">
-                    <button id="start-split" type="button">Split into separate signals</button>
-                    <button id="save-split" class="primary" type="button" hidden disabled>Save split</button>
-                    <button id="cancel-split" type="button" hidden>Cancel split</button>
-                  </div>
-                  <p id="split-status" class="muted" aria-live="polite"></p>
-                  <details id="geometry-history">
-                    <summary>Bounds history</summary>
-                    <div id="geometry-history-list"></div>
-                  </details>
-                  <details id="lineage-history">
-                    <summary>Split/merge history</summary>
-                    <div id="lineage-history-list"></div>
-                  </details>
-                </section>
-                <section id="merge-panel" class="panel">
-                  <p class="eyebrow">REGION LINEAGE</p>
-                  <p class="subhead">Select two or more active regions in the signal list to link them as one merged observation. Their labels are retained separately; the new region starts unknown.</p>
-                  <button id="merge-regions" type="button" disabled>Merge selected regions</button>
-                  <p id="merge-status" class="muted" aria-live="polite"></p>
-                </section>
-                <section id="feedback-panel" class="panel" hidden>
+                <section id="feedback-panel" class="panel advanced-only" hidden>
                   <p class="eyebrow">DETECTION FEEDBACK</p>
                   <p class="subhead">Feedback applies to this exact label revision. Identity corrections create a new revision.</p>
                   <div class="save-row">
@@ -285,6 +270,7 @@
                   </div>
                   <p id="feedback-status" class="muted" aria-live="polite"></p>
                 </section>
+              </div>
               </section>
             </div>
             <div data-inspector-view="decode" hidden>
@@ -305,7 +291,7 @@
                   <div id="decoder-recommendation-list" class="save-row"></div>
                   <p class="subhead">Suggestions reflect modulation compatibility only. Choose a mode, select it explicitly, then start decoding.</p>
                 </section>
-                <label class="fldigi-carrier-label"
+                <label class="fldigi-carrier-label advanced-only"
                   >Audio carrier (Hz)<input
                     id="fldigi-carrier-hz"
                     type="number"
@@ -315,17 +301,18 @@
                     placeholder="Selected band midpoint"
                   />
                 </label>
-                <p class="subhead">Prefilled from the selected frequency band midpoint. Adjust to the signal’s actual audio center if needed.</p>
+                <p class="subhead advanced-only">Prefilled from the selected frequency band midpoint. Adjust to the signal’s actual audio center if needed.</p>
                 <button id="fldigi-select" type="button" disabled>
                   Select receive mode
                 </button>
                 <div class="decode-actions">
                   <button id="play-selection" type="button" disabled>Replay selected region</button>
                   <button id="decode-selection" type="button" disabled>Decode selected region</button>
-                  <button id="tag-as-mode" type="button" disabled>Tag region as selected mode</button>
+                  <button id="auto-identify-selection" type="button" disabled>Auto-identify (RSID + text)</button>
+                  <button id="tag-as-mode" class="advanced-only" type="button" disabled>Tag region as selected mode</button>
                 </div>
                 <p id="audio-region-status" class="subhead">Replay plays the selected time window through this browser's audio output.</p>
-                <p id="replay-status" class="subhead">Decode sends the selected audio window through an isolated Fldigi receiver.</p>
+                <p id="replay-status" class="subhead">Decode sends the selected audio window through an isolated Fldigi receiver. Auto-identify checks receive-side RSID, then ranks up to six candidate decodes by text readability.</p>
 
                 <div class="decoder-evidence">
                   <span class="status-dot amber"></span
@@ -333,9 +320,20 @@
                     >Decode uses a temporary PulseAudio/PipeWire loopback and isolated Fldigi profile. It does not change the running receiver or transmit.</span
                   >
                 </div>
-                <h3>Saved receive runs</h3>
-                <p class="subhead">Saved runs retain their exact input range and whether they used isolated clip replay or the shared live audio input.</p>
-                <div id="decode-runs" class="decode-runs"><p class="muted">Open a saved capture to review its receive runs.</p></div>
+                <section class="decoder-evidence native-decoder-links" aria-live="polite">
+                  <strong>Native decoder applications</strong>
+                  <p id="native-decoder-status" class="subhead">Checking optional decoder links…</p>
+                  <label>Native clip decoder<select id="native-decoder-mode" disabled><option value="">No native clip decoder available</option></select></label>
+                  <button id="native-decode-selection" type="button" disabled>Decode selected region with native app</button>
+                  <p id="native-decode-status" class="subhead">Select a supported native mode to decode this saved audio window.</p>
+                  <p class="subhead">WSJT-X can decode a saved FT8 selection through its installed jt9 tool. It can also send live results over loopback UDP when configured; that link does not control WSJT-X audio or the radio. Data2G modes are annotation candidates until a native audio-window adapter is installed.</p>
+                  <div id="native-decoder-results" class="decode-runs"><p class="muted">No native decoder results received yet.</p></div>
+                </section>
+                <div class="advanced-only">
+                  <h3>Saved receive runs</h3>
+                  <p class="subhead">Saved runs retain their exact input range and whether they used isolated clip replay or the shared live audio input.</p>
+                  <div id="decode-runs" class="decode-runs"><p class="muted">Open a saved capture to review its receive runs.</p></div>
+                </div>
               </section>
             </div>
             <div data-inspector-view="raw" hidden>
@@ -408,7 +406,7 @@
 Select a saved capture or region to analyze.</div>
                   <button
                     id="demod-export-2fsk"
-                    class="demod-export"
+                    class="demod-export advanced-only"
                     type="button"
                     disabled
                   >
@@ -462,7 +460,7 @@ Select a saved capture or region to analyze.</div>
 Select a saved capture or region to analyze.</div>
                   <button
                     id="demod-export-ook"
-                    class="demod-export"
+                    class="demod-export advanced-only"
                     type="button"
                     disabled
                   >
@@ -528,12 +526,12 @@ Select a saved capture or region to analyze.</div>
                       ><input id="mfsk-auto-timing" type="checkbox" /> Estimate
                       timing phase automatically</label
                     >
-                    <label class="demod-check"
+                    <label class="demod-check advanced-only"
                       ><input id="mfsk-auto-rate" type="checkbox" /> Search
                       symbol-rate range</label
                     >
                     <label
-                      >Minimum rate (baud)<input
+                      class="advanced-only">Minimum rate (baud)<input
                         id="mfsk-rate-min"
                         type="number"
                         min="1"
@@ -542,7 +540,7 @@ Select a saved capture or region to analyze.</div>
                         required
                     /></label>
                     <label
-                      >Maximum rate (baud)<input
+                      class="advanced-only">Maximum rate (baud)<input
                         id="mfsk-rate-max"
                         type="number"
                         min="1"
@@ -551,7 +549,7 @@ Select a saved capture or region to analyze.</div>
                         required
                     /></label>
                     <label
-                      >Rate hypotheses<input
+                      class="advanced-only">Rate hypotheses<input
                         id="mfsk-rate-steps"
                         type="number"
                         min="3"
@@ -568,7 +566,7 @@ Select a saved capture or region to analyze.</div>
 Select a saved capture or region to analyze.</div>
                   <button
                     id="demod-export-mfsk"
-                    class="demod-export"
+                    class="demod-export advanced-only"
                     type="button"
                     disabled
                   >
@@ -617,7 +615,7 @@ Select a saved capture or region to analyze.</div>
 Select a saved capture or region to analyze.</div>
                   <button
                     id="demod-export-bpsk"
-                    class="demod-export"
+                    class="demod-export advanced-only"
                     type="button"
                     disabled
                   >
@@ -666,7 +664,7 @@ Select a saved capture or region to analyze.</div>
 Select a saved capture or region to analyze.</div>
                   <button
                     id="demod-export-qpsk"
-                    class="demod-export"
+                    class="demod-export advanced-only"
                     type="button"
                     disabled
                   >
@@ -676,27 +674,151 @@ Select a saved capture or region to analyze.</div>
               </section>
             </div>
             <div data-inspector-view="signals" hidden>
+              <p class="workflow-hint">Select a saved signal to correct its label or bounds. Draw and label new signals from the window workspace.</p>
+              <details class="panel saved-signals-panel">
+                <summary class="panel-heading">
+                  <div>
+                    <p class="eyebrow">ANNOTATIONS</p>
+                    <h2>Saved signals</h2>
+                  </div>
+                  <span id="signal-saved-count" class="count">0</span>
+                </summary>
+                <section class="signal-identity-tools">
+                  <h3>Same signal</h3>
+                  <p class="subhead">Choose saved boxes with the checkboxes, then link them to one parent identity. Each box keeps its own bounds.</p>
+                  <div class="save-row">
+                    <button id="link-signal-identity" type="button" disabled>Same signal…</button>
+                    <button id="undo-signal-identity-link" type="button" disabled>Undo last link</button>
+                  </div>
+                  <p id="identity-link-status" class="muted" aria-live="polite">Select two or more saved signals below.</p>
+                </section>
+                <details id="merge-panel" class="signal-merge-tools advanced-only">
+                  <summary>Select boxes to merge (optional)</summary>
+                  <p class="subhead">Select up to 32 saved boxes from any source, including CV detections, classifier suggestions, and manual annotations. The new signal spans the selected boxes and starts unknown; the originals and their labels stay in history.</p>
+                  <button id="merge-regions" type="button" disabled>Merge selected pieces</button>
+                  <p id="merge-selection-status" class="muted" aria-live="polite">Select saved signal boxes below, regardless of detection source.</p>
+                  <p id="merge-status" class="muted" aria-live="polite"></p>
+                </details>
+                <label class="demod-check advanced-only"><input id="show-superseded-regions" type="checkbox"> Show replaced signal history</label>
+                <div id="signal-region-shortcuts" class="saved-signal-list"></div>
+              </details>
+              <section id="bounds-panel" class="panel" hidden>
+                <p class="eyebrow">SELECTED SIGNAL</p>
+                <h2 id="signal-extent-title">Signal bounds and history</h2>
+                <div class="save-row">
+                  <button id="edit-region-bounds" type="button">Adjust bounds</button>
+                  <button id="save-region-bounds" class="primary" type="button" hidden>Save corrected bounds</button>
+                  <button id="merge-redrawn-regions" class="primary" type="button" aria-keyshortcuts="M" hidden>Merge boxes crossed by redraw</button>
+                  <button id="cancel-region-bounds" type="button" hidden>Discard bounds edit</button>
+                  <button id="delete-selected-region" class="danger-button" type="button" aria-keyshortcuts="Delete Backspace">Delete region</button>
+                </div>
+                <p id="geometry-status" class="muted" aria-live="polite"></p>
+                <p id="geometry-merge-status" class="muted" aria-live="polite" hidden></p>
+                <div class="save-row">
+                  <button id="start-split" type="button" class="advanced-only">Split into separate signals</button>
+                  <button id="save-split" class="primary" type="button" hidden disabled>Save split</button>
+                  <button id="cancel-split" type="button" class="advanced-only" hidden>Cancel split</button>
+                </div>
+                <p id="split-status" class="muted advanced-only" aria-live="polite"></p>
+                <details id="geometry-history" class="advanced-only">
+                  <summary>Bounds history</summary>
+                  <div id="geometry-history-list"></div>
+                </details>
+                <details id="lineage-history" class="advanced-only">
+                  <summary>Split/merge history</summary>
+                  <div id="lineage-history-list"></div>
+                </details>
+              </section>
+              <section id="coverage-panel" class="panel advanced-only" hidden>
+                <p class="eyebrow">WINDOW COVERAGE REVIEW</p>
+                <p class="subhead">Record whether this exact waterfall window was fully checked for the selected task. Use Partial / unsure when you cannot make a complete claim. Later label or bound changes mark this review stale.</p>
+                <div class="coverage-quick-actions">
+                  <button id="mark-coverage-complete" class="primary" type="button">Mark complete</button>
+                  <button id="mark-coverage-partial" type="button">Mark partial / unsure</button>
+                </div>
+                <p class="muted coverage-complete-note">Complete means every in-scope signal was checked. A complete empty window is used as a negative example.</p>
+                <div class="form-grid">
+                  <label>Review task<select id="coverage-task">
+                    <option value="detection">Signal detection</option>
+                    <option value="modulation">Modulation identity</option>
+                    <option value="protocol">Protocol identity</option>
+                    <option value="decoder">Decoder outcome</option>
+                  </select></label>
+                  <label>Coverage state<select id="coverage-state">
+                    <option value="complete">Complete</option>
+                    <option value="partial">Partial / uncertain</option>
+                  </select></label>
+                </div>
+                <label class="notes-label">Taxonomy scope (comma-separated, optional)<input id="coverage-scope" maxlength="500" placeholder="e.g. PSK, FSK"></label>
+                <fieldset class="coverage-masks advanced-only"><legend>Ignore and uncertain subregions</legend>
+                  <label class="notes-label">Reason for the next marked area<input id="coverage-mask-reason" maxlength="200" placeholder="e.g. weak overlap, receiver artifact"></label>
+                  <div class="save-row">
+                    <button id="mark-coverage-uncertain" type="button" disabled>Draw uncertain area</button>
+                    <button id="mark-coverage-ignore" type="button" disabled>Draw ignored artifact</button>
+                    <button id="cancel-coverage-mask" type="button" hidden>Cancel area draw</button>
+                  </div>
+                  <p id="coverage-mask-status" class="muted" aria-live="polite">Start a window review to mark bounded subregions.</p>
+                  <div id="coverage-mask-list"></div>
+                </fieldset>
+                <label class="notes-label advanced-only">Review notes<textarea id="coverage-notes" rows="2" maxlength="2000" placeholder="What was checked? Note uncertainty or capture-edge limitations."></textarea></label>
+                <div class="save-row">
+                  <button id="save-coverage" class="primary" type="button">Record reviewed window</button>
+                  <button id="refresh-coverage" type="button">Refresh reviews</button>
+                  <button id="cancel-coverage" type="button">Exit window review</button>
+                </div>
+                <p id="coverage-status" class="muted" aria-live="polite"></p>
+                <details id="coverage-history" class="advanced-only">
+                  <summary>Window review history</summary>
+                  <div id="coverage-list"></div>
+                </details>
+              </section>
+              <section class="legacy-workflow-controls" hidden aria-hidden="true">
+                <button id="draw-signal-box" type="button">Draw signal box</button>
+                <p id="box-draw-status"></p>
+                <button id="start-scene-review" type="button" disabled>Review selected window</button>
+                <button id="start-cv-coverage-queue" type="button" disabled>Review all 10-second windows</button>
+                <p id="cv-coverage-queue-label-status" hidden></p>
+                <p id="cv-coverage-queue-status"></p>
+              </section>
               <section class="panel tracks-panel">
                 <div class="panel-heading">
                   <div>
                     <p class="eyebrow">AUTOMATIC SCAN</p>
-                    <h2>Provisional signal candidates</h2>
+                    <h2>Signal suggestions</h2>
                     <p id="track-status" class="subhead">
                       Analyzing spectral activity…
                     </p>
                   </div>
                   <span id="track-count" class="count">0</span>
                 </div>
-                <p class="track-disclaimer">
+                <details class="track-disclaimer advanced-only">
+                  <summary>How provisional boxes work</summary>
+                  <p>
                   Tone-count and spacing hypotheses are heuristic evidence only.
                   Regular tone sets can prefill M-FSK analysis, but verify them
                   before decoding; they do not identify a protocol or guarantee
-                  a decoded message.
-                </p>
+                  a decoded message. On a saved capture, use Redraw bounds and
+                  redraw the corrected rectangle on the waterfall, including
+                  bounds beyond the detector box; Remove box clears
+                  a heuristic candidate, while Reject box records CV review feedback
+                  only. Rejection does not create a negative example. CV export uses
+                  accepted saved signal boxes on fully reviewed WAV windows; a
+                  fully reviewed window with no saved boxes is a negative example.
+                  </p>
+                </details>
                 <button id="cv-scan" type="button" disabled>Scan capture with CV</button>
                 <p id="cv-status" class="subhead" aria-live="polite">Checking optional CV detector…</p>
+                <div class="save-row advanced-only">
+                  <button id="train-models" type="button" disabled>Train both models from new reviews</button>
+                  <span id="train-models-status" class="muted" aria-live="polite">Checking model training readiness…</span>
+                  <progress id="model-training-progress" class="model-training-progress" max="100" value="0" aria-label="Model training progress" hidden></progress>
+                </div>
+                <details class="detector-details advanced-only">
+                  <summary>Detector model details</summary>
+                  <p id="cv-model-details" class="subhead">Checking model information…</p>
+                </details>
                 <div id="cv-detection-list" class="track-list"></div>
-                <details id="cv-dismissed-details" hidden>
+                <details id="cv-dismissed-details" class="advanced-only" hidden>
                   <summary id="cv-dismissed-summary">Saved dismissed CV proposals</summary>
                   <p class="subhead">Dismissal history is review feedback only; it does not label this region as noise or create a training example.</p>
                   <div id="cv-dismissed-list" class="track-list"></div>
@@ -704,10 +826,16 @@ Select a saved capture or region to analyze.</div>
                 <div id="track-list" class="track-list">
                   <p class="subhead">No candidates analyzed yet.</p>
                 </div>
-                <h3 class="region-switch-title">Saved annotations</h3>
-                <div id="signal-region-shortcuts"></div>
               </section>
             </div>
+            <dialog id="same-signal-dialog" class="same-signal-dialog">
+              <form method="dialog">
+                <div class="panel-heading"><div><p class="eyebrow">IDENTITY LINK</p><h2>Choose the parent signal</h2></div></div>
+                <p id="same-signal-dialog-summary" class="subhead">The selected boxes keep separate bounds and share the parent’s identity and label.</p>
+                <div class="same-signal-table-wrap"><table class="same-signal-table"><thead><tr><th>Parent</th><th>Signal ID</th><th>Label</th><th>Source</th><th>Time</th><th>Frequency</th></tr></thead><tbody id="same-signal-parent-rows"></tbody></table></div>
+                <div class="save-row"><button id="same-signal-cancel" type="button">Cancel</button><button id="same-signal-confirm" class="primary" type="button" disabled>Link to parent</button></div>
+              </form>
+            </dialog>
           </div>
         </aside>
       </div>
@@ -832,6 +960,36 @@ Decoded text will appear here.</pre>
         </div>
       </section>
     </dialog>
+    <dialog id="review-queue-dialog" class="drawer-dialog" aria-labelledby="review-queue-title">
+      <header>
+        <h2 id="review-queue-title">Live sample review <span id="review-queue-title-count" class="muted"></span></h2>
+        <button data-close-dialog type="button" aria-label="Close review queue">×</button>
+      </header>
+      <section class="panel">
+        <p class="subhead">Classify is for live “what is this?” listening and decoding. Save annotations snapshots the current 10-second live window with your selection as a training candidate; it stays in this queue until its full-window coverage is reviewed. Annotate uses “Save and finish” for queued clips. Local windows come back for re-review every 90 days. Partial or expired coverage stays out of CV dataset export; checked empty windows become negative examples.</p>
+        <nav class="review-source-tabs" aria-label="Review source">
+          <button data-review-source="local" type="button" aria-pressed="true">Local dataset</button>
+          <button data-review-source="hub" type="button" aria-pressed="false">Hub</button>
+        </nav>
+        <div id="local-review-source"><div id="review-queue-list"><p class="subhead">Loading review queue…</p></div></div>
+        <div id="hub-review-source" hidden><p id="hub-review-status" class="subhead">Loading Hub review queue…</p><div id="hub-review-queue-list"></div></div>
+        <details id="reviewed-queue-details" class="reviewed-queue-details" hidden>
+          <summary id="reviewed-queue-summary">Reviewed samples</summary>
+          <div id="reviewed-queue-list"></div>
+        </details>
+      </section>
+    </dialog>
+    <dialog id="annotation-draft-dialog" class="annotation-choice-dialog" aria-labelledby="annotation-draft-title">
+      <form method="dialog">
+        <h2 id="annotation-draft-title">Unsaved annotations</h2>
+        <p id="annotation-draft-message" class="subhead">This 10-second window has unsaved changes.</p>
+        <div class="annotation-choice-actions">
+          <button class="primary" value="save" type="submit">Save annotations</button>
+          <button class="danger-button" value="discard" type="submit">Discard changes</button>
+          <button value="stay" type="submit" autofocus>Stay here</button>
+        </div>
+      </form>
+    </dialog>
     <dialog
       id="settings-dialog"
       class="drawer-dialog settings-dialog"
@@ -871,11 +1029,31 @@ Decoded text will appear here.</pre>
         </p>
       </section>
       <section class="panel">
+        <h3>Live signal analysis</h3>
+        <label class="auto-trial-toggle" title="Run the class-agnostic CV detector and show its proposed signal boxes.">
+          <span>CV signal boxes</span><input id="live-cv-enabled" type="checkbox" checked />
+        </label>
+        <label class="auto-trial-toggle" title="Score CV boxes when CV is enabled; otherwise score heuristic track candidates.">
+          <span>Classifier suggestions</span><input id="live-classifier-enabled" type="checkbox" checked />
+        </label>
+        <p class="subhead">With both on, CV finds regions and the classifier adds optional identity suggestions. Classifier only uses heuristic track candidates; these are provisional and do not set box bounds. Turn both off to pause candidate boxes.</p>
+      </section>
+      <section class="panel">
         <h3>Decoder and identification</h3>
         <p class="subhead">
           Select a signal and open Decode to choose a Fldigi receive mode.
           Automatic trials require an explicit opt-in and remain tentative.
         </p>
+        <label class="classifier-crop-control">
+          Classifier crops per analysis <output id="classifier-crop-count-value" for="classifier-crop-count">1</output>
+          <input id="classifier-crop-count" type="range" min="1" max="20" step="1" value="1" />
+          <span class="muted">Applies to live, clip, and batch classification. One crop is fastest; higher counts compare evenly spaced 2-second samples and require majority agreement.</span>
+        </label>
+        <label class="classifier-crop-control">
+          Live CV box merge overlap <output id="live-cv-merge-overlap-value" for="live-cv-merge-overlap">30%</output>
+          <input id="live-cv-merge-overlap" type="range" min="10" max="80" step="5" value="30" />
+          <span class="muted">Lower values join detections more readily across scans. Boxes at the same frequency can also bridge gaps up to 3 seconds; matched boxes expand to cover the combined bounds. Applies to the next live scan.</span>
+        </label>
       </section>
     </dialog>
     <script src="/app.js" type="module"></script>

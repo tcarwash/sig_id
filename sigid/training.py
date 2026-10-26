@@ -12,11 +12,17 @@ from typing import Any
 
 import numpy as np
 
-from .classifier import FEATURE_COUNT_BY_VERSION, FEATURE_VERSION, ROI_FEATURE_VERSION, NOVELTY_FEATURE_VERSIONS, NOISE_CLASS, extract_features, fit_softmax, predict_probabilities, support_distances
+from .classifier import (
+    CLASSIFIER_WINDOW_SECONDS, DEFAULT_FEATURE_VERSION, FEATURE_COUNT_BY_VERSION,
+    FIXED_WINDOW_FEATURE_VERSIONS, ROI_FEATURE_VERSIONS, NOVELTY_FEATURE_VERSIONS,
+    NOISE_CLASS, extract_features, fit_softmax, fixed_duration_crop,
+    predict_probabilities, support_distances,
+)
 from .corpus import MODES
+from .cv_dataset import _is_human_verified_noise_sample
 from .dataset import CaptureStore
 from .ood_corpus import load_ood_corpus
-from .splits import FAMILY_BY_MODE, METHOD_BY_MODE
+from .splits import FAMILY_BY_MODE, METHOD_BY_MODE, families_for_modes, register_mode_definitions
 from .wav import WavSource
 
 
@@ -54,7 +60,7 @@ def _validated_rows(split_path: Path, store: CaptureStore) -> list[dict[str, Any
         capture_id, group, mode, split = (
             record.get("capture_id"), record.get("lineage_group"), record.get("mode"), record.get("split")
         )
-        if not all(isinstance(value, str) for value in (capture_id, group, mode)) or mode not in (*MODES, "noise") or split not in allowed_splits:
+        if not all(isinstance(value, str) for value in (capture_id, group, mode)) or mode not in (*METHOD_BY_MODE, "noise") or split not in allowed_splits:
             raise ValueError("split record has invalid capture, lineage, mode or split fields")
         if capture_id in capture_ids:
             raise ValueError(f"capture {capture_id} appears more than once in split manifest")
@@ -110,15 +116,127 @@ def _validated_rows(split_path: Path, store: CaptureStore) -> list[dict[str, Any
             "frequency_high_hz": label["frequency_high_hz"],
         })
 
-    for split in allowed_splits:
+    train_modes = {row["mode"] for row in rows if row["split"] == "train" and row["mode"] != "noise"}
+    if not train_modes:
+        raise ValueError("training split must contain at least one labeled signal mode")
+    for split in ("validation", "test"):
         present = {row["mode"] for row in rows if row["split"] == split}
-        if not set(MODES).issubset(present):
-            raise ValueError(f"split {split} must contain all modulation methods")
-        if split in {"validation", "test"} and "noise" not in present:
+        if not train_modes.issubset(present):
+            raise ValueError(f"{split} split must cover every signal mode in the training split")
+        if "noise" not in present:
             raise ValueError(f"split {split} must contain noise-only negative examples")
     for group, mode in group_mode.items():
         if not any(row["lineage_group"] == group and row["capture_id"] == group for row in rows):
             raise ValueError(f"lineage group {group} has no clean root record")
+    return rows
+
+
+def _reviewed_mode_training_rows(store: CaptureStore, known_capture_ids: set[str]) -> list[dict[str, Any]]:
+    """Add accepted real mode labels to train only; never reuse them for evaluation."""
+    register_mode_definitions(store.accepted_mode_definitions())
+    rows: list[dict[str, Any]] = []
+    for capture in store.list_captures():
+        if capture["id"] in known_capture_ids or capture["source_kind"] == "synthetic":
+            continue
+        if capture["source_metadata"].get("exclude_training") is True:
+            continue
+        metadata = capture["source_metadata"]
+        lineage_token = (
+            metadata.get("auto_capture_session_id")
+            or capture.get("parent_capture_id")
+            or capture["sha256"]
+        )
+        lineage = "reviewed-" + hashlib.sha256(str(lineage_token).encode()).hexdigest()
+        for region in store.regions(capture["id"]):
+            mode_id = region.get("mode_id")
+            if (
+                region["lineage_state"] != "active"
+                or region["review_state"] != "accepted"
+                or not isinstance(mode_id, str)
+            ):
+                continue
+            mode = mode_id.casefold()
+            if mode not in METHOD_BY_MODE:
+                continue
+            if (
+                region["family"] != FAMILY_BY_MODE[mode]
+                or region["method"] != METHOD_BY_MODE[mode]
+                or region["sample_count"] <= 0
+            ):
+                continue
+            rows.append({
+                "capture_id": capture["id"],
+                "audio_path": capture["audio_path"],
+                "sha256": capture["sha256"],
+                "sample_rate": int(capture["sample_rate"]),
+                "frequency_low_hz": region["frequency_low_hz"],
+                "frequency_high_hz": region["frequency_high_hz"],
+                "sample_start": int(region["sample_start"]),
+                "sample_count": int(region["sample_count"]),
+                "lineage_group": lineage,
+                "mode": mode,
+                "kind": "reviewed_real_capture",
+                "split": "train",
+                "source_kind": capture["source_kind"],
+            })
+    return rows
+
+
+def _additional_noise_training_rows(store: CaptureStore, known_capture_ids: set[str]) -> list[dict[str, Any]]:
+    """Use generated noise plus completely human-reviewed saved real noise windows."""
+    rows: list[dict[str, Any]] = []
+    for capture in store.list_captures():
+        metadata = capture["source_metadata"]
+        if capture["id"] in known_capture_ids or metadata.get("exclude_training") is True:
+            continue
+        if capture["source_kind"] != "synthetic":
+            regions = store.regions(capture["id"])
+            reviews = store.scene_coverages(capture["id"])
+            if not _is_human_verified_noise_sample(capture, reviews, regions):
+                continue
+            rows.append({
+                "capture_id": capture["id"], "audio_path": capture["audio_path"],
+                "sha256": capture["sha256"], "sample_rate": int(capture["sample_rate"]),
+                "sample_start": 0, "sample_count": int(capture["sample_count"]),
+                "lineage_group": "reviewed-noise-" + capture["sha256"],
+                "mode": "noise", "kind": "reviewed_real_noise_only", "split": "train",
+                "source_kind": capture["source_kind"],
+            })
+            continue
+        if (
+            # Legacy recorded-noise derivatives may have been built from merely
+            # unannotated slices. Only controlled synthetic noise is trusted here;
+            # verified real recordings enter through the path above.
+            metadata.get("generator") != "sig-id-noise"
+            or capture.get("parent_capture_id") is not None
+        ):
+            continue
+        regions = store.regions(capture["id"])
+        if len(regions) != 1:
+            continue
+        label = regions[0]
+        if (
+            label["lineage_state"] != "active"
+            or label["review_state"] != "accepted"
+            or label["source"] != "synthetic"
+            or any(label[key] is not None for key in ("family", "method", "protocol", "variant", "mode_id"))
+            or label["sample_start"] != 0
+            or label["sample_count"] != capture["sample_count"]
+        ):
+            continue
+        rows.append({
+            "capture_id": capture["id"],
+            "audio_path": capture["audio_path"],
+            "sha256": capture["sha256"],
+            "sample_rate": int(capture["sample_rate"]),
+            "sample_start": 0,
+            "sample_count": int(capture["sample_count"]),
+            "lineage_group": "noise-" + capture["sha256"],
+            "mode": "noise",
+            "kind": "generated_noise_only",
+            "split": "train",
+            "source_kind": "synthetic",
+        })
     return rows
 
 
@@ -138,7 +256,7 @@ def _noise_roi_range(row: dict[str, Any]) -> tuple[float, float]:
 
 
 def _feature_range_for(row: dict[str, Any], feature_version: str) -> tuple[float, float] | None:
-    if feature_version != ROI_FEATURE_VERSION:
+    if feature_version not in ROI_FEATURE_VERSIONS:
         return None
     if row["mode"] == "noise":
         return _noise_roi_range(row)
@@ -149,24 +267,56 @@ def _feature_range_for(row: dict[str, Any], feature_version: str) -> tuple[float
 
 
 def _features_for(
-    rows: list[dict[str, Any]], feature_version: str = FEATURE_VERSION
+    rows: list[dict[str, Any]], feature_version: str = DEFAULT_FEATURE_VERSION,
+    classifier_window_seconds: float = CLASSIFIER_WINDOW_SECONDS,
 ) -> tuple[np.ndarray, np.ndarray, list[str]]:
     feature_rows = []
     labels = []
+    groups = []
     for row in rows:
         values = np.asarray([sample for block in WavSource(row["audio_path"]).blocks() for sample in block.samples])
-        feature_rows.append(extract_features(
-            values, int(row["sample_rate"]), feature_version=feature_version,
-            frequency_range_hz=_feature_range_for(row, feature_version),
-        ))
-        labels.append(NOISE_CLASS if row["mode"] == "noise" else row["mode"])
-    return np.asarray(feature_rows, dtype=np.float32), np.asarray(labels, dtype=object), [row["lineage_group"] for row in rows]
+        if "sample_start" in row:
+            start = max(0, int(row["sample_start"]))
+            end = min(len(values), start + int(row["sample_count"]))
+            values = values[start:end]
+        rate = int(row["sample_rate"])
+        window_count = max(1, int(round(rate * classifier_window_seconds)))
+        if len(values) <= window_count:
+            crops = [fixed_duration_crop(values, rate, duration_seconds=classifier_window_seconds)]
+        else:
+            # Use every full, non-overlapping classifier window from the reviewed region.
+            crops = [values[offset:offset + window_count] for offset in range(0, len(values) - window_count + 1, window_count)]
+        for crop in crops:
+            feature_rows.append(extract_features(
+                crop, rate, feature_version=feature_version,
+                frequency_range_hz=_feature_range_for(row, feature_version),
+                classifier_window_seconds=classifier_window_seconds,
+            ))
+            labels.append(NOISE_CLASS if row["mode"] == "noise" else row["mode"])
+            groups.append(row["lineage_group"])
+    return np.asarray(feature_rows, dtype=np.float32), np.asarray(labels, dtype=object), groups
 
 
-def _ood_features_for(rows: list[dict[str, Any]], feature_version: str = FEATURE_VERSION) -> np.ndarray:
+def _classifier_example_count(rows: list[dict[str, Any]], window_seconds: float) -> int:
+    """Count the fixed-duration crops emitted for capture or annotation rows."""
+    total = 0
+    for row in rows:
+        rate = int(row["sample_rate"])
+        available = int(row.get("sample_count", 0))
+        if available <= 0:
+            available = WavSource(row["audio_path"]).metadata()["sample_count"]
+        window = max(1, int(round(rate * window_seconds)))
+        total += max(1, available // window)
+    return total
+
+
+def _ood_features_for(
+    rows: list[dict[str, Any]], feature_version: str = DEFAULT_FEATURE_VERSION,
+    classifier_window_seconds: float = CLASSIFIER_WINDOW_SECONDS,
+) -> np.ndarray:
     features = []
     for row in rows:
-        if feature_version == ROI_FEATURE_VERSION and (row.get("frequency_low_hz") is None or row.get("frequency_high_hz") is None):
+        if feature_version in ROI_FEATURE_VERSIONS and (row.get("frequency_low_hz") is None or row.get("frequency_high_hz") is None):
             raise ValueError(f"ROI feature evaluation requires frequency bounds for OOD source {row.get('index')}")
         values = np.asarray(
             [sample for block in WavSource(row["waveform_path"]).blocks() for sample in block.samples],
@@ -176,9 +326,10 @@ def _ood_features_for(rows: list[dict[str, Any]], feature_version: str = FEATURE
             values, int(row["sample_rate"]), feature_version=feature_version,
             frequency_range_hz=(
                 float(row["frequency_low_hz"]), float(row["frequency_high_hz"])
-            ) if feature_version == ROI_FEATURE_VERSION
+            ) if feature_version in ROI_FEATURE_VERSIONS
             and row.get("frequency_low_hz") is not None and row.get("frequency_high_hz") is not None
             else None,
+            classifier_window_seconds=classifier_window_seconds,
         ))
     return np.asarray(features, dtype=np.float32)
 
@@ -208,7 +359,7 @@ def _evaluate_unmodeled(
             else distances <= novelty_threshold
         )
         accepted = (confidence >= threshold) & (top != noise_index) & supported
-        family_names = ("FSK", "MFSK", "PSK")
+        family_names = families_for_modes(classes)
         family_probabilities = np.asarray([
             matrix[:, [i for i, name in enumerate(classes) if name in FAMILY_BY_MODE and FAMILY_BY_MODE[name] == family]].sum(axis=1)
             for family in family_names
@@ -264,7 +415,8 @@ def _include_scene_features(
 
 def _mixed_scene_features(
     split_manifest: dict[str, Any], store: CaptureStore, split_name: str,
-    feature_version: str = FEATURE_VERSION,
+    feature_version: str = DEFAULT_FEATURE_VERSION,
+    classifier_window_seconds: float = CLASSIFIER_WINDOW_SECONDS,
 ) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
     """Extract labeled scene crops only when every source lineage shares this split."""
     dependencies = split_manifest.get("mixed_scene_dependencies", [])
@@ -287,14 +439,17 @@ def _mixed_scene_features(
             raise ValueError(f"mixed-scene {split_name} capture {scene_id} does not match its split manifest")
         metadata = scene["source_metadata"]
         component_ids = dependency.get("component_capture_ids")
+        signal_component_ids = metadata.get("signal_component_capture_ids", component_ids)
         if (
             metadata.get("generator") != "sig-id-mixed-scene"
             or not isinstance(component_ids, list)
             or metadata.get("component_capture_ids") != component_ids
-            or any(component_id not in source_groups for component_id in component_ids)
+            or not isinstance(signal_component_ids, list)
+            or not signal_component_ids
+            or any(component_id not in component_ids or component_id not in source_groups for component_id in signal_component_ids)
         ):
             raise ValueError(f"mixed-scene {split_name} capture {scene_id} has invalid source dependencies")
-        scene_lineages = {source_groups[component_id] for component_id in component_ids}
+        scene_lineages = {source_groups[component_id] for component_id in signal_component_ids}
         if (
             set(dependency.get("lineage_groups", [])) != scene_lineages
             or any(group_splits.get(group) != split_name for group in scene_lineages)
@@ -340,11 +495,17 @@ def _mixed_scene_features(
             if mode is None:
                 skipped_components += 1
                 continue
-            segment = audio[start:end]
+            if feature_version in FIXED_WINDOW_FEATURE_VERSIONS:
+                target_count = round(int(scene["sample_rate"]) * classifier_window_seconds)
+                center = (start + end) // 2
+                crop_start = min(max(0, center - target_count // 2), max(0, len(audio) - target_count))
+                segment = audio[crop_start : min(len(audio), crop_start + target_count)]
+            else:
+                segment = audio[start:end]
             if segment.size < 1024:
                 skipped_components += 1
                 continue
-            if feature_version == ROI_FEATURE_VERSION and (
+            if feature_version in ROI_FEATURE_VERSIONS and (
                 region["frequency_low_hz"] is None or region["frequency_high_hz"] is None
             ):
                 raise ValueError(f"ROI feature training requires frequency bounds for scene region {region['id']}")
@@ -352,9 +513,10 @@ def _mixed_scene_features(
                 segment, int(scene["sample_rate"]), feature_version=feature_version,
                 frequency_range_hz=(
                     float(region["frequency_low_hz"]), float(region["frequency_high_hz"])
-                ) if feature_version == ROI_FEATURE_VERSION
+                ) if feature_version in ROI_FEATURE_VERSIONS
                 and region["frequency_low_hz"] is not None and region["frequency_high_hz"] is not None
                 else None,
+                classifier_window_seconds=classifier_window_seconds,
             ))
             labels.append(mode)
             scene_ids.add(scene_id)
@@ -502,9 +664,9 @@ def _evaluate(
     )
     accepted = (confidence >= threshold) & (top != noise_index) & supported
     correct = top == labels
-    confusion = {truth: {prediction: 0 for prediction in [*classes, "unknown"]} for truth in classes}
-    raw_confusion = {truth: {prediction: 0 for prediction in classes} for truth in classes}
-    family_names = ("FSK", "MFSK", "PSK")
+    confusion = {truth: {prediction: 0 for prediction in [*classes, "unknown"]} for truth in [*classes, "unknown"]}
+    raw_confusion = {truth: {prediction: 0 for prediction in classes} for truth in [*classes, "unknown"]}
+    family_names = families_for_modes(classes)
     family_probabilities = np.asarray([
         probabilities[:, [i for i, name in enumerate(classes) if name in FAMILY_BY_MODE and FAMILY_BY_MODE[name] == family]].sum(axis=1)
         for family in family_names
@@ -519,7 +681,7 @@ def _evaluate(
     family_accepted = (family_confidence >= family_threshold) & (top != noise_index) & supported
     family_confusion = {truth: {prediction: 0 for prediction in [*family_names, "unknown"]} for truth in [*family_names, "unknown"]}
     for truth, guess, is_accepted in zip(labels, top, accepted, strict=True):
-        truth_name = classes[int(truth)]
+        truth_name = classes[int(truth)] if 0 <= int(truth) < len(classes) else "unknown"
         confusion[truth_name][classes[int(guess)] if is_accepted else "unknown"] += 1
         raw_confusion[truth_name][classes[int(guess)]] += 1
     for truth, guess, is_accepted in zip(family_labels, family_top, family_accepted, strict=True):
@@ -602,7 +764,8 @@ def train_and_evaluate(
     *,
     epochs: int = 1200,
     ood_corpus_index: str | Path | None = None,
-    feature_version: str = FEATURE_VERSION,
+    feature_version: str = DEFAULT_FEATURE_VERSION,
+    classifier_window_seconds: float = CLASSIFIER_WINDOW_SECONDS,
 ) -> dict[str, Any]:
     split_path = Path(split_manifest_path).expanduser().resolve(strict=True)
     data_dir = Path(data_dir).expanduser().resolve()
@@ -613,12 +776,15 @@ def train_and_evaluate(
         raise ValueError("epochs must be between 1 and 20000")
     if feature_version not in FEATURE_COUNT_BY_VERSION:
         raise ValueError(f"unsupported feature version: {feature_version}")
+    if feature_version in FIXED_WINDOW_FEATURE_VERSIONS and not 0.25 <= classifier_window_seconds <= 10.0:
+        raise ValueError("classifier window duration must be between 0.25 and 10 seconds")
     split_digest = hashlib.sha256(split_path.read_bytes()).hexdigest()
     ood_index_digest = (
         hashlib.sha256(Path(ood_corpus_index).expanduser().resolve(strict=True).read_bytes()).hexdigest()
         if ood_corpus_index is not None else None
     )
     store = CaptureStore(data_dir / "dataset.sqlite3")
+    register_mode_definitions(store.accepted_mode_definitions())
     split_manifest = json.loads(split_path.read_text(encoding="utf-8"))
     rows = _validated_rows(split_path, store)
     ood_rows = load_ood_corpus(ood_corpus_index) if ood_corpus_index is not None else []
@@ -635,18 +801,23 @@ def train_and_evaluate(
     if known_hashes & ood_hashes:
         raise ValueError("OOD waveform hashes overlap the known-mode train/validation/test corpus")
     scene_features = {
-        split: _mixed_scene_features(split_manifest, store, split, feature_version)
+        split: _mixed_scene_features(split_manifest, store, split, feature_version, classifier_window_seconds)
         for split in ("train", "validation", "test")
     }
     train_rows = [row for row in rows if row["split"] == "train"]
+    reviewed_rows = _reviewed_mode_training_rows(store, {row["capture_id"] for row in rows})
+    noise_training_rows = _additional_noise_training_rows(
+        store, {row["capture_id"] for row in rows} | {row["capture_id"] for row in reviewed_rows}
+    )
+    train_rows.extend([*reviewed_rows, *noise_training_rows])
     validation_rows = [row for row in rows if row["split"] == "validation"]
     test_rows = [row for row in rows if row["split"] == "test"]
-    x_train, y_train_names, train_row_groups = _features_for(train_rows, feature_version)
-    x_validation, y_validation_names, validation_row_groups = _features_for(validation_rows, feature_version)
-    x_test, y_test_names, test_row_groups = _features_for(test_rows, feature_version)
+    x_train, y_train_names, train_row_groups = _features_for(train_rows, feature_version, classifier_window_seconds)
+    x_validation, y_validation_names, validation_row_groups = _features_for(validation_rows, feature_version, classifier_window_seconds)
+    x_test, y_test_names, test_row_groups = _features_for(test_rows, feature_version, classifier_window_seconds)
     feature_count = FEATURE_COUNT_BY_VERSION[feature_version]
-    x_ood_validation = _ood_features_for(ood_validation_rows, feature_version) if ood_validation_rows else np.empty((0, feature_count), dtype=np.float32)
-    x_ood_test = _ood_features_for(ood_test_rows, feature_version) if ood_test_rows else np.empty((0, feature_count), dtype=np.float32)
+    x_ood_validation = _ood_features_for(ood_validation_rows, feature_version, classifier_window_seconds) if ood_validation_rows else np.empty((0, feature_count), dtype=np.float32)
+    x_ood_test = _ood_features_for(ood_test_rows, feature_version, classifier_window_seconds) if ood_test_rows else np.empty((0, feature_count), dtype=np.float32)
     x_train, y_train_names = _include_scene_features(x_train, y_train_names, scene_features["train"])
     x_validation, y_validation_names = _include_scene_features(x_validation, y_validation_names, scene_features["validation"])
     x_test, y_test_names = _include_scene_features(x_test, y_test_names, scene_features["test"])
@@ -655,14 +826,17 @@ def train_and_evaluate(
     test_groups = set(test_row_groups) | set(scene_features["test"][2]["source_lineage_groups"])
     if set(train_groups) & set(validation_groups) or set(train_groups) & set(test_groups) or set(validation_groups) & set(test_groups):
         raise ValueError("lineage leakage detected before training")
-    classes = [*MODES, NOISE_CLASS]
+    # Only classes represented by the actual training data are model outputs.
+    # The mode registry is a collection inventory, not a training taxonomy.
+    trained_modes = sorted({str(label) for label in y_train_names if label != NOISE_CLASS})
+    classes = [*trained_modes, NOISE_CLASS]
     parameters = fit_softmax(x_train, y_train_names, classes, epochs=epochs)
     novelty_calibration = None
     novelty_threshold = None
     if feature_version in NOVELTY_FEATURE_VERSIONS:
         normalized_train = (x_train - parameters["mean"]) / parameters["scale"]
         parameters["support_centers"] = np.asarray([
-            normalized_train[y_train_names == mode].mean(axis=0) for mode in MODES
+            normalized_train[y_train_names == mode].mean(axis=0) for mode in trained_modes
         ], dtype=np.float32)
     class_indices = {name: index for index, name in enumerate(classes)}
     validation_indices = np.asarray([class_indices.get(name, -1) for name in y_validation_names], dtype=np.int64)
@@ -698,7 +872,7 @@ def train_and_evaluate(
         novelty_threshold=novelty_threshold,
     )
     threshold = float(calibration["threshold"])
-    family_names = ("FSK", "MFSK", "PSK")
+    family_names = families_for_modes(classes)
     family_probabilities = np.asarray([
         validation_probabilities[:, [i for i, name in enumerate(classes) if name in FAMILY_BY_MODE and FAMILY_BY_MODE[name] == family]].sum(axis=1)
         for family in family_names
@@ -773,7 +947,8 @@ def train_and_evaluate(
         "schema_version": 1,
         "model_type": "multinomial logistic regression",
         "feature_version": feature_version,
-        "feature_frequency_scope": "roi_bandpass_expanded" if feature_version == ROI_FEATURE_VERSION else "full_audio_passband",
+        "feature_frequency_scope": "roi_bandpass_expanded" if feature_version in ROI_FEATURE_VERSIONS else "full_audio_passband",
+        "classifier_window_seconds": classifier_window_seconds if feature_version in FIXED_WINDOW_FEATURE_VERSIONS else None,
         "split_manifest_sha256": split_digest,
         "calibration": calibration,
         "family_calibration": family_calibration,
@@ -810,6 +985,9 @@ def train_and_evaluate(
         "test_group_ids": sorted(test_groups),
         "validation_group_ids": sorted(validation_groups),
         "train_group_ids": sorted(train_groups),
+        "reviewed_capture_training_examples": _classifier_example_count(reviewed_rows, classifier_window_seconds),
+        "reviewed_capture_training_classes": sorted({row["mode"] for row in reviewed_rows}),
+        "additional_noise_training_examples": _classifier_example_count(noise_training_rows, classifier_window_seconds),
     }
     output_model_path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile("wb", dir=output_model_path.parent, delete=False) as file:
@@ -821,14 +999,18 @@ def train_and_evaluate(
         "schema_version": 1,
         "model_type": "multinomial logistic regression",
         "feature_version": feature_version,
-        "feature_frequency_scope": "roi_bandpass_expanded" if feature_version == ROI_FEATURE_VERSION else "full_audio_passband",
+        "feature_frequency_scope": "roi_bandpass_expanded" if feature_version in ROI_FEATURE_VERSIONS else "full_audio_passband",
+        "classifier_window_seconds": classifier_window_seconds if feature_version in FIXED_WINDOW_FEATURE_VERSIONS else None,
         "feature_count": int(x_train.shape[1]),
         "sample_rate_hz": int(train_rows[0]["sample_rate"]),
         "classes": classes,
-        "family_by_method": FAMILY_BY_MODE,
+        "family_by_method": {mode: FAMILY_BY_MODE[mode] for mode in trained_modes},
         "noise_class": NOISE_CLASS,
         "noise_class_trained": any(row["mode"] == "noise" for row in train_rows),
-        "method_names": METHOD_BY_MODE,
+        "method_names": {mode: METHOD_BY_MODE[mode] for mode in trained_modes},
+        "reviewed_capture_training_examples": _classifier_example_count(reviewed_rows, classifier_window_seconds),
+        "reviewed_capture_training_classes": sorted({row["mode"] for row in reviewed_rows}),
+        "additional_noise_training_examples": _classifier_example_count(noise_training_rows, classifier_window_seconds),
         "protocol_prediction_enabled": False,
         "unknown_rejection_validated": bool(
             calibration["status"] == "calibrated"
@@ -883,7 +1065,9 @@ def main() -> None:
     parser.add_argument("--data-dir", type=Path, default=Path(os.environ.get("SIG_ID_DATA_DIR", "~/.local/share/sig-id")).expanduser())
     parser.add_argument("--output-model", type=Path, required=True, help="output .npz model path")
     parser.add_argument("--epochs", type=int, default=1200)
-    parser.add_argument("--feature-version", choices=tuple(FEATURE_COUNT_BY_VERSION), default=FEATURE_VERSION)
+    parser.add_argument("--feature-version", choices=tuple(FEATURE_COUNT_BY_VERSION), default=DEFAULT_FEATURE_VERSION)
+    parser.add_argument("--classifier-window-seconds", type=float, default=CLASSIFIER_WINDOW_SECONDS,
+                        help="fixed classifier input duration for fixed-window feature versions")
     parser.add_argument("--ood-corpus", type=Path, help="separate synthetic unknown-modulation corpus index for threshold calibration and held-out evaluation")
     args = parser.parse_args()
     try:
@@ -894,6 +1078,7 @@ def main() -> None:
             epochs=args.epochs,
             ood_corpus_index=args.ood_corpus,
             feature_version=args.feature_version,
+            classifier_window_seconds=args.classifier_window_seconds,
         )
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         parser.error(str(exc))

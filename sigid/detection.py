@@ -68,6 +68,7 @@ def detect_tracks(
         raise ValueError("spectrum is missing valid sample metadata or rows")
 
     bin_hz = sample_rate / fft_size
+    hop_samples = int(np.median(np.diff(sample_starts))) if sample_starts.size > 1 else fft_size
     first_bin = max(1, int(np.searchsorted(frequencies, minimum_frequency_hz)))
     if first_bin >= frequencies.size - 2:
         return []
@@ -162,12 +163,16 @@ def detect_tracks(
     for group in groups:
         centers = [float(tone["center_hz"]) for tone in group]
         rows_in_group = set().union(*(tone["active_rows"] for tone in group))
-        first_row = min(int(tone["first_row"]) for tone in group)
-        last_row = max(int(tone["last_row"]) for tone in group)
-        span_rows = max(1, last_row - first_row + 1)
-        occupancy = len(rows_in_group) / span_rows
-        sample_start = int(sample_starts[first_row])
-        sample_end = min(sample_count, int(sample_starts[last_row]) + fft_size)
+        # Keep one candidate through ordinary symbol gaps and only split when
+        # activity disappears for a clearly separate interval.
+        active_rows = sorted(rows_in_group)
+        gap_samples = max(int(1.5 * sample_rate), hop_samples * (minimum_rows + 1))
+        row_runs: list[list[int]] = []
+        for row_index in active_rows:
+            if not row_runs or int(sample_starts[row_index]) - int(sample_starts[row_runs[-1][-1]]) > gap_samples:
+                row_runs.append([row_index])
+            else:
+                row_runs[-1].append(row_index)
         tone_count = len(centers)
         tone_grid = estimate_tone_grid(centers, frequency_resolution_hz=bin_hz) if tone_count >= 2 else {
             "tone_spacing_hz_candidate": None,
@@ -176,28 +181,36 @@ def detect_tracks(
             "tone_grid_regular": False,
         }
         hypothesis = "single-tone / unknown" if tone_count == 1 else "FSK-like" if tone_count == 2 else "MFSK-like"
-        candidates.append(
-            {
-                "id": f"track-{len(candidates) + 1:03d}",
-                "sample_start": sample_start,
-                "sample_count": max(1, sample_end - sample_start),
-                "time_start_seconds": sample_start / sample_rate,
-                "time_end_seconds": sample_end / sample_rate,
-                "frequency_low_hz": max(0.0, centers[0] - bin_hz / 2),
-                "frequency_high_hz": min(sample_rate / 2, centers[-1] + bin_hz / 2),
-                "center_hz": float(np.median(centers)),
-                "bandwidth_hz": max(bin_hz, centers[-1] - centers[0] + bin_hz),
-                "drift_hz_per_second": float(np.median([tone["drift_hz_per_second"] for tone in group])),
-                "peak_snr_db": float(np.mean([tone["peak_snr_db"] for tone in group])),
-                "occupancy": occupancy,
-                "active_rows": len(rows_in_group),
-                "tone_centers_hz": centers,
-                "tone_count_candidate": tone_count,
-                **tone_grid,
-                "frequency_resolution_hz": bin_hz,
-                "modulation_hypothesis": hypothesis,
-                "identification_state": "provisional",
-                "protocol": None,
-            }
-        )
+        for run in row_runs:
+            if len(run) < minimum_rows:
+                continue
+            first_row, last_row = run[0], run[-1]
+            span_rows = max(1, last_row - first_row + 1)
+            occupancy = len(run) / span_rows
+            sample_start = int(sample_starts[first_row])
+            sample_end = min(sample_count, int(sample_starts[last_row]) + fft_size)
+            candidates.append(
+                {
+                    "id": f"track-{len(candidates) + 1:03d}",
+                    "sample_start": sample_start,
+                    "sample_count": max(1, sample_end - sample_start),
+                    "time_start_seconds": sample_start / sample_rate,
+                    "time_end_seconds": sample_end / sample_rate,
+                    "frequency_low_hz": max(0.0, centers[0] - bin_hz / 2),
+                    "frequency_high_hz": min(sample_rate / 2, centers[-1] + bin_hz / 2),
+                    "center_hz": float(np.median(centers)),
+                    "bandwidth_hz": max(bin_hz, centers[-1] - centers[0] + bin_hz),
+                    "drift_hz_per_second": float(np.median([tone["drift_hz_per_second"] for tone in group])),
+                    "peak_snr_db": float(np.mean([tone["peak_snr_db"] for tone in group])),
+                    "occupancy": occupancy,
+                    "active_rows": len(run),
+                    "tone_centers_hz": centers,
+                    "tone_count_candidate": tone_count,
+                    **tone_grid,
+                    "frequency_resolution_hz": bin_hz,
+                    "modulation_hypothesis": hypothesis,
+                    "identification_state": "provisional",
+                    "protocol": None,
+                }
+            )
     return candidates

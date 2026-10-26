@@ -14,8 +14,10 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
+
+from .hub_storage import HubAudioStorage
 
 
 class ReviewCreate(BaseModel):
@@ -37,8 +39,7 @@ def create_hub_app(
 ) -> FastAPI:
     root = Path(data_dir or os.environ.get("SIG_ID_HUB_DATA_DIR", "/data"))
     root.mkdir(parents=True, exist_ok=True)
-    assets = root / "assets"
-    assets.mkdir(exist_ok=True)
+    audio_storage = HubAudioStorage(root)
     raw_upload_tokens = upload_token if upload_token is not None else os.environ.get("SIG_ID_HUB_UPLOAD_TOKEN", "")
     upload_secrets = {identity: secret for item in raw_upload_tokens.split(",") if item for identity, secret in [item.split("=", 1)]} if "=" in raw_upload_tokens else ({"collector": raw_upload_tokens} if raw_upload_tokens else {})
     if reviewer_tokens is None:
@@ -84,6 +85,7 @@ def create_hub_app(
 
     app = FastAPI(title="Signal ID Contribution Hub", version="0.1.0")
     app.state.hub_root = root
+    app.state.audio_storage = audio_storage
 
     def bearer(authorization: str | None) -> str:
         if not authorization or not authorization.startswith("Bearer "):
@@ -113,7 +115,7 @@ def create_hub_app(
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
-        return {"status": "ok"}
+        return {"status": "ok", "audio_storage": audio_storage.description}
 
     @app.post("/api/submissions", status_code=201)
     async def submit(audio: UploadFile = File(...), manifest: str = Form(...), _actor: str = Depends(collector)) -> dict[str, Any]:
@@ -170,12 +172,8 @@ def create_hub_app(
                     temp_path.unlink(missing_ok=True)
                     return submission_view(prior, db)
                 submission_id = str(uuid.uuid4())
-                final_path = assets / f"{digest}.wav"
-                if final_path.exists():
-                    temp_path.unlink(missing_ok=True)
-                else:
-                    temp_path.replace(final_path)
-                db.execute("INSERT INTO submissions VALUES (?, ?, ?, ?, ?, ?, ?)", (submission_id, datetime.now(timezone.utc).isoformat(), digest, str(final_path), len(chunks), json.dumps(data, sort_keys=True), _actor))
+                audio_locator = audio_storage.store(temp_path, digest)
+                db.execute("INSERT INTO submissions VALUES (?, ?, ?, ?, ?, ?, ?)", (submission_id, datetime.now(timezone.utc).isoformat(), digest, audio_locator, len(chunks), json.dumps(data, sort_keys=True), _actor))
                 for item in normalized:
                     annotation_id = str(uuid.uuid4())
                     db.execute("INSERT INTO annotations VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (annotation_id, submission_id, item["sample_start"], item["sample_count"], item.get("frequency_low_hz"), item.get("frequency_high_hz"), item.get("family"), item.get("method"), item.get("protocol"), item.get("variant"), item["completeness"]))
@@ -198,12 +196,17 @@ def create_hub_app(
             return result
 
     @app.get("/api/submissions/{submission_id}/audio")
-    def audio(submission_id: str, _reviewer: str = Depends(reviewer)) -> FileResponse:
+    def audio(submission_id: str, _reviewer: str = Depends(reviewer)) -> Response:
         with connect() as db:
             row = db.execute("SELECT audio_path FROM submissions WHERE id=?", (submission_id,)).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="submission not found")
-        return FileResponse(row["audio_path"], media_type="audio/wav", filename=f"{submission_id}.wav")
+        try:
+            return audio_storage.response(row["audio_path"], filename=f"{submission_id}.wav")
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="submission audio is unavailable") from exc
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"could not read submission audio: {exc}") from exc
 
     @app.post("/api/submissions/{submission_id}/annotations/{annotation_id}/reviews", status_code=201)
     def create_review(submission_id: str, annotation_id: str, data: ReviewCreate, reviewer_id: str = Depends(reviewer)) -> dict[str, Any]:

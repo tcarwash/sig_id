@@ -357,6 +357,9 @@ def import_mixed_scene(
                 "manifest_file": stored_manifest.name,
                 "manifest_sha256": digest,
                 "component_capture_ids": [item[0]["id"] for item in resolved],
+                "signal_component_capture_ids": [
+                    item[0]["id"] for item in resolved if item[1]["method"] is not None
+                ],
             },
         )
         region_ids = []
@@ -389,7 +392,7 @@ def import_mixed_scene(
                         "component_sha256": source_capture["sha256"],
                         "source_region_id": source_region["id"],
                         "component_generator": component_generator,
-                        "noise_only": component_generator == "sig-id-noise",
+                        "noise_only": component_generator in {"sig-id-noise", "sig-id-recorded-noise"},
                         "scene_start_sample": start,
                         "scene_sample_count": rendered_count,
                         "frequency_offset_hz": component.get("frequency_offset_hz", 0.0),

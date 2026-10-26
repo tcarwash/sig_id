@@ -12,24 +12,29 @@ from typing import Any
 from uuid import uuid4
 import wave
 
+import numpy as np
+
 from .dataset import CaptureStore
 
 
 QUEUE_BLOCKS = 32
-MAX_CAPTURE_SECONDS = 1800
+MAX_CAPTURE_SECONDS = 8 * 60 * 60
 LIVE_ANALYSIS_SECONDS = 10
 
 
 @dataclass(slots=True)
 class _Session:
     id: str
-    path: Path
+    path: Path | None
     device_id: int | None
     device_name: str
     sample_rate: int
     channels: int
     max_duration_seconds: int
     audio_backend: Any
+    capture_mode: str = "record"
+    noise_interval_seconds: int = 300
+    window_analyzer: Any = None
     blocks: queue.Queue[bytes] = field(default_factory=lambda: queue.Queue(maxsize=QUEUE_BLOCKS))
     stop_worker: threading.Event = field(default_factory=threading.Event)
     stream: Any = None
@@ -41,7 +46,14 @@ class _Session:
     status_messages: list[str] = field(default_factory=list)
     recent_blocks: deque[bytes] = field(default_factory=deque)
     recent_frames: int = 0
+    review_queue_cursor: int = 0
+    review_queue_buffer: bytearray = field(default_factory=bytearray)
     worker_error: str | None = None
+    analysis_windows: queue.Queue[tuple[int, bytes]] = field(default_factory=lambda: queue.Queue(maxsize=4))
+    stop_analyzer: threading.Event = field(default_factory=threading.Event)
+    analyzer_thread: threading.Thread | None = None
+    saved_review_clips: int = 0
+    last_noise_clip_monotonic: float = 0.0
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
@@ -95,6 +107,9 @@ class LiveCaptureManager:
             return {
                 "active": session.state in {"starting", "recording", "limit_reached", "overrun"},
                 "session_id": session.id,
+                "device_name": session.device_name,
+                "capture_mode": session.capture_mode,
+                "saved_review_clips": session.saved_review_clips,
                 "state": session.state,
                 "sample_rate": session.sample_rate,
                 "channels": session.channels,
@@ -129,6 +144,9 @@ class LiveCaptureManager:
         sample_rate: int = 48_000,
         channels: int = 1,
         max_duration_seconds: int = 600,
+        capture_mode: str = "record",
+        noise_interval_seconds: int = 300,
+        window_analyzer: Any = None,
     ) -> dict[str, Any]:
         if sample_rate < 4000 or sample_rate > 192000:
             raise ValueError("sample_rate must be between 4000 and 192000 Hz")
@@ -136,6 +154,14 @@ class LiveCaptureManager:
             raise ValueError("channels must be 1 or 2")
         if not 1 <= max_duration_seconds <= MAX_CAPTURE_SECONDS:
             raise ValueError(f"max_duration_seconds must be from 1 to {MAX_CAPTURE_SECONDS}")
+        if capture_mode not in {"record", "scan_only", "unattended"}:
+            raise ValueError("capture_mode must be record, scan_only, or unattended")
+        if capture_mode == "record" and max_duration_seconds > 1800:
+            raise ValueError("full recording mode is limited to 1800 seconds; use scan-only or unattended mode for longer sessions")
+        if not 60 <= noise_interval_seconds <= 3600:
+            raise ValueError("noise_interval_seconds must be from 60 to 3600")
+        if capture_mode == "unattended" and not callable(window_analyzer):
+            raise ValueError("unattended mode needs a signal detector callback")
         backend = self._backend()
         device_info = None
         if device_id is not None:
@@ -156,21 +182,31 @@ class LiveCaptureManager:
             session_id = str(uuid4())
             session = _Session(
                 id=session_id,
-                path=self.capture_dir / f"live-{session_id}.wav",
+                path=self.capture_dir / f"live-{session_id}.wav" if capture_mode == "record" else None,
                 device_id=device_id,
                 device_name=str(device_info.get("name", "Default input")),
                 sample_rate=sample_rate,
                 channels=channels,
                 max_duration_seconds=max_duration_seconds,
                 audio_backend=backend,
+                capture_mode=capture_mode,
+                noise_interval_seconds=noise_interval_seconds,
+                window_analyzer=window_analyzer,
             )
             session.started_at_monotonic = time.monotonic()
+            session.last_noise_clip_monotonic = session.started_at_monotonic
             self._session = session
 
         session.writer_thread = threading.Thread(
             target=self._write_blocks, args=(session,), name=f"sig-id-capture-{session_id[:8]}", daemon=True
         )
         session.writer_thread.start()
+        if capture_mode == "unattended":
+            session.analyzer_thread = threading.Thread(
+                target=self._analyze_review_windows, args=(session,),
+                name=f"sig-id-unattended-{session_id[:8]}", daemon=True,
+            )
+            session.analyzer_thread.start()
 
         def callback(indata: Any, frames: int, _time_info: Any, status: Any) -> None:
             if status:
@@ -210,9 +246,13 @@ class LiveCaptureManager:
                     pass
             session.stop_worker.set()
             session.writer_thread.join(timeout=3)
+            session.stop_analyzer.set()
+            if session.analyzer_thread is not None:
+                session.analyzer_thread.join(timeout=3)
             with self._lock:
                 self._session = None
-            session.path.unlink(missing_ok=True)
+            if session.path is not None:
+                session.path.unlink(missing_ok=True)
             raise
 
         return {
@@ -223,14 +263,19 @@ class LiveCaptureManager:
             "sample_rate": session.sample_rate,
             "channels": session.channels,
             "max_duration_seconds": session.max_duration_seconds,
+            "capture_mode": session.capture_mode,
+            "noise_interval_seconds": session.noise_interval_seconds if capture_mode == "unattended" else None,
         }
 
     def _write_blocks(self, session: _Session) -> None:
         try:
-            with wave.open(str(session.path), "wb") as wav:
+            wav = None
+            if session.path is not None:
+                wav = wave.open(str(session.path), "wb")
                 wav.setnchannels(session.channels)
                 wav.setsampwidth(2)
                 wav.setframerate(session.sample_rate)
+            try:
                 while True:
                     try:
                         block = session.blocks.get(timeout=0.1)
@@ -238,7 +283,9 @@ class LiveCaptureManager:
                         if session.stop_worker.is_set():
                             break
                         continue
-                    wav.writeframesraw(block)
+                    if wav is not None:
+                        wav.writeframesraw(block)
+                    review_windows: list[tuple[int, bytes]] = []
                     with session.lock:
                         frames = len(block) // (2 * session.channels)
                         session.frames_written += frames
@@ -257,10 +304,104 @@ class LiveCaptureManager:
                                 session.recent_blocks.appendleft(oldest[trim_bytes:])
                                 session.recent_frames -= excess
                                 excess = 0
+                        if session.capture_mode != "scan_only":
+                            window_frames = session.sample_rate * LIVE_ANALYSIS_SECONDS
+                            window_bytes = window_frames * 2 * session.channels
+                            session.review_queue_buffer.extend(block)
+                            while len(session.review_queue_buffer) >= window_bytes:
+                                window_start = session.review_queue_cursor
+                                review_windows.append((window_start, bytes(session.review_queue_buffer[:window_bytes])))
+                                del session.review_queue_buffer[:window_bytes]
+                                session.review_queue_cursor += window_frames
+                    if session.capture_mode == "record":
+                        for window_start, window_audio in review_windows:
+                            try:
+                                self._save_review_window(
+                                    session, window_start, window_audio,
+                                    trigger_type="continuous_recording",
+                                )
+                            except Exception as exc:
+                                with session.lock:
+                                    session.status_messages.append(f"Auto review sample at {window_start} failed: {exc}")
+                    elif session.capture_mode == "unattended":
+                        for window in review_windows:
+                            try:
+                                session.analysis_windows.put_nowait(window)
+                            except queue.Full:
+                                with session.lock:
+                                    session.status_messages.append("Unattended analyzer backlog is full; skipped one 10-second window")
+            finally:
+                if wav is not None:
+                    wav.close()
         except Exception as exc:
             session.worker_error = str(exc)
             with session.lock:
                 session.state = "error"
+
+    def _analyze_review_windows(self, session: _Session) -> None:
+        while not session.stop_analyzer.is_set() or not session.analysis_windows.empty():
+            try:
+                sample_start, audio = session.analysis_windows.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            try:
+                pcm = np.frombuffer(audio, dtype="<i2").reshape(-1, session.channels)
+                mono = pcm.astype(np.float32).mean(axis=1) / 32768.0
+                result = session.window_analyzer(mono, session.sample_rate)
+                if isinstance(result, dict):
+                    detected = bool(result.get("detected"))
+                    summary = {
+                        "cv_detection_count": int(result.get("cv_detection_count", 0)),
+                        "top_confidences": [float(value) for value in result.get("top_confidences", [])[:5]],
+                        "classifier_methods": [str(value) for value in result.get("classifier_methods", [])[:10]],
+                    }
+                else:
+                    detected, summary = bool(result), {}
+                now = time.monotonic()
+                if detected:
+                    trigger_type = "cv_signal"
+                elif now - session.last_noise_clip_monotonic >= session.noise_interval_seconds:
+                    trigger_type = "periodic_noise"
+                    session.last_noise_clip_monotonic = now
+                else:
+                    continue
+                self._save_review_window(
+                    session, sample_start, audio, trigger_type=trigger_type, analysis=summary,
+                )
+            except Exception as exc:
+                with session.lock:
+                    session.status_messages.append(f"Unattended window at {sample_start} failed: {exc}")
+
+    def _save_review_window(
+        self, session: _Session, sample_start: int, audio: bytes, *,
+        trigger_type: str, analysis: dict[str, Any] | None = None,
+    ) -> None:
+        path = self.capture_dir / f"review-{session.id}-{sample_start}.wav"
+        with wave.open(str(path), "wb") as wav:
+            wav.setnchannels(session.channels)
+            wav.setsampwidth(2)
+            wav.setframerate(session.sample_rate)
+            wav.writeframes(audio)
+        try:
+            self.store.add_wav_capture(
+                path,
+                source_kind="live",
+                source_metadata={
+                    "auto_review_queue": True,
+                    "auto_capture_session_id": session.id,
+                    "window_start_sample": sample_start,
+                    "window_seconds": LIVE_ANALYSIS_SECONDS,
+                    "device_name": session.device_name,
+                    "unattended_capture": session.capture_mode == "unattended",
+                    "review_trigger": trigger_type,
+                    "detection_summary": analysis or {},
+                },
+            )
+            with session.lock:
+                session.saved_review_clips += 1
+        except Exception:
+            path.unlink(missing_ok=True)
+            raise
 
     def stop(self) -> dict[str, Any]:
         with self._stop_lock:
@@ -290,19 +431,39 @@ class LiveCaptureManager:
         assert session.writer_thread is not None
         session.writer_thread.join(timeout=5)
         if session.writer_thread.is_alive():
-            raise RuntimeError(f"audio writer did not stop within five seconds; partial audio retained at {session.path}")
+            raise RuntimeError("audio writer did not stop within five seconds")
+        if session.analyzer_thread is not None:
+            session.stop_analyzer.set()
+            session.analyzer_thread.join(timeout=60)
+            if session.analyzer_thread.is_alive():
+                raise RuntimeError("unattended review analyzer did not finish within 60 seconds")
         if session.worker_error:
             session.truncated_reason = "audio_writer_error"
             session.status_messages.append(f"Audio writer: {session.worker_error}")
             if session.frames_written <= 0:
                 with self._lock:
                     self._session = None
-                raise RuntimeError(f"audio writer failed: {session.worker_error}; partial audio retained at {session.path}")
+                raise RuntimeError(f"audio writer failed: {session.worker_error}")
         if session.frames_written <= 0:
-            session.path.unlink(missing_ok=True)
+            if session.path is not None:
+                session.path.unlink(missing_ok=True)
             with self._lock:
                 self._session = None
             raise RuntimeError("capture stopped before any audio samples were written")
+
+        if session.path is None:
+            with session.lock:
+                session.state = "stopped"
+            with self._lock:
+                self._session = None
+            return {
+                "session_id": session.id,
+                "frames_written": session.frames_written,
+                "truncated_reason": session.truncated_reason,
+                "capture": None,
+                "capture_mode": session.capture_mode,
+                "saved_review_clips": session.saved_review_clips,
+            }
 
         try:
             capture_id = self.store.add_wav_capture(
@@ -311,6 +472,7 @@ class LiveCaptureManager:
                 source_metadata={
                     "device_id": session.device_id,
                     "device_name": session.device_name,
+                    "auto_capture_session_id": session.id,
                     "truncated_reason": session.truncated_reason,
                     "status_messages": list(session.status_messages[-64:]),
                 },

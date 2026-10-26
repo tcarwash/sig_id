@@ -64,10 +64,13 @@ is resizable by pointer or keyboard, remembers its height, and stays within the 
 - Saved annotation markers now open an editable label with its complete revision history.
   Saving appends a revision on the same region, preserving original bounds and evidence;
   concurrent stale reviews receive a conflict instead of overwriting newer labels.
-  A canonical, versioned mode registry now serves `/api/modes`; searching PSK31 offers
-  distinct BPSK31/QPSK31 choices and selecting BPSK31 fills PSK/BPSK/PSK31/BPSK31.
-  Canonical IDs and registry version persist with label revisions; contradictory mode
-  fields are rejected at API/store boundaries. Manual regions can explicitly record
+  A canonical, versioned mode registry now serves `/api/modes`; version 2 includes the
+  audited Fldigi catalog and common weak-signal, voice, packet, digital-voice, and SSTV
+  collection labels, including FT8, LSB Phone, and USB Phone. Each result distinguishes
+  catalog availability from decoder and automatic-identification validation. Searching
+  PSK31 offers distinct BPSK31/QPSK31 choices and selecting BPSK31 fills
+  PSK/BPSK/PSK31/BPSK31. Canonical IDs and registry version persist with label revisions;
+  contradictory mode fields are rejected at API/store boundaries. Manual regions can explicitly record
   `user_added_missed_detection` origin. Saved detector proposals expose Yes, Wrong
   identity and Not a signal actions. Feedback is append-only and bound to the exact
   label and geometry revisions; wrong identity saves the corrected canonical mode as a new revision,
@@ -262,6 +265,12 @@ is resizable by pointer or keyboard, remembers its height, and stays within the 
   and incremental text output; Fldigi implements it, and the bounded trial runner
   now depends on that contract. Fldigi remains the only implemented protocol
   decoder backend; the contract does not itself add mode coverage.
+- Added a typed optional native-decoder adapter contract and entry-point discovery
+  (`sigid.decoder_backends`), with a backend status endpoint and saved-window decode
+  control. WSJT-X uses its separately installed `jt9` executable for FT8 clips and
+  can publish live results over UDP. All 50 native Data2G modes remain annotation
+  candidates; a Data2G audio-window adapter and end-to-end known-signal validation
+  are still outstanding.
 - The selected live-candidate trial action now replays its exact sample window through
   separate isolated Fldigi receive instances, trying up to three loopback-tested modes
   in hypothesis order and stopping at the first tentative text result. It rejects stale

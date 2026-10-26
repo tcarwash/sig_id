@@ -19,25 +19,29 @@ from .spectrum import waterfall_samples
 from .wav import WavSource
 
 
-PREPROCESSING_VERSION = "sig-id-cv-gray-v1"
+PREPROCESSING_VERSION = "sig-id-live-waterfall-v2"
 WINDOW_SECONDS = 10
 WINDOW_STRIDE_SECONDS = WINDOW_SECONDS // 2
 OVERLAP_DEDUP_IOU = 0.30
 FFT_SIZE = 4096
 HOP_SIZE = 512
 MAX_FREQUENCY_HZ = 3000.0
-IMAGE_WIDTH = 256
-IMAGE_HEIGHT = 1024
+IMAGE_WIDTH = 1024
+IMAGE_HEIGHT = 640
 MODEL_IMAGE_SIZE = (IMAGE_HEIGHT, IMAGE_WIDTH)
-DB_FLOOR = -120.0
-DB_CEILING = -30.0
+DB_FLOOR = -95.0
+DB_CEILING = -20.0
+WATERFALL_COLORS = np.asarray(
+    [[8, 17, 35], [19, 77, 135], [20, 166, 158], [210, 218, 121], [255, 244, 208]],
+    dtype=np.float32,
+)
 
 
 def spectrogram_image(samples: Any, sample_rate: int) -> np.ndarray:
     """Return the versioned RGB image used for both training and inference.
 
-    Horizontal position is frequency from 0 to 3 kHz; vertical position is
-    increasing time. The returned uint8 image has shape (1024, 256, 3).
+    Match the live capture waterfall: 0–3 kHz across 1024 pixels, 640 time
+    rows, newest time at the top, and the same dB range and color palette.
     """
     values = np.asarray(samples, dtype=np.float64)
     if values.ndim != 1 or values.size < FFT_SIZE:
@@ -53,13 +57,18 @@ def spectrogram_image(samples: Any, sample_rate: int) -> np.ndarray:
     for row_index, row in enumerate(db):
         frequency_scaled[row_index] = np.interp(target_frequency, frequencies, row)
     source_rows = np.arange(frequency_scaled.shape[0], dtype=np.float64)
-    target_rows = np.linspace(0.0, max(0, len(source_rows) - 1), IMAGE_HEIGHT)
+    target_rows = np.linspace(max(0, len(source_rows) - 1), 0.0, IMAGE_HEIGHT)
     time_scaled = np.empty((IMAGE_HEIGHT, IMAGE_WIDTH), dtype=np.float32)
     for column in range(IMAGE_WIDTH):
         time_scaled[:, column] = np.interp(target_rows, source_rows, frequency_scaled[:, column])
     pixels = np.clip((time_scaled - DB_FLOOR) * (255.0 / (DB_CEILING - DB_FLOOR)), 0, 255)
-    gray = np.rint(pixels).astype(np.uint8)
-    return np.repeat(gray[:, :, None], 3, axis=2)
+    palette_position = pixels * (len(WATERFALL_COLORS) - 1) / 255.0
+    palette_index = np.floor(palette_position).astype(np.int16)
+    palette_index = np.clip(palette_index, 0, len(WATERFALL_COLORS) - 1)
+    next_index = np.minimum(palette_index + 1, len(WATERFALL_COLORS) - 1)
+    fraction = (palette_position - palette_index)[..., None]
+    rgb = WATERFALL_COLORS[palette_index] * (1.0 - fraction) + WATERFALL_COLORS[next_index] * fraction
+    return np.rint(rgb).astype(np.uint8)
 
 
 def audio_windows(path: str | Path, seconds: int = WINDOW_SECONDS, *,
@@ -86,10 +95,7 @@ def audio_windows(path: str | Path, seconds: int = WINDOW_SECONDS, *,
             yield buffer_start, buffered[:window_samples].copy(), sample_rate
             buffered = buffered[stride_samples:]
             buffer_start += stride_samples
-    while buffered.size >= FFT_SIZE:
-        yield buffer_start, buffered[:window_samples].copy(), sample_rate
-        buffered = buffered[stride_samples:]
-        buffer_start += stride_samples
+    # Ignore the short final tail: training and inference require full windows.
 
 
 class YoloSignalDetector:
@@ -150,8 +156,12 @@ class YoloSignalDetector:
         confidence = self.confidence_threshold if confidence is None else confidence
         if not 0.0 <= confidence <= 1.0:
             raise ValueError("confidence must be between 0 and 1")
+        # Ultralytics treats numpy images as BGR and flips them to RGB itself.
+        # Our waterfall renderer returns RGB, so convert at this boundary to
+        # keep runtime pixels consistent with images loaded from disk in training.
+        model_image = np.ascontiguousarray(image[..., ::-1])
         with self._lock:
-            results = self._model.predict(image, conf=confidence, verbose=False, imgsz=MODEL_IMAGE_SIZE,
+            results = self._model.predict(model_image, conf=confidence, verbose=False, imgsz=MODEL_IMAGE_SIZE,
                                           rect=True)
         if not results:
             return []
@@ -172,8 +182,10 @@ class YoloSignalDetector:
                 continue
             low_hz = float(left / image_width * MAX_FREQUENCY_HZ)
             high_hz = float(right / image_width * MAX_FREQUENCY_HZ)
-            region_start = sample_start + int(round(top / image_height * sample_count))
-            region_end = sample_start + int(round(bottom / image_height * sample_count))
+            # The image places the newest samples at the top, matching the live
+            # waterfall. Convert detector y-coordinates back to chronological time.
+            region_start = sample_start + int(round((1.0 - bottom / image_height) * sample_count))
+            region_end = sample_start + int(round((1.0 - top / image_height) * sample_count))
             region_start = min(max(region_start, sample_start), sample_start + sample_count - 1)
             region_end = min(max(region_end, region_start + 1), sample_start + sample_count)
             found.append({
@@ -220,6 +232,47 @@ class YoloSignalDetector:
             detections.extend(self.detect(image, sample_start=start, sample_count=len(samples),
                                           sample_rate=sample_rate, confidence=confidence))
         return _deduplicate_window_detections(detections)
+
+    def detect_live_partial(self, samples: np.ndarray, *, sample_start: int,
+                            total_sample_count: int, sample_rate: int,
+                            confidence: float | None = None) -> list[dict[str, Any]]:
+        """Detect against a full-size window, noise-padding the unobserved past."""
+        values = np.asarray(samples, dtype=np.float64)
+        if values.ndim != 1 or values.size < FFT_SIZE:
+            return []
+        capacity = sample_rate * WINDOW_SECONDS
+        observed = values[-capacity:]
+        observed_start = max(sample_start, total_sample_count - observed.size)
+        padding = capacity - observed.size
+        if padding:
+            # Match recent background energy so the empty area does not become
+            # a hard black/zero strip in the spectrogram.
+            tail = observed[-min(observed.size, sample_rate // 2):]
+            noise_rms = float(np.sqrt(np.mean(np.square(tail)))) if tail.size else 0.0
+            rng = np.random.default_rng(0)
+            prefix = rng.normal(0.0, noise_rms, padding)
+            full_window = np.concatenate((prefix, observed))
+        else:
+            full_window = observed
+        window_start = total_sample_count - capacity
+        detections = self.detect(spectrogram_image(full_window, sample_rate),
+                                 sample_start=window_start, sample_count=capacity,
+                                 sample_rate=sample_rate, confidence=confidence)
+        observed_end = observed_start + observed.size
+        clipped = []
+        for detection in detections:
+            start = max(detection["sample_start"], observed_start)
+            end = min(detection["sample_start"] + detection["sample_count"], observed_end)
+            if end <= start:
+                continue
+            detection["sample_start"] = start
+            detection["sample_count"] = end - start
+            detection["observed_sample_start"] = observed_start
+            detection["observed_sample_count"] = observed.size
+            detection["provisional"] = True
+            detection["padding"] = "leading_noise"
+            clipped.append(detection)
+        return clipped
 
 
 def _box_iou(left: dict[str, Any], right: dict[str, Any]) -> float:

@@ -64,7 +64,7 @@ def build_embedding_index(
             if region["lineage_state"] != "active" or region["review_state"] != "accepted":
                 continue
             evidence = region.get("evidence") or {}
-            if evidence.get("generator") == "sig-id-noise" or evidence.get("noise_only") is True:
+            if evidence.get("generator") in {"sig-id-noise", "sig-id-recorded-noise"} or evidence.get("noise_only") is True:
                 continue
             low, high = region["frequency_low_hz"], region["frequency_high_hz"]
             if low is None or high is None:

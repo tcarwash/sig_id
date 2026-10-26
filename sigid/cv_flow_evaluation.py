@@ -11,7 +11,11 @@ from typing import Any
 
 import numpy as np
 
-from .classifier import ROI_FEATURE_VERSION, extract_features, load_model, propose
+from .classifier import (
+    CLASSIFIER_WINDOW_SECONDS, FIXED_WINDOW_FEATURE_VERSIONS,
+    ROI_FEATURE_VERSIONS,
+    extract_features, load_model, propose,
+)
 from .cv_dataset import _lineage_groups
 from .cv_detector import MAX_FREQUENCY_HZ, YoloSignalDetector, audio_windows
 from .cv_training import _match_pairs, _read_yolo_boxes
@@ -402,14 +406,21 @@ def evaluate_cv_classifier_flow(
                             per_type_counts["abstained"] += 1
                             classifier_counts["matched_known_abstained"] += 1
                     continue
-                cropped_audio = cropped_audio[:1_000_000]
+                classifier_audio = cropped_audio[:1_000_000]
+                if classifier_metadata["feature_version"] in FIXED_WINDOW_FEATURE_VERSIONS:
+                    window_seconds = float(classifier_metadata.get("classifier_window_seconds") or CLASSIFIER_WINDOW_SECONDS)
+                    target_count = round(sample_rate * window_seconds)
+                    center = (local_start + local_end) // 2
+                    crop_start = min(max(0, center - target_count // 2), max(0, len(samples) - target_count))
+                    classifier_audio = samples[crop_start : min(len(samples), crop_start + target_count)]
                 features = extract_features(
-                    cropped_audio,
+                    classifier_audio,
                     sample_rate,
                     feature_version=classifier_metadata["feature_version"],
+                    classifier_window_seconds=float(classifier_metadata.get("classifier_window_seconds") or CLASSIFIER_WINDOW_SECONDS),
                     frequency_range_hz=(
                         (float(detection["frequency_low_hz"]), float(detection["frequency_high_hz"]))
-                        if classifier_metadata["feature_version"] == ROI_FEATURE_VERSION else None
+                        if classifier_metadata["feature_version"] in ROI_FEATURE_VERSIONS else None
                     ),
                 )
                 proposal = propose(

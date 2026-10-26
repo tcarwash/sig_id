@@ -3,6 +3,8 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile
+      args:
+        INSTALL_HUB_S3: ${SIG_ID_HUB_INSTALL_S3:-0}
     image: sig-id-hub:local
     command: ["sig-id-hub", "--host", "0.0.0.0", "--port", "${SIG_ID_HUB_PORT:-8020}"]
     environment:
@@ -10,6 +12,17 @@ services:
       SIG_ID_HUB_UPLOAD_TOKEN: ${SIG_ID_HUB_UPLOAD_TOKEN:?Set SIG_ID_HUB_UPLOAD_TOKEN}
       SIG_ID_HUB_REVIEWERS: ${SIG_ID_HUB_REVIEWERS:?Set SIG_ID_HUB_REVIEWERS as reviewer=token,...}
       SIG_ID_HUB_PORT: ${SIG_ID_HUB_PORT:-8020}
+      SIG_ID_HUB_STORAGE_BACKEND: ${SIG_ID_HUB_STORAGE_BACKEND:-local}
+      SIG_ID_HUB_S3_BUCKET: ${SIG_ID_HUB_S3_BUCKET:-}
+      SIG_ID_HUB_S3_REGION: ${SIG_ID_HUB_S3_REGION:-}
+      SIG_ID_HUB_S3_ENDPOINT_URL: ${SIG_ID_HUB_S3_ENDPOINT_URL:-}
+      SIG_ID_HUB_S3_PREFIX: ${SIG_ID_HUB_S3_PREFIX:-sig-id-hub}
+      SIG_ID_HUB_S3_ADDRESSING_STYLE: ${SIG_ID_HUB_S3_ADDRESSING_STYLE:-auto}
+      SIG_ID_HUB_S3_ACCESS_KEY_ID: ${SIG_ID_HUB_S3_ACCESS_KEY_ID:-}
+      SIG_ID_HUB_S3_SECRET_ACCESS_KEY: ${SIG_ID_HUB_S3_SECRET_ACCESS_KEY:-}
+      SIG_ID_HUB_S3_SESSION_TOKEN: ${SIG_ID_HUB_S3_SESSION_TOKEN:-}
+      SIG_ID_HUB_S3_SERVER_SIDE_ENCRYPTION: ${SIG_ID_HUB_S3_SERVER_SIDE_ENCRYPTION:-}
+      SIG_ID_HUB_S3_KMS_KEY_ID: ${SIG_ID_HUB_S3_KMS_KEY_ID:-}
     ports:
       - "${SIG_ID_HUB_BIND:-127.0.0.1}:${SIG_ID_HUB_PORT:-8020}:${SIG_ID_HUB_PORT:-8020}"
     volumes:

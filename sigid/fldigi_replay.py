@@ -27,6 +27,7 @@ DISABLE_TAGS = {
     "AUDIOIO": "2",  # PulseAudio/PipeWire compatibility layer for the private sink.
     "CHKUSEHAMLIBIS": "0", "CHKUSERIGCATIS": "0", "CHKUSEXMLRPCIS": "0",
     "PTTKEYLINE": "0", "HAMLIBPTTONDATA": "0", "HAMLIBCMDPTT": "0",
+    "TRANSMITRSID": "0",
     "RIGCATCMDPTT": "0", "FLRIG_FSK": "0", "PTTRIGHTCHANNEL": "0",
     "RTSPTT": "0", "DTRPTT": "0", "ENABLE_GPIO_PTT": "0",
     "USEPPORTPTT": "0", "USEUHROUTERPTT": "0", "CMEDIA-PTT": "0",
@@ -92,7 +93,7 @@ class IsolatedFldigiReplay:
                 pass
             process.wait(timeout=2)
 
-    def _isolated_profile(self, root: Path) -> tuple[Path, Path]:
+    def _isolated_profile(self, root: Path, *, enable_rsid: bool = False) -> tuple[Path, Path]:
         source = self.profile_dir
         prefs_source = source / "fldigi_def.xml"
         if not prefs_source.is_file():
@@ -108,6 +109,23 @@ class IsolatedFldigiReplay:
         home.mkdir()
         prefs = config / "fldigi_def.xml"
         text = prefs.read_text(errors="replace")
+        if enable_rsid:
+            # Enable receive-side RSID only in the temporary replay profile.
+            # Fldigi's TxID remains disabled, so this worker cannot beacon.
+            text, count = re.subn(
+                r"(<RECEIVERSID>).*?(</RECEIVERSID>)",
+                lambda match: f"{match.group(1)}1{match.group(2)}",
+                text, count=1,
+            )
+            if count != 1:
+                raise FldigiReplayError("isolated Fldigi profile is missing RECEIVERSID; cannot enable receive-side RSID safely")
+            text, count = re.subn(
+                r"(<RSIDWIDESEARCH>).*?(</RSIDWIDESEARCH>)",
+                lambda match: f"{match.group(1)}1{match.group(2)}",
+                text, count=1,
+            )
+            if count != 1:
+                raise FldigiReplayError("isolated Fldigi profile is missing RSIDWIDESEARCH; cannot scan the selected audio passband")
         for tag, value in DISABLE_TAGS.items():
             text, count = re.subn(
                 fr"(<{re.escape(tag)}>).*?(</{re.escape(tag)}>)",
@@ -121,7 +139,10 @@ class IsolatedFldigiReplay:
         prefs.write_text(text)
         return home, config
 
-    def decode(self, wav_path: str | Path, *, mode: str, carrier_hz: float | None = None) -> dict[str, Any]:
+    def decode(
+        self, wav_path: str | Path, *, mode: str,
+        carrier_hz: float | None = None, detect_rsid: bool = False,
+    ) -> dict[str, Any]:
         if self._closed.is_set():
             raise FldigiReplayError("isolated replay service is shutting down")
         path = Path(wav_path).resolve(strict=True)
@@ -143,7 +164,7 @@ class IsolatedFldigiReplay:
         try:
             with tempfile.TemporaryDirectory(prefix="sig-id-fldigi-replay-") as temporary:
                 root = Path(temporary)
-                home, config = self._isolated_profile(root)
+                home, config = self._isolated_profile(root, enable_rsid=detect_rsid)
                 port = self._free_port()
                 environment = os.environ.copy()
                 environment["PULSE_SOURCE"] = f"{sink}.monitor"
@@ -179,6 +200,7 @@ class IsolatedFldigiReplay:
                     raise FldigiReplayError(f"Fldigi selected {selected!r} instead of {mode!r}")
                 if carrier_hz is not None:
                     client.set_carrier(round(carrier_hz))
+                initial_mode = client.current_modem()
                 offset = client.receive_text_length()
                 try:
                     with wave.open(str(path), "rb") as wav:
@@ -221,8 +243,12 @@ class IsolatedFldigiReplay:
                     if time.monotonic() - last_change >= 2.0:
                         break
                     time.sleep(0.2)
+                resulting_mode = client.current_modem()
+                rsid_detected = detect_rsid and resulting_mode != initial_mode
                 return {
-                    "mode": selected,
+                    "mode": resulting_mode,
+                    "rsid_detected": rsid_detected,
+                    "rsid_mode": resulting_mode if rsid_detected else None,
                     "text": last_text.decode("utf-8", errors="replace"),
                     "status": "completed" if last_text else "completed_no_text",
                     "note": "Selected audio window replayed through an isolated Fldigi instance; review its text before labeling.",

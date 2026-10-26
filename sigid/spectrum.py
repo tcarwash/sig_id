@@ -64,6 +64,8 @@ def waterfall(
     fft_size: int = 1024,
     hop_size: int = 256,
     max_rows: int = 512,
+    sample_start: int = 0,
+    window_sample_count: int | None = None,
 ) -> dict[str, Any]:
     """Calculate an amplitude spectrum while keeping a capped number of rows.
 
@@ -80,13 +82,23 @@ def waterfall(
 
     source = WavSource(path)
     metadata = source.metadata()
-    sample_count = int(metadata["sample_count"])
+    total_sample_count = int(metadata["sample_count"])
     sample_rate = int(metadata["sample_rate"])
-    if sample_count < fft_size:
+    if total_sample_count < fft_size:
         raise ValueError(f"recording needs at least {fft_size} samples for this FFT")
+    if sample_start < 0 or sample_start >= total_sample_count:
+        raise ValueError("sample_start must be within the recording")
+    requested_end = total_sample_count if window_sample_count is None else sample_start + window_sample_count
+    if window_sample_count is not None and window_sample_count <= 0:
+        raise ValueError("window_sample_count must be positive")
+    if requested_end > total_sample_count:
+        raise ValueError("requested waterfall window extends beyond the recording")
 
-    total_frames = 1 + (sample_count - fft_size) // hop_size
-    row_stride = max(1, ceil(total_frames / max_rows))
+    total_frames = 1 + (total_sample_count - fft_size) // hop_size
+    first_frame = ceil(sample_start / hop_size)
+    end_frame = min(total_frames, ceil(requested_end / hop_size))
+    window_frames = max(0, end_frame - first_frame)
+    row_stride = max(1, ceil(window_frames / max_rows))
     window = np.hanning(fft_size)
     rows: list[list[float]] = []
     starts: list[int] = []
@@ -97,7 +109,8 @@ def waterfall(
         joined = np.concatenate((sample_buffer, np.asarray(block.samples, dtype=np.float64)))
         offset = 0
         while offset + fft_size <= joined.size:
-            if frame_index % row_stride == 0:
+            local_frame_index = frame_index - first_frame
+            if first_frame <= frame_index < end_frame and local_frame_index % row_stride == 0:
                 spectrum = np.fft.rfft(joined[offset : offset + fft_size] * window)
                 magnitude = np.abs(spectrum) / max(window.sum(), 1.0)
                 db = 20.0 * np.log10(np.maximum(magnitude, 1e-10))
@@ -109,7 +122,7 @@ def waterfall(
 
     return {
         "sample_rate": sample_rate,
-        "sample_count": sample_count,
+        "sample_count": total_sample_count,
         "fft_size": fft_size,
         "hop_size": hop_size,
         "sample_starts": starts,

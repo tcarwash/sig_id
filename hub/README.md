@@ -35,6 +35,38 @@ deletes the hub data. The hub currently accepts only uncompressed PCM WAV, with 
 are validated against the WAV. Uploads are immutable and deduplicated by contributor
 identity plus audio hash.
 
+## S3-compatible audio storage
+
+Local-volume storage remains the default. To store WAV assets in AWS S3 or an
+S3-compatible service such as MinIO, create the private bucket first, then add these
+settings to the ignored `hub/.env` file:
+
+```dotenv
+SIG_ID_HUB_INSTALL_S3=1
+SIG_ID_HUB_STORAGE_BACKEND=s3
+SIG_ID_HUB_S3_BUCKET=your-private-bucket
+SIG_ID_HUB_S3_REGION=us-east-1
+SIG_ID_HUB_S3_PREFIX=sig-id-hub
+# For MinIO or another compatible endpoint:
+# SIG_ID_HUB_S3_ENDPOINT_URL=https://minio.example.net
+# SIG_ID_HUB_S3_ADDRESSING_STYLE=path
+# For S3 keys, or leave unset to use the runtime's AWS credential chain:
+# SIG_ID_HUB_S3_ACCESS_KEY_ID=...
+# SIG_ID_HUB_S3_SECRET_ACCESS_KEY=...
+# Optional temporary credential and encryption settings:
+# SIG_ID_HUB_S3_SESSION_TOKEN=...
+# SIG_ID_HUB_S3_SERVER_SIDE_ENCRYPTION=AES256
+# SIG_ID_HUB_S3_KMS_KEY_ID=...
+```
+
+Rebuild and start the Hub with `docker compose up --build -d`. WAV objects are stored
+under `<prefix>/assets/<sha256>.wav`; the service streams them back through the
+authenticated Hub audio endpoint. Configure the bucket with private access, encryption
+and an appropriate retention policy. The Hub still stores its SQLite metadata in the
+`hub_data` volume, so back up that volume as well as the bucket. Use bucket versioning
+if you need protection from accidental object deletion. The S3 option supports one
+configured bucket per Hub instance; it does not move existing WAVs automatically.
+
 ## Review
 
 Authenticated reviewers can listen to each submitted recording and inspect its

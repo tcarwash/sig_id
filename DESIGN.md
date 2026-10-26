@@ -9,9 +9,18 @@ delivery sequence below; current checkpoint is in [NEXT.md](NEXT.md).
 
 ## Product
 
-Listen to a radio audio passband, locate individual signals, progressively identify
-their modulation and protocol, run appropriate decoders, and collect recordings
-with auditable labels for a future detection model.
+The primary goal is to build a broad inventory of signals people can encounter on
+radio and make them easy to label and annotate from real recordings. Operators must
+be able to save useful, auditable examples before a signal has a trained classifier,
+validated detector, or working decoder. Those annotations should grow the dataset
+that can eventually teach the application to recognize and decode more signals.
+
+The application progressively adds three related but independent capabilities:
+detect signal bounds, classify what a signal is, and decode its content. A catalog
+entry means the signal is available as an annotation label; it does not claim that
+any automated capability supports it. Listen to a radio audio passband, locate
+individual signals, collect recordings with auditable labels, identify their
+modulation and protocol when possible, and run appropriate decoders when available.
 
 Initial scope is narrowband HF digital text received as demodulated audio. Audio
 cannot recover signals removed by the receiver's filters or demodulation. Wideband
@@ -88,6 +97,30 @@ a single universal confidence percentage across incompatible backends.
 - Decode-supported: mode-specific sync/coding/framing evidence recorded.
 - Human-reviewed: operator label with author, timestamp, and optional notes.
 - Controlled source: known generated fixture, kept distinct from on-air captures.
+
+## Native decoder backends
+
+Treat each decoder as an optional backend adapter to its native application or
+service. A backend may replay an exact bounded audio window, publish live decoded
+events, or support both. Signal ID should pass mode-specific settings and record
+typed results (text, image, audio, binary data, or metadata) with backend version,
+native mode, sample bounds or event time, and provenance. Keep
+decoder support independent from the canonical annotation catalog: a mode remains
+available for labeling when its native application is not installed or connected.
+
+Adapters are installed separately and discovered through the
+`sigid.decoder_backends` Python entry-point group. Each adapter reports its
+connection state, native mode bindings, accepted input types, and output types.
+The core application must not import or bundle decoder-specific dependencies.
+Native process or service failures stay isolated from capture and annotation.
+
+WSJT-X FT8 clip decoding uses the separately installed `jt9` command when present;
+live WSJT-X events can also arrive over its loopback UDP reporting interface. The
+workbench does not control WSJT-X audio or the radio. Data2G's OFDM and CPM labels
+are included for classification and annotation; its audio-window adapter is still
+pending. A backend is not considered validated until application handoff,
+sample/window association, output handling, and a known-signal receive are verified
+end to end.
 
 A CRC is strong evidence where the protocol supplies one, with repeated frames
 and framing checks used where appropriate. Text plausibility and FEC output alone

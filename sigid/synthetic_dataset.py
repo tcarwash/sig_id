@@ -42,6 +42,40 @@ def _validate_manifest(manifest: dict[str, Any], wav_path: Path) -> None:
     parameters = manifest.get("parameters")
     if not isinstance(labels, dict) or not isinstance(parameters, dict):
         raise ValueError("synthetic manifest must include labels and parameters objects")
+    if generator == "sig-id-fldigi":
+        from .modes import MODE_REGISTRY
+        mode_id = manifest.get("mode_id")
+        mode = MODE_REGISTRY.get(str(mode_id).casefold()) if isinstance(mode_id, str) else None
+        if (
+            manifest.get("generator_version") != "0.1.0"
+            or not mode or not mode.get("backend_selectable")
+            or not str(mode.get("catalog_source", "")).startswith("Fldigi ")
+            or parameters.get("native_mode") != mode.get("backend_name")
+            or parameters.get("backend") != "fldigi"
+            or parameters.get("transmit_payload") != manifest.get("reference_text")
+            or parameters.get("fldigi_version") is None
+        ):
+            raise ValueError("invalid Fldigi generator provenance or registry mode")
+        labels = {
+            "modulation_family": mode["family"], "modulation_method": mode["method"],
+            "protocol": mode["protocol"], "variant": mode["variant"],
+        }
+        if manifest.get("labels") != labels:
+            raise ValueError("Fldigi mode labels do not match the canonical mode registry")
+        digest = hashlib.sha256(wav_path.read_bytes()).hexdigest()
+        if parameters.get("waveform_sha256") != digest:
+            raise ValueError("Fldigi waveform hash does not match its manifest")
+        audio = WavSource(wav_path).metadata()
+        if (
+            manifest.get("sample_rate") != audio["sample_rate"]
+            or manifest.get("sample_count") != audio["sample_count"]
+            or manifest.get("channels") != audio["channels"]
+            or manifest.get("sample_width_bytes") != audio["sample_width_bytes"]
+            or audio["sample_rate"] != 12_000 or audio["channels"] != 1
+            or audio["sample_width_bytes"] != 2
+        ):
+            raise ValueError("Fldigi manifest dimensions do not match the standardized WAV")
+        return
     if labels.get("protocol") is not None or labels.get("variant") is not None:
         raise ValueError("current generic modulation generators cannot claim a protocol or variant")
 
@@ -388,6 +422,16 @@ def synthetic_frequency_bounds(
     generator = manifest.get("generator")
     if generator == "sig-id-noise":
         return None
+    if generator == "sig-id-fldigi":
+        parameters = manifest.get("parameters") or {}
+        low, high = parameters.get("frequency_low_hz"), parameters.get("frequency_high_hz")
+        if (
+            isinstance(low, (int, float)) and not isinstance(low, bool)
+            and isinstance(high, (int, float)) and not isinstance(high, bool)
+            and 0 <= low < high <= manifest.get("sample_rate", 0) / 2
+        ):
+            return float(low), float(high)
+        return None
     if generator == "sig-id-awgn-augmentation":
         return inherited_bounds
     parameters = manifest.get("parameters") or {}
@@ -596,6 +640,7 @@ def import_synthetic_wav(
                         parent_manifest, _ = _read_manifest(parent_manifest_path)
                         inherited_bounds = synthetic_frequency_bounds(parent_manifest)
         frequency_bounds = synthetic_frequency_bounds(manifest, inherited_bounds=inherited_bounds)
+        mode_id = manifest.get("mode_id") if manifest.get("generator") == "sig-id-fldigi" else None
         region_id = store.add_region(
             capture_id,
             sample_start=0,
@@ -605,8 +650,9 @@ def import_synthetic_wav(
             label=SignalLabel(
                 family=manifest["labels"]["modulation_family"],
                 method=manifest["labels"]["modulation_method"],
-                protocol=None,
-                variant=None,
+                protocol=manifest["labels"].get("protocol"),
+                variant=manifest["labels"].get("variant"),
+                mode_id=mode_id,
                 source="synthetic",
                 review_state="accepted",
                 evidence={

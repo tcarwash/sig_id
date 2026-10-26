@@ -4,13 +4,22 @@ from __future__ import annotations
 
 import os
 import asyncio
+import base64
+import hashlib
+import json
+import re
+from datetime import datetime, timedelta, timezone
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 import logging
 from pathlib import Path
+import shutil
 import tempfile
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 import wave
 from threading import Lock
 from typing import Any, Literal
@@ -22,7 +31,11 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field, model_validator
 
 from .dataset import CaptureStore, SignalLabel, LabelRevisionConflict
-from .classifier import FEATURE_VERSION, ROI_FEATURE_VERSION, extract_features, load_model, propose
+from .decoder_backend import DecoderBackendRegistry, DecoderRequest, NativeDecoderBackend
+from .classifier import (
+    CLASSIFIER_WINDOW_SECONDS, FEATURE_VERSION, FIXED_WINDOW_FEATURE_VERSIONS,
+    ROI_FEATURE_VERSIONS, extract_features, load_model, propose_loaded,
+)
 from .cv_detector import (
     FFT_SIZE,
     MAX_FREQUENCY_HZ,
@@ -31,6 +44,7 @@ from .cv_detector import (
     WINDOW_SECONDS,
     WINDOW_STRIDE_SECONDS,
     YoloSignalDetector,
+    spectrogram_image,
     proposal_id as cv_proposal_id,
 )
 from .cv_embeddings import load_embedding_index, read_audio_range, region_image
@@ -38,7 +52,9 @@ from .laya import LayaError, classify as classify_with_laya, configured as laya_
 from .demod import demodulate_2fsk, demodulate_bpsk, demodulate_mfsk, demodulate_ook, demodulate_qpsk
 from .detection import detect_tracks
 from .fldigi import FldigiClient
+from .fldigi_backend import FldigiNativeBackend
 from .fldigi_replay import IsolatedFldigiReplay
+from .wsjtx_backend import WsjtxUdpBackend
 from .live_audio import LiveCaptureManager
 from .live_spectrum import spectrum_packet
 from .modes import MODE_REGISTRY_VERSION, find_modes, resolve_mode_label
@@ -51,8 +67,30 @@ from .wav import WavSource
 
 
 MAX_UPLOAD_BYTES = 100 * 1024 * 1024
+RE_REVIEW_INTERVAL = timedelta(days=90)
 WEB_DIR = Path(__file__).resolve().parent / "web"
 MAX_MFSK_RATE_SEARCH_WORK = 200_000_000
+
+
+def _classify_signal_crop(
+    classifier: dict[str, Any], samples: np.ndarray, sample_rate: int,
+    frequency_low_hz: float, frequency_high_hz: float,
+) -> dict[str, Any]:
+    """Run the active classifier on a bounded crop associated with a CV box."""
+    metadata = classifier["metadata"]
+    window_seconds = float(metadata.get("classifier_window_seconds") or CLASSIFIER_WINDOW_SECONDS)
+    features = extract_features(
+        samples, sample_rate, feature_version=metadata["feature_version"],
+        classifier_window_seconds=window_seconds,
+        frequency_range_hz=(
+            (frequency_low_hz, frequency_high_hz)
+            if metadata.get("feature_version") in ROI_FEATURE_VERSIONS else None
+        ),
+    )
+    return {
+        "available": True,
+        **propose_loaded(features, metadata, classifier["parameters"]),
+    }
 
 
 def default_track_fft_size(sample_rate: int) -> int:
@@ -120,6 +158,7 @@ class ClassifierProposalRequest(BaseModel):
     selection_sample_count: int = Field(gt=0)
     frequency_low_hz: float | None = Field(default=None, ge=0, le=96000)
     frequency_high_hz: float | None = Field(default=None, gt=0, le=96000)
+    crop_count: int = Field(default=1, ge=1, le=20)
 
     @model_validator(mode="after")
     def validate_frequency_bounds(self) -> "ClassifierProposalRequest":
@@ -154,6 +193,243 @@ class RegionCreate(BaseModel):
     detector_evidence: DetectorProposalEvidence | None = None
     classifier_proposal: ClassifierProposalRequest | None = None
     signal_presence_confirmed: bool = False
+    identity_unknown_confirmed: bool = False
+    prediction_only: bool = False
+
+
+class WindowAnnotationRegionCreate(BaseModel):
+    client_id: str = Field(min_length=1, max_length=80)
+    sample_start: int = Field(ge=0)
+    sample_count: int = Field(gt=0)
+    frequency_low_hz: float = Field(ge=0, le=96000)
+    frequency_high_hz: float = Field(gt=0, le=96000)
+    family: str | None = Field(default=None, max_length=200)
+    method: str | None = Field(default=None, max_length=200)
+    protocol: str | None = Field(default=None, max_length=200)
+    variant: str | None = Field(default=None, max_length=200)
+    mode_id: str | None = Field(default=None, max_length=80)
+    notes: str = Field(default="", max_length=20000)
+    origin: Literal["manual", "detector_proposal", "user_added_missed_detection"] = "manual"
+    detector_evidence: DetectorProposalEvidence | None = None
+    classifier_proposal: ClassifierProposalRequest | None = None
+    signal_presence_confirmed: bool = False
+    identity_unknown_confirmed: bool = False
+
+    @model_validator(mode="after")
+    def validate_box(self) -> "WindowAnnotationRegionCreate":
+        if self.frequency_low_hz >= self.frequency_high_hz:
+            raise ValueError("frequency bounds must be increasing")
+        if self.detector_evidence is not None and self.origin != "detector_proposal":
+            raise ValueError("detector evidence is only valid for a detector proposal")
+        if self.signal_presence_confirmed and (self.origin != "detector_proposal" or self.detector_evidence is None):
+            raise ValueError("signal presence confirmation requires detector evidence")
+        if self.classifier_proposal is not None:
+            proposal = self.classifier_proposal
+            if proposal.sample_start != self.sample_start or proposal.selection_sample_count != self.sample_count:
+                raise ValueError("classifier proposal selection must match the saved region geometry")
+            if proposal.frequency_low_hz is not None and (
+                proposal.frequency_low_hz != self.frequency_low_hz
+                or proposal.frequency_high_hz != self.frequency_high_hz
+            ):
+                raise ValueError("classifier proposal frequency bounds must match the saved region geometry")
+        if self.identity_unknown_confirmed and any((self.mode_id, self.family, self.method, self.protocol, self.variant)):
+            raise ValueError("an explicitly unknown label cannot also contain a mode or taxonomy")
+        return self
+
+
+class WindowAnnotationRegionUpdate(BaseModel):
+    region_id: str = Field(min_length=1, max_length=80)
+    expected_revision: int = Field(ge=1)
+    expected_geometry_revision: int = Field(ge=1)
+    sample_start: int = Field(ge=0)
+    sample_count: int = Field(gt=0)
+    frequency_low_hz: float = Field(ge=0, le=96000)
+    frequency_high_hz: float = Field(gt=0, le=96000)
+    family: str | None = Field(default=None, max_length=200)
+    method: str | None = Field(default=None, max_length=200)
+    protocol: str | None = Field(default=None, max_length=200)
+    variant: str | None = Field(default=None, max_length=200)
+    mode_id: str | None = Field(default=None, max_length=80)
+    notes: str = Field(default="", max_length=20000)
+    identity_unknown_confirmed: bool = False
+
+    @model_validator(mode="after")
+    def validate_update(self) -> "WindowAnnotationRegionUpdate":
+        if self.frequency_low_hz >= self.frequency_high_hz:
+            raise ValueError("frequency bounds must be increasing")
+        if self.identity_unknown_confirmed and any((self.mode_id, self.family, self.method, self.protocol, self.variant)):
+            raise ValueError("an explicitly unknown label cannot also contain a mode or taxonomy")
+        return self
+
+
+class WindowAnnotationRegionDelete(BaseModel):
+    region_id: str = Field(min_length=1, max_length=80)
+    expected_revision: int = Field(ge=1)
+    expected_geometry_revision: int = Field(ge=1)
+
+
+class WindowHeuristicMergeProposal(BaseModel):
+    candidate_id: str = Field(min_length=1, max_length=80)
+    sample_start: int = Field(ge=0)
+    sample_count: int = Field(gt=0)
+    frequency_low_hz: float = Field(ge=0, le=96000)
+    frequency_high_hz: float = Field(gt=0, le=96000)
+    modulation_hypothesis: str = Field(min_length=1, max_length=80)
+    tone_count_candidate: int = Field(ge=1, le=64)
+    tone_centers_hz: list[float] = Field(default_factory=list, max_length=64)
+    peak_snr_db: float | None = None
+
+    @model_validator(mode="after")
+    def validate_candidate(self) -> "WindowHeuristicMergeProposal":
+        if self.frequency_low_hz >= self.frequency_high_hz:
+            raise ValueError("heuristic candidate frequency bounds must be increasing")
+        if any(not np.isfinite(tone) or not 0 <= tone <= 96000 for tone in self.tone_centers_hz):
+            raise ValueError("heuristic candidate tone centers must be non-negative")
+        if self.peak_snr_db is not None and not np.isfinite(self.peak_snr_db):
+            raise ValueError("heuristic candidate SNR must be finite")
+        return self
+
+
+class WindowAnnotationMerge(BaseModel):
+    client_id: str = Field(min_length=1, max_length=80)
+    source_region_ids: list[str] = Field(default_factory=list, max_length=32)
+    expected_revisions: dict[str, int] = Field(default_factory=dict)
+    expected_geometry_revisions: dict[str, int] = Field(default_factory=dict)
+    cv_proposals: list[CVProposalDecisionCreate] = Field(default_factory=list, max_length=32)
+    heuristic_proposals: list[WindowHeuristicMergeProposal] = Field(default_factory=list, max_length=32)
+    target_region_id: str | None = Field(default=None, max_length=80)
+    sample_start: int = Field(ge=0)
+    sample_count: int = Field(gt=0)
+    frequency_low_hz: float = Field(ge=0, le=96000)
+    frequency_high_hz: float = Field(gt=0, le=96000)
+    family: str | None = Field(default=None, max_length=200)
+    method: str | None = Field(default=None, max_length=200)
+    protocol: str | None = Field(default=None, max_length=200)
+    variant: str | None = Field(default=None, max_length=200)
+    mode_id: str | None = Field(default=None, max_length=80)
+    notes: str = Field(default="", max_length=20000)
+    identity_unknown_confirmed: bool = False
+
+    @model_validator(mode="after")
+    def validate_merge(self) -> "WindowAnnotationMerge":
+        if not 1 <= len(self.source_region_ids) + len(self.cv_proposals) + len(self.heuristic_proposals) <= 32:
+            raise ValueError("a staged merge needs one to 32 saved or provisional source boxes")
+        if len(set(self.source_region_ids)) != len(self.source_region_ids):
+            raise ValueError("merge source regions must be distinct")
+        if set(self.expected_geometry_revisions) != set(self.source_region_ids):
+            raise ValueError("expected geometry revisions must identify each saved merge source")
+        if set(self.expected_revisions) != set(self.source_region_ids):
+            raise ValueError("expected label revisions must identify each saved merge source")
+        if self.target_region_id and self.target_region_id not in self.source_region_ids:
+            raise ValueError("the saved merge target must also be included as a source")
+        if self.frequency_low_hz >= self.frequency_high_hz:
+            raise ValueError("merge result frequency bounds must be increasing")
+        if self.identity_unknown_confirmed and any((self.mode_id, self.family, self.method, self.protocol, self.variant)):
+            raise ValueError("an explicitly unknown merge result cannot also contain a mode or taxonomy")
+        if len({item.proposal_id for item in self.cv_proposals}) != len(self.cv_proposals):
+            raise ValueError("CV proposal ids must be unique within a merge")
+        if len({item.candidate_id for item in self.heuristic_proposals}) != len(self.heuristic_proposals):
+            raise ValueError("heuristic candidate ids must be unique within a merge")
+        return self
+
+
+class WindowAnnotationIdentityLink(BaseModel):
+    signal_id: str | None = Field(default=None, pattern="^S[1-9][0-9]*$", max_length=40)
+    target_region_id: str | None = Field(default=None, max_length=80)
+    target_client_id: str | None = Field(default=None, max_length=80)
+    region_ids: list[str] = Field(default_factory=list, max_length=128)
+    client_ids: list[str] = Field(default_factory=list, max_length=128)
+    expected_signal_ids: dict[str, str] = Field(default_factory=dict)
+    expected_revisions: dict[str, int] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_identity_link(self) -> "WindowAnnotationIdentityLink":
+        if not self.region_ids and not self.client_ids:
+            raise ValueError("an identity link needs at least one saved region or draft box")
+        if len(set(self.region_ids)) != len(self.region_ids) or len(set(self.client_ids)) != len(self.client_ids):
+            raise ValueError("identity link sources must be unique")
+        direct_id = self.signal_id is not None
+        target = self.target_region_id is not None or self.target_client_id is not None
+        if direct_id == target or (self.target_region_id and self.target_client_id):
+            raise ValueError("choose either an existing signal ID or one selected box as the identity target")
+        if self.target_region_id and self.target_region_id not in self.region_ids:
+            raise ValueError("the target saved region must be included in the linked boxes")
+        if self.target_client_id and self.target_client_id not in self.client_ids:
+            raise ValueError("the target draft box must be included in the linked boxes")
+        if set(self.expected_signal_ids) != set(self.region_ids):
+            raise ValueError("expected signal IDs must identify every saved box being linked")
+        if set(self.expected_revisions) != set(self.region_ids):
+            raise ValueError("expected label revisions must identify every saved box being linked")
+        if any(not re.fullmatch(r"S[1-9][0-9]*", signal_id) for signal_id in self.expected_signal_ids.values()):
+            raise ValueError("expected signal IDs must be valid S-numbers")
+        return self
+
+
+class WindowAnnotationBatchCreate(BaseModel):
+    idempotency_key: str = Field(min_length=8, max_length=80)
+    window_start_sample: int = Field(ge=0)
+    window_sample_count: int = Field(gt=0)
+    regions: list[WindowAnnotationRegionCreate] = Field(default_factory=list, max_length=128)
+    updates: list[WindowAnnotationRegionUpdate] = Field(default_factory=list, max_length=128)
+    deletions: list[WindowAnnotationRegionDelete] = Field(default_factory=list, max_length=128)
+    merges: list[WindowAnnotationMerge] = Field(default_factory=list, max_length=32)
+    identity_links: list[WindowAnnotationIdentityLink] = Field(default_factory=list, max_length=128)
+
+    @model_validator(mode="after")
+    def validate_window(self) -> "WindowAnnotationBatchCreate":
+        operation_count = len(self.regions) + len(self.updates) + len(self.deletions) + len(self.merges) + len(self.identity_links)
+        if not 1 <= operation_count <= 128:
+            raise ValueError("a window save must include one to 128 annotation changes")
+        if len({item.client_id for item in self.regions}) != len(self.regions):
+            raise ValueError("annotation client ids must be unique")
+        region_ids = [item.region_id for item in [*self.updates, *self.deletions]]
+        if len(set(region_ids)) != len(region_ids):
+            raise ValueError("each saved region can be updated or deleted only once per window save")
+        merged_region_ids = [region_id for merge in self.merges for region_id in merge.source_region_ids]
+        if len(set(merged_region_ids)) != len(merged_region_ids):
+            raise ValueError("a saved region can be used in only one merge per window save")
+        if len({merge.client_id for merge in self.merges}) != len(self.merges):
+            raise ValueError("merge client ids must be unique")
+        merged_proposal_ids = [proposal.proposal_id for merge in self.merges for proposal in merge.cv_proposals]
+        if len(set(merged_proposal_ids)) != len(merged_proposal_ids):
+            raise ValueError("a CV proposal can be used in only one merge per window save")
+        merged_heuristic_ids = [proposal.candidate_id for merge in self.merges for proposal in merge.heuristic_proposals]
+        if len(set(merged_heuristic_ids)) != len(merged_heuristic_ids):
+            raise ValueError("a heuristic candidate can be used in only one merge per window save")
+        if set(merged_region_ids) & set(region_ids):
+            raise ValueError("merge sources cannot also be updated or deleted in the same window save")
+        linked_region_ids = [region_id for link in self.identity_links for region_id in link.region_ids]
+        linked_client_ids = [client_id for link in self.identity_links for client_id in link.client_ids]
+        if len(set(linked_region_ids)) != len(linked_region_ids) or len(set(linked_client_ids)) != len(linked_client_ids):
+            raise ValueError("a box can participate in only one identity link per window save")
+        if set(linked_region_ids) & {item.region_id for item in self.deletions}:
+            raise ValueError("a box cannot be linked and deleted in the same window save")
+        if set(linked_region_ids) & set(merged_region_ids):
+            raise ValueError("a merge source cannot also be identity-linked in the same window save")
+        if set(linked_client_ids) - {item.client_id for item in self.regions}:
+            raise ValueError("identity links may reference only draft boxes included in the same save")
+        window_end = self.window_start_sample + self.window_sample_count
+        if any(item.sample_start < self.window_start_sample or item.sample_start + item.sample_count > window_end for item in self.regions):
+            raise ValueError("each annotation must remain inside this 10-second window")
+        if any(item.sample_start < self.window_start_sample or item.sample_start + item.sample_count > window_end for item in self.updates):
+            raise ValueError("each updated annotation must remain inside this 10-second window")
+        if any(item.sample_start < self.window_start_sample or item.sample_start + item.sample_count > window_end for item in self.merges):
+            raise ValueError("each merge result must remain inside this 10-second window")
+        return self
+
+
+class LiveTrainingAnnotation(BaseModel):
+    session_id: str = Field(min_length=1, max_length=80)
+    sample_start: int = Field(ge=0)
+    sample_count: int = Field(gt=0)
+    frequency_low_hz: float = Field(ge=0, le=96000)
+    frequency_high_hz: float = Field(gt=0, le=96000)
+    family: str | None = Field(default=None, max_length=200)
+    method: str | None = Field(default=None, max_length=200)
+    protocol: str | None = Field(default=None, max_length=200)
+    variant: str | None = Field(default=None, max_length=200)
+    mode_id: str | None = Field(default=None, max_length=80)
+    notes: str = Field(default="", max_length=20000)
 
 
 class LabelRevisionCreate(BaseModel):
@@ -165,6 +441,7 @@ class LabelRevisionCreate(BaseModel):
     mode_id: str | None = Field(default=None, max_length=80)
     notes: str = Field(default="", max_length=20000)
     classifier_proposal: ClassifierProposalRequest | None = None
+    identity_unknown_confirmed: bool = False
 
 
 class AnnotationFeedbackCreate(BaseModel):
@@ -200,8 +477,20 @@ class RegionSplitCreate(BaseModel):
 
 
 class RegionMergeCreate(BaseModel):
-    source_region_ids: list[str] = Field(min_length=2, max_length=8)
+    source_region_ids: list[str] = Field(default_factory=list, max_length=32)
     expected_geometry_revisions: dict[str, int]
+    cv_proposals: list[CVProposalDecisionCreate] = Field(default_factory=list, max_length=32)
+    result_bounds: RegionBounds | None = None
+
+    @model_validator(mode="after")
+    def validate_merge_sources(self) -> "RegionMergeCreate":
+        if not 1 <= len(self.source_region_ids) + len(self.cv_proposals) <= 32:
+            raise ValueError("a merge needs one to 32 saved boxes or CV proposals")
+        if not self.result_bounds and (len(self.source_region_ids) + len(self.cv_proposals) < 2):
+            raise ValueError("a single source needs drawn result bounds")
+        if len({proposal.proposal_id for proposal in self.cv_proposals}) != len(self.cv_proposals):
+            raise ValueError("CV proposal ids must be unique")
+        return self
 
 
 class CoverageMask(BaseModel):
@@ -283,7 +572,9 @@ class LiveCaptureStart(BaseModel):
     device_id: int | None = None
     sample_rate: int = Field(default=48_000, ge=4000, le=192000)
     channels: int = Field(default=1, ge=1, le=2)
-    max_duration_seconds: int = Field(default=600, ge=1, le=1800)
+    max_duration_seconds: int = Field(default=600, ge=1, le=28800)
+    capture_mode: Literal["record", "scan_only", "unattended"] = "record"
+    noise_interval_seconds: int = Field(default=300, ge=60, le=3600)
 
 
 class FldigiModeSelect(BaseModel):
@@ -299,12 +590,59 @@ class FldigiTrialStart(BaseModel):
 
 class FldigiReplayRequest(BaseModel):
     mode: str = Field(min_length=1, max_length=80)
+    auto_identify: bool = False
+    candidate_modes: list[str] = Field(default_factory=list, max_length=6)
     sample_start: int = Field(ge=0)
     sample_count: int = Field(gt=0, le=192_000 * 600)
     track_id: str | None = Field(default=None, max_length=128)
     carrier_hz: float | None = Field(default=None, ge=0, le=20000)
     region_id: str | None = Field(default=None, max_length=80)
     detector_evidence: DetectorProposalEvidence | None = None
+
+
+def _decode_text_coherence(text: str) -> float:
+    """Rank decoder outputs for human-readable text; never treat score as a label."""
+    if not text:
+        return 0.0
+    printable = [char for char in text if char.isprintable() or char in "\r\n\t"]
+    visible = "".join(char for char in printable if char not in "\r\n\t")
+    if not visible:
+        return 0.0
+    letters = sum(char.isalpha() for char in visible)
+    spaces = sum(char.isspace() for char in visible)
+    trigrams = {
+        "the", "and", "ing", "ion", "tio", "ent", "her", "for", "tha", "nth",
+        "int", "ere", "ter", "est", "ers", "ati", "hat", "ate", "all", "eth",
+        "hes", "ver", "his", "oft", "sth", "ith", "fth", "men", "rea", "you",
+    }
+    lowered = "".join(char.lower() if char.isalpha() else " " for char in visible)
+    grams = [lowered[index:index + 3] for index in range(max(0, len(lowered) - 2))
+             if lowered[index:index + 3].isalpha()]
+    common = sum(gram in trigrams for gram in grams) / max(1, len(grams))
+    length_factor = min(1.0, len(visible) / 48.0)
+    printable_ratio = len(printable) / max(1, len(text))
+    letter_ratio = letters / len(visible)
+    word_spacing = min(1.0, spaces / max(1, len(visible) / 12.0))
+    return round(100.0 * length_factor * (
+        0.20 * printable_ratio + 0.25 * letter_ratio + 0.15 * word_spacing + 0.40 * common
+    ), 1)
+
+
+def _checked_replay_modes(settings: FldigiReplayRequest, available: list[str]) -> list[str]:
+    candidates = list(dict.fromkeys(settings.candidate_modes)) if settings.auto_identify else [settings.mode]
+    if settings.auto_identify and not candidates:
+        candidates = [settings.mode]
+    if any(mode not in available for mode in candidates):
+        raise ValueError("one or more candidate modes are not available in the Fldigi catalog")
+    return candidates
+
+
+class NativeDecoderRequestBody(BaseModel):
+    mode_id: str = Field(min_length=1, max_length=100)
+    sample_start: int = Field(ge=0)
+    sample_count: int = Field(gt=0, le=192_000 * 600)
+    carrier_hz: float | None = Field(default=None, ge=0, le=96_000)
+    region_id: str | None = Field(default=None, max_length=80)
 
 
 class FldigiTrackTrialRequest(BaseModel):
@@ -375,6 +713,7 @@ class ClassifyRequest(BaseModel):
     sample_count: int = Field(default=120_000, ge=1024, le=1_000_000)
     frequency_low_hz: float | None = Field(default=None, ge=0, le=96000)
     frequency_high_hz: float | None = Field(default=None, gt=0, le=96000)
+    crop_count: int = Field(default=1, ge=1, le=20)
 
     @model_validator(mode="after")
     def validate_frequency_bounds(self) -> "ClassifyRequest":
@@ -398,6 +737,7 @@ def create_app(
     fldigi_client: Any | None = None,
     fldigi_replay_backend: Any | None = None,
     classifier_model_path: str | Path | None = None,
+    decoder_backends: tuple[NativeDecoderBackend, ...] = (),
 ) -> FastAPI:
     root = Path(data_dir or os.environ.get("SIG_ID_DATA_DIR", "~/.local/share/sig-id")).expanduser()
     capture_dir = root / "captures"
@@ -410,9 +750,35 @@ def create_app(
         timeout=float(os.environ.get("SIG_ID_FLDIGI_TIMEOUT", "0.75")),
     )
     fldigi_replay = fldigi_replay_backend or IsolatedFldigiReplay()
+    configured_backends = list(decoder_backends)
+    if not any(str(getattr(backend, "backend_id", "")).casefold() == "fldigi" for backend in configured_backends):
+        configured_backends.append(FldigiNativeBackend(fldigi, fldigi_replay))
+    if not any(str(getattr(backend, "backend_id", "")).casefold() == "wsjtx" for backend in configured_backends):
+        wsjtx_port_value = os.environ.get("SIG_ID_WSJTX_UDP_PORT", "").strip()
+        try:
+            wsjtx_port = int(wsjtx_port_value) if wsjtx_port_value else None
+        except ValueError:
+            wsjtx_port = None
+            logging.getLogger(__name__).warning("Ignoring invalid SIG_ID_WSJTX_UDP_PORT")
+        configured_backends.append(WsjtxUdpBackend(port=wsjtx_port))
+    decoder_backends_registry = DecoderBackendRegistry.discover(tuple(configured_backends))
     decode_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sig-id-fldigi-replay")
+    model_training_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sig-id-model-training")
     decode_job_lock = Lock()
-    configured_model = classifier_model_path or os.environ.get("SIG_ID_MODEL_PATH")
+    model_training_lock = Lock()
+    # The active pair belongs to the project model catalog, not the user's
+    # capture store. Keep direct `sig-id-serve` starts aligned with the
+    # canonical pointer written by the training pipeline and run_sig_id.sh.
+    active_models_file = Path(os.environ.get(
+        "SIGID_ACTIVE_MODELS_JSON",
+        Path(__file__).resolve().parents[1] / "data" / "models" / "active-models.json",
+    )).expanduser()
+    active_models: dict[str, Any] = {}
+    try:
+        active_models = json.loads(active_models_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        pass
+    configured_model = classifier_model_path or active_models.get("classifier") or os.environ.get("SIG_ID_MODEL_PATH")
     classifier = None
     classifier_error = None
     if configured_model:
@@ -422,7 +788,7 @@ def create_app(
         except Exception as exc:
             classifier_error = str(exc)
 
-    configured_cv_model = os.environ.get("SIG_ID_CV_MODEL_PATH")
+    configured_cv_model = active_models.get("cv_detector") or os.environ.get("SIG_ID_CV_MODEL_PATH")
     cv_detector = None
     cv_detector_error = None
     if configured_cv_model:
@@ -452,10 +818,12 @@ def create_app(
             yield
         finally:
             application.state.fldigi_trials.cancel()
+            decoder_backends_registry.close()
             close_replay = getattr(fldigi_replay, "close", None)
             if callable(close_replay):
                 close_replay()
             decode_executor.shutdown(wait=True, cancel_futures=True)
+            model_training_executor.shutdown(wait=False, cancel_futures=True)
             try:
                 stopped = await asyncio.to_thread(live_capture.shutdown)
                 if stopped and stopped.get("capture"):
@@ -471,11 +839,16 @@ def create_app(
     app.state.receive_products = receive_products
     app.state.fldigi = fldigi
     app.state.fldigi_replay = fldigi_replay
+    app.state.decoder_backends = decoder_backends_registry
     app.state.classifier = classifier
     app.state.classifier_error = classifier_error
+    app.state.classifier_model_path = str(Path(configured_model).expanduser().resolve()) if configured_model else None
     app.state.cv_detector = cv_detector
     app.state.cv_detector_error = cv_detector_error
     app.state.cv_model_path = configured_cv_model
+    app.state.model_training_job = {"status": "idle", "progress": 0, "stage": "", "error": None, "result": None}
+    app.state.model_training_lock = model_training_lock
+    app.state.model_training_executor = model_training_executor
     app.state.cv_embedding_vectors = cv_embedding_vectors
     app.state.cv_embedding_entries = cv_embedding_entries
     app.state.cv_embedding_index_path = configured_cv_index
@@ -489,6 +862,8 @@ def create_app(
         sample_reader: Any,
     ) -> None:
         temporary_audio: Path | None = None
+        attempts: list[dict[str, Any]] = []
+        modes = settings.candidate_modes if settings.auto_identify else [settings.mode]
         try:
             samples = sample_reader()
             if len(samples) != settings.sample_count:
@@ -503,25 +878,58 @@ def create_app(
                 output.setframerate(sample_rate)
                 output.writeframes(pcm.tobytes())
             app.state.capture_store.update_decoder_run(run_id, {
-                "attempted_modes": [settings.mode], "current_mode": settings.mode,
+                "attempted_modes": [], "current_mode": modes[0] if modes else settings.mode,
                 "output_offset": 0, "output_end": None, "text": "",
                 "status": "running", "note": "Preparing the selected sample window for isolated receive replay.",
             })
-            result = fldigi_replay.decode(
-                temporary_audio, mode=settings.mode, carrier_hz=settings.carrier_hz,
-            )
-            text = str(result.get("text", ""))
+            for index, candidate in enumerate(modes):
+                app.state.capture_store.update_decoder_run(run_id, {
+                    "attempted_modes": [item["mode"] for item in attempts],
+                    "current_mode": candidate, "output_offset": 0, "output_end": None,
+                    "text": "", "status": "running",
+                    "note": ("Checking for receive-side Fldigi RSID/TXID, then testing candidate text decode."
+                             if settings.auto_identify and index == 0 else f"Testing {candidate} against the selected audio."),
+                })
+                result = fldigi_replay.decode(
+                    temporary_audio, mode=candidate, carrier_hz=settings.carrier_hz,
+                    detect_rsid=settings.auto_identify and index == 0,
+                )
+                text = str(result.get("text", ""))
+                result_mode = str(result.get("mode") or candidate)
+                attempts.append({
+                    "mode": result_mode, "text": text,
+                    "score": _decode_text_coherence(text),
+                    "rsid_detected": bool(result.get("rsid_detected")),
+                })
+                if result.get("rsid_detected"):
+                    break
+            best = max(attempts, key=lambda item: item["score"], default={"mode": settings.mode, "text": "", "score": 0.0})
+            text = str(best["text"])
+            attempted_modes = [item["mode"] for item in attempts]
+            if settings.auto_identify:
+                summary = "; ".join(f"{item['mode']} {item['score']:.1f}" for item in attempts)
+                if any(item["rsid_detected"] for item in attempts):
+                    note = f"Fldigi receive-side RSID identified {best['mode']}; tentative decode score {best['score']:.1f}."
+                elif text:
+                    note = f"Best text-coherence candidate: {best['mode']} ({best['score']:.1f}/100). Candidate scores: {summary}. Review decoded text; no label was assigned."
+                else:
+                    note = f"No candidate produced text. Tested: {summary or 'none'}."
+            else:
+                note = f"{result.get('note', '')} Carrier setting: {settings.carrier_hz if settings.carrier_hz is not None else 'unset'} Hz."
             app.state.capture_store.update_decoder_run(run_id, {
-                "attempted_modes": [settings.mode], "current_mode": settings.mode,
+                "attempted_modes": attempted_modes, "current_mode": best["mode"],
                 "output_offset": 0, "output_end": len(text.encode("utf-8")), "text": text,
-                "status": result.get("status", "completed"),
-                "note": f"{result.get('note', '')} Carrier setting: {settings.carrier_hz if settings.carrier_hz is not None else 'unset'} Hz.",
+                "status": "tentative_output" if settings.auto_identify and text else (
+                    "completed_no_text" if settings.auto_identify else result.get("status", "completed")
+                ),
+                "note": note,
             })
         except Exception as exc:
             logging.getLogger(__name__).exception("Isolated Fldigi region replay failed")
             try:
                 app.state.capture_store.update_decoder_run(run_id, {
-                    "attempted_modes": [settings.mode], "current_mode": settings.mode,
+                    "attempted_modes": [item["mode"] for item in attempts],
+                    "current_mode": attempts[-1]["mode"] if attempts else (modes[0] if modes else settings.mode),
                     "output_offset": 0, "output_end": None, "text": "",
                     "status": "failed", "note": str(exc)[:2000],
                 })
@@ -704,6 +1112,7 @@ def create_app(
             "model_type": metadata["model_type"],
             "feature_version": metadata["feature_version"],
             "feature_frequency_scope": metadata.get("feature_frequency_scope", "full_audio_passband"),
+            "classifier_window_seconds": metadata.get("classifier_window_seconds"),
             "classes": metadata["classes"],
             "threshold": metadata["abstention_threshold"],
             "family_threshold": metadata["family_abstention_threshold"],
@@ -715,6 +1124,221 @@ def create_app(
             "noise_class_validated": metadata.get("noise_class_validated", False),
             "model_sha256": metadata["model_sha256"],
         }
+
+    def _run_incremental_model_training() -> None:
+        job = app.state.model_training_job
+        release = root / "models" / "releases" / datetime.now(timezone.utc).strftime("incremental-%Y%m%dT%H%M%SZ")
+        try:
+            if app.state.classifier is None or not app.state.classifier_model_path:
+                raise RuntimeError("Configure a classifier model before starting in-app training")
+            if app.state.cv_detector is None or not app.state.cv_model_path:
+                raise RuntimeError("Configure a CV detector before starting in-app training")
+            release.mkdir(parents=True, exist_ok=False)
+
+            # Resolve the exact synthetic split used to train this classifier by
+            # its recorded digest, then find the dataset store containing its IDs.
+            job.update(status="running", progress=2, stage="Finding classifier training sources", error=None)
+            classifier_meta_path = Path(app.state.classifier_model_path).expanduser().resolve()
+            classifier_meta = app.state.classifier["metadata"]
+            wanted_split_hash = classifier_meta.get("split_manifest_sha256")
+            repo_root = Path(__file__).resolve().parents[1]
+            split_path = None
+            recorded_split = classifier_meta.get("split_manifest_path")
+            if isinstance(recorded_split, str) and Path(recorded_split).is_file():
+                candidate = Path(recorded_split).expanduser().resolve()
+                if hashlib.sha256(candidate.read_bytes()).hexdigest() == wanted_split_hash:
+                    split_path = candidate
+            for candidate in (repo_root / "data").rglob("*.json"):
+                if split_path is not None:
+                    break
+                try:
+                    if hashlib.sha256(candidate.read_bytes()).hexdigest() == wanted_split_hash:
+                        split_path = candidate
+                        break
+                except OSError:
+                    continue
+            if split_path is None:
+                raise RuntimeError("Could not find the classifier's original split manifest; set up its training sources first")
+            split_payload = json.loads(split_path.read_text(encoding="utf-8"))
+            required_ids = {row.get("capture_id") for row in split_payload.get("records", [])}
+            classifier_data_dir = None
+            recorded_data_dir = classifier_meta.get("classifier_data_dir")
+            if isinstance(recorded_data_dir, str) and (Path(recorded_data_dir).expanduser() / "dataset.sqlite3").is_file():
+                candidate_store = CaptureStore(Path(recorded_data_dir).expanduser() / "dataset.sqlite3")
+                if required_ids.issubset({row["id"] for row in candidate_store.list_captures()}):
+                    classifier_data_dir = Path(recorded_data_dir).expanduser()
+            for database in (repo_root / "data").rglob("dataset.sqlite3"):
+                if classifier_data_dir is not None:
+                    break
+                try:
+                    candidate_store = CaptureStore(database)
+                    if required_ids.issubset({row["id"] for row in candidate_store.list_captures()}):
+                        classifier_data_dir = database.parent
+                        break
+                except Exception:
+                    continue
+            if classifier_data_dir is None:
+                raise RuntimeError("Could not find the classifier's original training dataset")
+            previous_reviewed_examples: set[tuple[str, str, int, str | None, int, int]] = set()
+            reviewed_manifest_name = classifier_meta.get("reviewed_training_manifest")
+            if isinstance(reviewed_manifest_name, str):
+                reviewed_manifest = classifier_meta_path.with_name(reviewed_manifest_name)
+                if reviewed_manifest.is_file():
+                    expected = classifier_meta.get("reviewed_training_manifest_sha256")
+                    if expected and hashlib.sha256(reviewed_manifest.read_bytes()).hexdigest() != expected:
+                        raise RuntimeError("Classifier reviewed-training manifest failed its hash check")
+                    previous_reviewed_examples = {
+                        (row["capture_id"], row["region_id"], int(row.get("window_start", 0)),
+                         row.get("mode"), int(row.get("sample_start", 0)), int(row.get("sample_count", 0)))
+                        for row in json.loads(reviewed_manifest.read_text(encoding="utf-8")).get("examples", [])
+                        if isinstance(row.get("capture_id"), str) and isinstance(row.get("region_id"), str)
+                    }
+
+            cv_meta_path = Path(app.state.cv_model_path).expanduser().resolve().with_suffix(
+                Path(app.state.cv_model_path).suffix + ".json"
+            )
+            cv_meta = json.loads(cv_meta_path.read_text(encoding="utf-8"))
+            old_dataset = Path(cv_meta["dataset_path"]).expanduser()
+            old_report = json.loads((old_dataset / "export-report.json").read_text(encoding="utf-8"))
+            reviewed_data_dirs = [Path(path).expanduser() for path in old_report.get("source_data_dirs", [])]
+            reviewed_data_dirs = [path for path in reviewed_data_dirs if (path / "dataset.sqlite3").is_file()]
+            if root not in reviewed_data_dirs:
+                reviewed_data_dirs.append(root)
+
+            job.update(progress=5, stage="Preparing classifier training data")
+            from .hierarchical_training import train_hierarchical
+            classifier_output = release / "classifier.json"
+            split_copy = release / "classifier-splits.json"
+            shutil.copy2(split_path, split_copy)
+            classifier_kwargs: dict[str, Any] = {}
+            if os.environ.get("SIG_ID_OOD_CORPUS"):
+                classifier_kwargs["ood_corpus"] = os.environ["SIG_ID_OOD_CORPUS"]
+            elif classifier_meta.get("ood_corpus_path") and Path(classifier_meta["ood_corpus_path"]).is_file():
+                classifier_kwargs["ood_corpus"] = classifier_meta["ood_corpus_path"]
+            elif classifier_meta.get("ood_validation_sources", 0):
+                from .ood_corpus import load_ood_corpus
+                for candidate in (repo_root / "data").rglob("ood-corpus.json"):
+                    try:
+                        validation_count = sum(row.get("split") == "validation" for row in load_ood_corpus(candidate))
+                        if validation_count == classifier_meta["ood_validation_sources"]:
+                            classifier_kwargs["ood_corpus"] = candidate
+                            break
+                    except Exception:
+                        continue
+            classifier_metadata = train_hierarchical(
+                split_copy, classifier_data_dir, classifier_output,
+                reviewed_data_dirs=reviewed_data_dirs,
+                initial_model_path=classifier_meta_path,
+                epochs=int(os.environ.get("SIG_ID_INCREMENTAL_CLASSIFIER_EPOCHS", "1200")),
+                feature_version=classifier_meta["feature_version"],
+                classifier_window_seconds=float(classifier_meta.get("classifier_window_seconds", 2.0)),
+                progress_callback=lambda fraction, detail: job.update(
+                    progress=5 + int(43 * fraction), stage=f"Training classifier · {detail}",
+                ),
+                **classifier_kwargs,
+            )
+            reviewed_manifest_name = classifier_metadata.get("reviewed_training_manifest")
+            if not isinstance(reviewed_manifest_name, str) or Path(reviewed_manifest_name).name != reviewed_manifest_name:
+                raise RuntimeError("Classifier trainer did not produce a valid reviewed-training manifest name")
+            new_reviewed_manifest = classifier_output.with_name(reviewed_manifest_name)
+            if not new_reviewed_manifest.is_file():
+                raise RuntimeError("Classifier trainer did not produce its reviewed-training manifest")
+            expected_new_manifest_hash = classifier_metadata.get("reviewed_training_manifest_sha256")
+            if not isinstance(expected_new_manifest_hash, str) or hashlib.sha256(
+                new_reviewed_manifest.read_bytes()
+            ).hexdigest() != expected_new_manifest_hash:
+                raise RuntimeError("New classifier reviewed-training manifest failed its hash check")
+            new_reviewed_payload = json.loads(new_reviewed_manifest.read_text(encoding="utf-8"))
+            if not isinstance(new_reviewed_payload, dict):
+                raise RuntimeError("New classifier reviewed-training manifest is invalid")
+            new_reviewed_examples = new_reviewed_payload.get("examples", [])
+            if not isinstance(new_reviewed_examples, list):
+                raise RuntimeError("New classifier reviewed-training manifest has an invalid examples list")
+            new_reviewed = [
+                row for row in new_reviewed_examples
+                if isinstance(row, dict)
+                and (row.get("capture_id"), row.get("region_id"), int(row.get("window_start", 0)),
+                    row.get("mode"), int(row.get("sample_start", 0)), int(row.get("sample_count", 0)))
+                not in previous_reviewed_examples
+            ]
+            new_capture_ids = {row.get("capture_id") for row in new_reviewed}
+            if not new_reviewed:
+                raise RuntimeError("No new, fully reviewed labeled live captures are eligible for classifier training")
+
+            job.update(progress=50, stage="Building reviewed CV dataset")
+            source_dirs = list(reviewed_data_dirs)
+            if root not in source_dirs:
+                source_dirs.append(root)
+            if not source_dirs:
+                raise RuntimeError("CV training source stores are unavailable")
+            from .cv_dataset import export_cv_dataset
+            from .cv_training import train_cv_detector
+            cv_dataset = release / "cv-dataset"
+            export_cv_dataset(source_dirs[0], cv_dataset, seed=int(os.environ.get("SIG_ID_INCREMENTAL_CV_SEED", "4192026")),
+                              additional_data_dirs=[str(path) for path in source_dirs[1:]])
+            job.update(progress=58, stage="Training CV detector")
+            cv_model_path = release / "cv-signal.pt"
+            train_cv_detector(
+                cv_dataset, output_model=cv_model_path,
+                base_model=app.state.cv_model_path,
+                epochs=int(os.environ.get("SIG_ID_INCREMENTAL_CV_EPOCHS", "30")),
+                batch=int(os.environ.get("SIG_ID_INCREMENTAL_CV_BATCH", "8")),
+                device=os.environ.get("SIG_ID_INCREMENTAL_CV_DEVICE") or None,
+                progress_callback=lambda epoch, total: job.update(
+                    progress=58 + int(30 * epoch / max(1, total)),
+                    stage=f"Training CV detector · epoch {epoch}/{total}",
+                ),
+            )
+
+            # Load and validate both artifacts before atomically changing the
+            # durable pointer or either in-memory model.
+            job.update(progress=90, stage="Validating paired models")
+            new_classifier_meta, new_classifier_parameters = load_model(classifier_output)
+            new_detector = YoloSignalDetector(cv_model_path)
+            pointer = {"classifier": str(classifier_output.resolve()), "cv_detector": str(cv_model_path.resolve())}
+            active_models_file.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=active_models_file.parent, delete=False) as stream:
+                json.dump(pointer, stream, indent=2)
+                stream.write("\n")
+                temporary_pointer = Path(stream.name)
+            temporary_pointer.replace(active_models_file)
+            app.state.classifier = {"metadata": new_classifier_meta, "parameters": new_classifier_parameters}
+            app.state.classifier_model_path = pointer["classifier"]
+            app.state.classifier_error = None
+            app.state.cv_detector = new_detector
+            app.state.cv_detector_error = None
+            app.state.cv_model_path = pointer["cv_detector"]
+            app.state.cv_embedding_vectors = None
+            app.state.cv_embedding_entries = None
+            app.state.cv_embedding_index_path = None
+            app.state.cv_embedding_error = "Embedding index needs rebuilding for the newly trained CV model"
+            job.update(status="complete", progress=100, stage="Active", error=None, result={
+                "classifier": pointer["classifier"], "cv_detector": pointer["cv_detector"],
+                "new_classifier_examples": len(new_reviewed),
+                "new_classifier_captures": len(new_capture_ids),
+                "cv_images": json.loads((cv_dataset / "export-report.json").read_text(encoding="utf-8")).get("split_images"),
+            })
+        except Exception as exc:
+            logging.getLogger(__name__).exception("In-app incremental model training failed")
+            job.update(status="failed", stage="failed", error=str(exc), result=None)
+        finally:
+            model_training_lock.release()
+
+    @app.get("/api/models/training/status")
+    def model_training_status() -> dict[str, Any]:
+        return dict(app.state.model_training_job)
+
+    @app.post("/api/models/train", status_code=202)
+    def start_model_training() -> dict[str, Any]:
+        if not model_training_lock.acquire(blocking=False):
+            raise HTTPException(status_code=409, detail="Model training is already running")
+        app.state.model_training_job = {"status": "running", "progress": 0, "stage": "Queued", "error": None, "result": None}
+        try:
+            model_training_executor.submit(_run_incremental_model_training)
+        except Exception:
+            model_training_lock.release()
+            raise
+        return dict(app.state.model_training_job)
 
     @app.get("/api/cv/status")
     def cv_status() -> dict[str, Any]:
@@ -739,6 +1363,7 @@ def create_app(
             "available": detector is not None,
             "configured": bool(app.state.cv_model_path),
             "model_path": app.state.cv_model_path,
+            "active_models_file": str(active_models_file),
             "error": app.state.cv_detector_error,
             "compute_backend": detector.compute_backend if detector else None,
             "model_version": detector.model_version if detector else None,
@@ -795,12 +1420,95 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    @app.get("/api/live/cv-detections")
+    def live_cv_detections(
+        session_id: str = Query(min_length=1, max_length=128),
+        confidence: float | None = Query(default=None, ge=0.0, le=1.0),
+        include_classifier: bool = Query(default=True),
+    ) -> dict[str, Any]:
+        detector = app.state.cv_detector
+        if detector is None:
+            raise HTTPException(status_code=503, detail="CV detector is unavailable")
+        snapshot = live_capture.analysis_audio()
+        if snapshot is None or not snapshot["active"] or snapshot["session_id"] != session_id:
+            raise HTTPException(status_code=409, detail="live capture session is no longer active")
+        channels = int(snapshot["channels"])
+        pcm = np.frombuffer(snapshot["pcm"], dtype="<i2").reshape(-1, channels)
+        mono = pcm.astype(np.float64).mean(axis=1) / 32768.0
+        if len(mono) < FFT_SIZE:
+            return {"session_id": session_id, "warming_up": True, "observed_seconds": len(mono) / snapshot["sample_rate"], "detections": []}
+        try:
+            detections = detector.detect_live_partial(
+                mono, sample_start=int(snapshot["sample_offset"]),
+                total_sample_count=int(snapshot["sample_count"]),
+                sample_rate=int(snapshot["sample_rate"]), confidence=confidence,
+            )
+        except Exception as exc:
+            logging.getLogger(__name__).exception("Live CV detection failed")
+            raise HTTPException(status_code=503, detail=f"live CV detection failed: {exc}") from exc
+        classifier = app.state.classifier
+        classifier_available = classifier is not None
+        if classifier is not None and include_classifier:
+            sample_rate = int(snapshot["sample_rate"])
+            model_window_seconds = float(
+                classifier["metadata"].get("classifier_window_seconds") or CLASSIFIER_WINDOW_SECONDS
+            )
+            target_count = max(1, round(model_window_seconds * sample_rate))
+            ring_start = int(snapshot["sample_offset"])
+            max_scored = set(id(item) for item in sorted(
+                detections, key=lambda item: float(item["confidence"]), reverse=True
+            )[:32])
+            for detection in detections:
+                if id(detection) not in max_scored:
+                    detection["classifier_proposal"] = {
+                        "available": False, "reason": "32-box live classification limit reached",
+                    }
+                    continue
+                local_start = max(0, int(detection["sample_start"]) - ring_start)
+                local_end = min(len(mono), local_start + int(detection["sample_count"]))
+                if len(mono) < target_count:
+                    detection["classifier_proposal"] = {
+                        "available": False,
+                        "reason": f"waiting for a {model_window_seconds:g}-second classifier crop",
+                    }
+                    continue
+                midpoint = (local_start + local_end) // 2
+                crop_start = max(0, min(len(mono) - target_count, midpoint - target_count // 2))
+                crop = mono[crop_start : crop_start + target_count]
+                try:
+                    proposal = _classify_signal_crop(
+                        classifier, crop, sample_rate,
+                        float(detection["frequency_low_hz"]),
+                        float(detection["frequency_high_hz"]),
+                    )
+                    detection["classifier_proposal"] = {
+                        "sample_start": ring_start + crop_start,
+                        "sample_count": target_count,
+                        **proposal,
+                    }
+                except Exception as exc:
+                    logging.getLogger(__name__).exception("Live CV classifier proposal failed")
+                    detection["classifier_proposal"] = {"available": False, "reason": str(exc)}
+        return {
+            "session_id": session_id, "warming_up": False,
+            "observed_seconds": len(mono) / snapshot["sample_rate"],
+            "window_seconds": WINDOW_SECONDS, "padding": "leading_noise",
+            "model_sha256": detector.model_sha256,
+            "preprocessing_version": PREPROCESSING_VERSION,
+            "classifier_available": classifier_available,
+            "classifier_scoring": classifier is not None and include_classifier,
+            "detections": detections,
+        }
+
     @app.get("/api/live/analysis")
     def live_analysis(
         fft_size: int = Query(default=4096, ge=32, le=8192),
         hop_size: int = Query(default=512, ge=1, le=8192),
         max_rows: int = Query(default=640, ge=1, le=8192),
         threshold_db: float = Query(default=18.0, ge=1.0, le=60.0),
+        classifier_crop_count: int = Query(default=1, ge=1, le=20),
+        include_tracks: bool = Query(default=True),
+        include_classifier: bool = Query(default=True),
         auto_trial: bool = Query(default=False),
         include_spectrum: bool = Query(default=True),
     ) -> dict[str, Any]:
@@ -812,6 +1520,8 @@ def create_app(
                 "active": True,
                 "warming_up": True,
                 "sample_count": snapshot["sample_count"],
+                "sample_offset": snapshot["sample_offset"],
+                "sample_rate": snapshot["sample_rate"],
                 "window_sample_count": snapshot["window_sample_count"],
                 "tracks": [],
             }
@@ -828,20 +1538,22 @@ def create_app(
                 sample_offset=snapshot["sample_offset"],
                 total_sample_count=snapshot["sample_count"],
             )
-            detections = detect_tracks(spectrum, threshold_db=threshold_db)
-            registry = app.state.live_track_registry
-            if registry is None or registry.session_id != snapshot["session_id"]:
-                registry = LiveTrackRegistry(snapshot["session_id"])
-                app.state.live_track_registry = registry
-            tracks = registry.update(
-                detections,
-                sample_position=int(snapshot["sample_count"]),
-                sample_rate=int(snapshot["sample_rate"]),
-            )
-            model = app.state.classifier
-            if model is not None and snapshot["sample_rate"] >= 8000:
-                # Score only the portion of each candidate that is still in the
-                # bounded ring, with a strict two-second work cap per track.
+            tracks = []
+            if include_tracks:
+                detections = detect_tracks(spectrum, threshold_db=threshold_db)
+                registry = app.state.live_track_registry
+                if registry is None or registry.session_id != snapshot["session_id"]:
+                    registry = LiveTrackRegistry(snapshot["session_id"])
+                    app.state.live_track_registry = registry
+                tracks = registry.update(
+                    detections,
+                    sample_position=int(snapshot["sample_count"]),
+                    sample_rate=int(snapshot["sample_rate"]),
+                )
+            model = app.state.classifier if include_classifier else None
+            if include_tracks and model is not None and snapshot["sample_rate"] >= 8000:
+                # Score bounded 2-second crops across the candidate's time and
+                # frequency area. The user's crop count controls the consensus.
                 ring_start = int(snapshot["sample_offset"])
                 ring_end = ring_start + len(mono)
                 scoring_tracks = set(
@@ -858,35 +1570,95 @@ def create_app(
                         continue
                     segment_start = max(ring_start, int(track["sample_start"]))
                     segment_end = min(ring_end, int(track["sample_start"]) + int(track["sample_count"]))
-                    segment_start = max(segment_start, segment_end - 2 * int(snapshot["sample_rate"]))
                     if segment_end - segment_start < 1024:
                         track["model_proposal"] = {
                             "available": False,
                             "reason": "candidate has less than 1024 in-ring samples",
                         }
                         continue
-                    left = segment_start - ring_start
-                    right = segment_end - ring_start
+                    selected = mono[segment_start - ring_start : segment_end - ring_start]
+                    sample_rate = int(snapshot["sample_rate"])
+                    model_window_seconds = float(model["metadata"].get("classifier_window_seconds") or CLASSIFIER_WINDOW_SECONDS)
+                    target_count = max(1, round(model_window_seconds * sample_rate))
+                    if len(selected) > target_count:
+                        last_start = len(selected) - target_count
+                        available_crops = max(1, len(selected) // target_count)
+                        offsets = np.asarray([last_start]) if classifier_crop_count == 1 else (
+                            np.linspace(0, available_crops - 1, min(classifier_crop_count, available_crops))
+                            .round().astype(int) * target_count
+                        )
+                        crop_offsets = list(dict.fromkeys(int(offset) for offset in offsets))
+                    else:
+                        crop_offsets = [0]
                     try:
-                        features = extract_features(
-                            mono[left:right],
-                            int(snapshot["sample_rate"]),
-                            feature_version=model["metadata"]["feature_version"],
-                        )
-                        proposal = propose(
-                            features,
-                            model["parameters"],
-                            model["metadata"]["classes"],
-                            threshold=float(model["metadata"]["abstention_threshold"]),
-                            family_threshold=float(model["metadata"]["family_abstention_threshold"]),
-                            novelty_threshold=model["metadata"].get("novelty_distance_threshold"),
-                        )
+                        crop_results = []
+                        for offset in crop_offsets:
+                            crop_values = selected[offset : offset + target_count]
+                            features = extract_features(
+                                crop_values,
+                                sample_rate,
+                                feature_version=model["metadata"]["feature_version"],
+                                classifier_window_seconds=model_window_seconds,
+                                frequency_range_hz=(
+                                    (float(track["frequency_low_hz"]), float(track["frequency_high_hz"]))
+                                    if model["metadata"]["feature_version"] in ROI_FEATURE_VERSIONS
+                                    and track.get("frequency_low_hz") is not None
+                                    and track.get("frequency_high_hz") is not None
+                                    else None
+                                ),
+                            )
+                            crop_results.append({
+                                "sample_start": segment_start + offset,
+                                "sample_count": target_count,
+                                **propose_loaded(features, model["metadata"], model["parameters"]),
+                            })
+                        proposal = max(crop_results, key=lambda item: item["confidence"]).copy()
+                        method_votes: dict[str, list[dict[str, Any]]] = {}
+                        family_votes: dict[str, list[dict[str, Any]]] = {}
+                        for result in crop_results:
+                            if result.get("method"):
+                                method_votes.setdefault(result["method"], []).append(result)
+                            if result.get("family"):
+                                family_votes.setdefault(result["family"], []).append(result)
+                        majority = len(crop_results) // 2 + 1
+                        method_consensus = next(((name, votes) for name, votes in method_votes.items() if len(votes) >= majority), (None, []))
+                        family_consensus = next(((name, votes) for name, votes in family_votes.items() if len(votes) >= majority), (None, []))
+                        if method_consensus[0]:
+                            proposal.update(method_consensus[1][0])
+                            proposal["method"] = method_consensus[0]
+                            proposal["family"] = method_consensus[1][0]["family"]
+                            proposal["consensus_label"] = method_consensus[0]
+                            proposal["consensus_count"] = len(method_consensus[1])
+                            proposal["confidence"] = float(np.mean([item["confidence"] for item in method_consensus[1]]))
+                        elif family_consensus[0]:
+                            proposal["method"] = None
+                            proposal["method_id"] = None
+                            proposal["family"] = family_consensus[0]
+                            proposal["family_abstained"] = False
+                            proposal["abstained"] = True
+                            proposal["consensus_label"] = family_consensus[0]
+                            proposal["consensus_count"] = len(family_consensus[1])
+                            proposal["confidence"] = float(np.mean([item["confidence"] for item in family_consensus[1]]))
+                        else:
+                            proposal["method"] = None
+                            proposal["method_id"] = None
+                            proposal["family"] = None
+                            proposal["family_abstained"] = True
+                            proposal["abstained"] = True
+                            proposal["consensus_label"] = None
+                            proposal["consensus_count"] = 0
+                        proposal["crop_count"] = len(crop_results)
+                        proposal["requested_crop_count"] = classifier_crop_count
+                        proposal["crop_results"] = [
+                            {key: result.get(key) for key in ("sample_start", "sample_count", "method", "method_id", "family", "confidence", "top_candidate", "novelty_rejected")}
+                            for result in crop_results
+                        ]
                         track["model_proposal"] = {
                             "available": True,
                             **proposal,
                             "model_sha256": model["metadata"]["model_sha256"],
-                            "sample_start": segment_start,
-                            "sample_count": segment_end - segment_start,
+                            "sample_start": crop_results[0]["sample_start"],
+                            "sample_count": target_count,
                         }
                     except ValueError as exc:
                         track["model_proposal"] = {"available": False, "reason": str(exc)}
@@ -899,7 +1671,7 @@ def create_app(
                     reverse=True,
                 )
             automatic_trial = None
-            if auto_trial and model is not None:
+            if auto_trial and include_tracks and include_classifier and model is not None:
                 for track in tracks:
                     proposal = track.get("model_proposal", {})
                     if (
@@ -946,6 +1718,10 @@ def create_app(
                 "active": True,
                 "warming_up": False,
                 "session_id": snapshot["session_id"],
+                "sample_offset": snapshot["sample_offset"],
+                "sample_count": snapshot["sample_count"],
+                "window_sample_count": snapshot["window_sample_count"],
+                "sample_rate": snapshot["sample_rate"],
                 "spectrum": spectrum if include_spectrum else None,
                 "tracks": tracks,
                 "automatic_trial": automatic_trial,
@@ -954,14 +1730,133 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    @app.post("/api/live/training-examples", status_code=201)
+    def save_live_training_example(data: LiveTrainingAnnotation) -> dict[str, Any]:
+        snapshot = live_capture.analysis_audio()
+        if snapshot is None or not snapshot["active"] or snapshot["session_id"] != data.session_id:
+            raise HTTPException(status_code=409, detail="that live capture is no longer active")
+        rate = int(snapshot["sample_rate"])
+        window_count = rate * WINDOW_SECONDS
+        if int(snapshot["window_sample_count"]) < window_count:
+            raise HTTPException(status_code=409, detail="wait until a complete 10-second live window is available")
+        ring_start = int(snapshot["sample_offset"])
+        ring_end = ring_start + int(snapshot["window_sample_count"])
+        if data.sample_start < ring_start or data.sample_start + data.sample_count > ring_end:
+            raise HTTPException(status_code=422, detail="the selection has moved outside the current 10-second live window; redraw it")
+        if data.frequency_high_hz > rate / 2 or data.frequency_low_hz >= data.frequency_high_hz:
+            raise HTTPException(status_code=422, detail="frequency bounds must fit below the live audio Nyquist frequency")
+        if int(snapshot["window_sample_count"]) != window_count:
+            pcm = snapshot["pcm"][-window_count * int(snapshot["channels"]) * 2:]
+            ring_start = ring_end - window_count
+        else:
+            pcm = snapshot["pcm"]
+        try:
+            resolved = resolve_mode_label(data.mode_id, {
+                "family": data.family, "method": data.method,
+                "protocol": data.protocol, "variant": data.variant,
+            }, additional_modes=store.accepted_mode_definitions())
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        capture_id = str(uuid4())
+        audio_path = capture_dir / f"{capture_id}.wav"
+        try:
+            with wave.open(str(audio_path), "wb") as wav:
+                wav.setnchannels(int(snapshot["channels"]))
+                wav.setsampwidth(2)
+                wav.setframerate(rate)
+                wav.writeframes(pcm)
+            new_capture_id = store.add_wav_capture(
+                audio_path, source_kind="live",
+                source_metadata={
+                    "auto_review_queue": True,
+                    "window_seconds": WINDOW_SECONDS,
+                    "auto_capture_session_id": data.session_id,
+                    "window_start_sample": ring_start,
+                    "created_from_live_annotation": True,
+                    "training_candidate_requires_coverage_review": True,
+                },
+            )
+            region_id = store.add_region(
+                new_capture_id,
+                sample_start=data.sample_start - ring_start,
+                sample_count=data.sample_count,
+                frequency_low_hz=data.frequency_low_hz,
+                frequency_high_hz=data.frequency_high_hz,
+                label=SignalLabel(
+                    family=resolved["family"], method=resolved["method"],
+                    protocol=resolved["protocol"], variant=resolved["variant"],
+                    mode_id=resolved["mode_id"], source="manual", review_state="pending",
+                    notes=data.notes,
+                    evidence={"source": "live_classify", "live_session_id": data.session_id,
+                              "window_start_sample": ring_start, "registry_version": resolved["registry_version"]},
+                ),
+                origin="manual",
+            )
+            return {"capture_id": new_capture_id, "region_id": region_id,
+                    "sample_rate": rate, "sample_count": window_count,
+                    "message": "Saved a 10-second training candidate. Review full-window coverage before export."}
+        except (ValueError, OSError) as exc:
+            audio_path.unlink(missing_ok=True)
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     @app.post("/api/live/start")
     def start_live_capture(data: LiveCaptureStart) -> dict[str, Any]:
+        if data.capture_mode == "unattended" and app.state.cv_detector is None:
+            if app.state.cv_detector_error:
+                detail = f"CV detector failed to load: {app.state.cv_detector_error}"
+            else:
+                detail = f"No CV detector is loaded; checked active model configuration at {active_models_file}"
+            raise HTTPException(status_code=409, detail=detail)
+
+        def analyze_unattended_window(samples: np.ndarray, sample_rate: int) -> dict[str, Any]:
+            detector = app.state.cv_detector
+            if detector is None:
+                return {"detected": False, "cv_detection_count": 0}
+            image = spectrogram_image(samples, sample_rate)
+            detections = detector.detect(
+                image, sample_start=0, sample_count=len(samples), sample_rate=sample_rate,
+            )
+            methods: list[str] = []
+            classifier = app.state.classifier
+            if classifier is not None:
+                target = max(1, round(float(classifier["metadata"].get("classifier_window_seconds") or CLASSIFIER_WINDOW_SECONDS) * sample_rate))
+                for detection in detections[:4]:
+                    local_start = max(0, int(detection["sample_start"]))
+                    local_end = min(len(samples), local_start + int(detection["sample_count"]))
+                    if local_end - local_start < target:
+                        midpoint = (local_start + local_end) // 2
+                        local_start = max(0, min(len(samples) - target, midpoint - target // 2))
+                        local_end = min(len(samples), local_start + target)
+                    if local_end - local_start < target:
+                        continue
+                    features = extract_features(
+                        samples[local_start:local_start + target], sample_rate,
+                        feature_version=classifier["metadata"]["feature_version"],
+                        classifier_window_seconds=float(classifier["metadata"].get("classifier_window_seconds") or CLASSIFIER_WINDOW_SECONDS),
+                        frequency_range_hz=(
+                            (float(detection["frequency_low_hz"]), float(detection["frequency_high_hz"]))
+                            if classifier["metadata"].get("feature_version") in ROI_FEATURE_VERSIONS else None
+                        ),
+                    )
+                    proposal = propose_loaded(features, classifier["metadata"], classifier["parameters"])
+                    if proposal.get("method"):
+                        methods.append(str(proposal["method"]))
+            return {
+                "detected": bool(detections),
+                "cv_detection_count": len(detections),
+                "top_confidences": sorted((float(item["confidence"]) for item in detections), reverse=True),
+                "classifier_methods": methods,
+            }
+
         try:
             started = live_capture.start(
                 device_id=data.device_id,
                 sample_rate=data.sample_rate,
                 channels=data.channels,
                 max_duration_seconds=data.max_duration_seconds,
+                capture_mode=data.capture_mode,
+                noise_interval_seconds=data.noise_interval_seconds,
+                window_analyzer=analyze_unattended_window if data.capture_mode == "unattended" else None,
             )
             app.state.live_track_registry = LiveTrackRegistry(started["session_id"])
             return started
@@ -977,9 +1872,142 @@ def create_app(
         try:
             result = live_capture.stop()
             app.state.fldigi_trials.cancel()
-            store.associate_decoder_runs(result["session_id"], result["capture"]["id"])
+            if result.get("capture"):
+                store.associate_decoder_runs(result["session_id"], result["capture"]["id"])
             return result
         except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.get("/api/live/review-queue")
+    def live_review_queue() -> dict[str, Any]:
+        pending = []
+        manually_reviewed = []
+        coverage_reviewed = 0
+        re_review_due = 0
+        now = datetime.now(timezone.utc)
+        for capture in store.list_captures():
+            if not capture["source_metadata"].get("auto_review_queue"):
+                continue
+            manual_reviewed_at = capture["source_metadata"].get("auto_review_queue_reviewed_utc")
+            records = store.scene_coverages(capture["id"])
+            valid_reviews = [record for record in records if (
+                not record["is_stale"] and record["task"] == "detection"
+                and record["sample_start"] == 0
+                and record["sample_count"] >= capture["sample_count"]
+                and record["state"] in {"complete", "partial"}
+                and (record["frequency_low_hz"] is None
+                     or (record["frequency_low_hz"] <= 0 and record["frequency_high_hz"] >= MAX_FREQUENCY_HZ))
+            )]
+            complete_review = bool(valid_reviews)
+            if manual_reviewed_at:
+                last_reviewed_at = manual_reviewed_at
+            elif complete_review:
+                last_reviewed_at = max(record["created_utc"] for record in valid_reviews)
+            else:
+                last_reviewed_at = None
+            review_is_due = False
+            if last_reviewed_at:
+                try:
+                    reviewed_utc = datetime.fromisoformat(last_reviewed_at.replace("Z", "+00:00"))
+                    review_is_due = now - reviewed_utc >= RE_REVIEW_INTERVAL
+                except (TypeError, ValueError):
+                    review_is_due = True
+            if review_is_due:
+                re_review_due += 1
+                pending.append({**capture, "source_metadata": {
+                    **capture["source_metadata"], "re_review_due": True,
+                    "last_reviewed_utc": last_reviewed_at,
+                }})
+                continue
+            if manual_reviewed_at:
+                manually_reviewed.append(capture)
+                continue
+            if complete_review:
+                coverage_reviewed += 1
+            else:
+                pending.append(capture)
+        pending.sort(key=lambda item: item["created_utc"])
+        manually_reviewed.sort(key=lambda item: item["source_metadata"].get("auto_review_queue_reviewed_utc", ""), reverse=True)
+        return {
+            "pending": pending,
+            "pending_count": len(pending),
+            "reviewed_count": coverage_reviewed + len(manually_reviewed),
+            "re_review_due_count": re_review_due,
+            "re_review_interval_days": RE_REVIEW_INTERVAL.days,
+            "manually_reviewed": manually_reviewed,
+        }
+
+    def hub_request(path: str, *, method: str = "GET", payload: dict[str, Any] | None = None) -> tuple[bytes, str]:
+        base_url = os.environ.get("SIG_ID_HUB_URL", "").rstrip("/")
+        token = os.environ.get("SIG_ID_HUB_REVIEWER_TOKEN", "")
+        if not base_url or not token:
+            raise HTTPException(status_code=503, detail="Hub review is not configured; set SIG_ID_HUB_URL and SIG_ID_HUB_REVIEWER_TOKEN for the local workbench service")
+        request_headers = {"Authorization": f"Bearer {token}"}
+        body = None
+        if payload is not None:
+            body = json.dumps(payload).encode("utf-8")
+            request_headers["Content-Type"] = "application/json"
+        hub_request_obj = urllib.request.Request(base_url + path, data=body, headers=request_headers, method=method)
+        try:
+            with urllib.request.urlopen(hub_request_obj, timeout=8) as response:
+                return response.read(), response.headers.get("Content-Type", "application/octet-stream")
+        except urllib.error.HTTPError as exc:
+            detail = exc.read(2000).decode("utf-8", errors="replace")
+            raise HTTPException(status_code=exc.code, detail=f"Hub request failed: {detail}") from exc
+        except (urllib.error.URLError, TimeoutError) as exc:
+            raise HTTPException(status_code=502, detail=f"Hub is unavailable: {exc}") from exc
+
+    @app.get("/api/hub/review-queue")
+    def hub_review_queue() -> list[dict[str, Any]]:
+        payload, _ = hub_request("/api/review/queue")
+        try:
+            result = json.loads(payload)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise HTTPException(status_code=502, detail="Hub returned invalid review queue data") from exc
+        if not isinstance(result, list):
+            raise HTTPException(status_code=502, detail="Hub returned an unexpected review queue")
+        return result
+
+    @app.get("/api/hub/submissions/{submission_id}/audio")
+    def hub_review_audio(submission_id: str) -> Response:
+        if not submission_id or any(char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_" for char in submission_id):
+            raise HTTPException(status_code=422, detail="invalid Hub submission ID")
+        payload, content_type = hub_request(f"/api/submissions/{urllib.parse.quote(submission_id, safe='')}/audio")
+        return Response(content=payload, media_type=content_type)
+
+    @app.post("/api/hub/submissions/{submission_id}/annotations/{annotation_id}/reviews")
+    def submit_hub_review(submission_id: str, annotation_id: str, data: dict[str, Any]) -> dict[str, Any]:
+        for value in (submission_id, annotation_id):
+            if not value or any(char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_" for char in value):
+                raise HTTPException(status_code=422, detail="invalid Hub review ID")
+        path = f"/api/submissions/{urllib.parse.quote(submission_id, safe='')}/annotations/{urllib.parse.quote(annotation_id, safe='')}/reviews"
+        payload, _ = hub_request(path, method="POST", payload=data)
+        try:
+            result = json.loads(payload)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise HTTPException(status_code=502, detail="Hub returned invalid review data") from exc
+        if not isinstance(result, dict):
+            raise HTTPException(status_code=502, detail="Hub returned an unexpected review response")
+        return result
+
+    @app.post("/api/live/review-queue/{capture_id}/mark-reviewed")
+    def mark_live_reviewed(capture_id: str) -> dict[str, Any]:
+        try:
+            capture = store.set_live_reviewed(capture_id, True)
+            return {"reviewed": True, "capture_id": capture["id"]}
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="capture not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post("/api/live/review-queue/{capture_id}/reopen")
+    def reopen_live_review(capture_id: str) -> dict[str, Any]:
+        try:
+            capture = store.set_live_reviewed(capture_id, False)
+            return {"reviewed": False, "capture_id": capture["id"]}
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="capture not found") from exc
+        except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.get("/api/fldigi/status")
@@ -1000,6 +2028,143 @@ def create_app(
             }
         except Exception as exc:
             return {"connected": False, "error": str(exc)}
+
+    @app.get("/api/decoder-backends")
+    def decoder_backends_status() -> dict[str, Any]:
+        return {
+            "backends": decoder_backends_registry.info(),
+            "plugin_errors": decoder_backends_registry.load_errors,
+            "extension_group": decoder_backends_registry.ENTRY_POINT_GROUP,
+        }
+
+    @app.get("/api/decoder-backends/{backend_id}/events")
+    def decoder_backend_events(backend_id: str, limit: int = Query(default=100, ge=1, le=1000)) -> list[dict[str, Any]]:
+        try:
+            events = decoder_backends_registry.drain_events(backend_id, limit=limit)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"decoder event source failed: {exc}") from exc
+        result = []
+        for event in events:
+            products = []
+            for product in event.products:
+                if isinstance(product.content, bytes):
+                    if len(product.content) > 8 * 1024 * 1024:
+                        continue
+                    content, encoding = base64.b64encode(product.content).decode("ascii"), "base64"
+                else:
+                    content, encoding = product.content, "utf-8"
+                products.append({"kind": product.kind, "content": content, "encoding": encoding,
+                                 "media_type": product.media_type, "metadata": product.metadata})
+            result.append({"backend_id": event.backend_id, "mode_id": event.mode_id,
+                           "native_mode": event.native_mode, "observed_utc": event.observed_utc,
+                           "frequency_hz": event.frequency_hz, "snr_db": event.snr_db,
+                           "metadata": event.metadata, "products": products})
+        return result
+
+    @app.post("/api/captures/{capture_id}/decoder-backends/{backend_id}/decode")
+    def decode_with_native_backend(
+        capture_id: str, backend_id: str, settings: NativeDecoderRequestBody,
+    ) -> dict[str, Any]:
+        try:
+            capture = store.capture(capture_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="capture not found") from exc
+        if settings.sample_start + settings.sample_count > int(capture["sample_count"]):
+            raise HTTPException(status_code=422, detail="selected region exceeds the saved capture")
+        if settings.region_id is not None:
+            region = next((item for item in store.regions(capture_id) if item["id"] == settings.region_id), None)
+            if region is None or region["lineage_state"] != "active":
+                raise HTTPException(status_code=422, detail="decoder region must be active in this capture")
+            if (settings.sample_start, settings.sample_count) != (region["sample_start"], region["sample_count"]):
+                raise HTTPException(status_code=422, detail="decoder sample bounds must match the linked region")
+        backend_status = next((item for item in decoder_backends_registry.info() if item["backend_id"] == backend_id.casefold()), None)
+        if backend_status is None:
+            raise HTTPException(status_code=404, detail="decoder backend is not registered")
+        if not backend_status.get("connected"):
+            raise HTTPException(status_code=503, detail=backend_status.get("note") or "decoder backend is unavailable")
+        binding = decoder_backends_registry.mode_binding(backend_id, settings.mode_id)
+        if binding is None or not binding.selectable:
+            raise HTTPException(status_code=422, detail="selected label is not an available mode for this decoder backend")
+        try:
+            sample_rate, samples = read_audio_range(capture["audio_path"], settings.sample_start, settings.sample_count)
+            with tempfile.TemporaryDirectory(prefix="sig-id-native-decoder-") as temporary:
+                audio_path = Path(temporary) / "selected-window.wav"
+                pcm = np.clip(np.rint(samples * 32767.0), -32768, 32767).astype("<i2")
+                with wave.open(str(audio_path), "wb") as wav:
+                    wav.setnchannels(1)
+                    wav.setsampwidth(2)
+                    wav.setframerate(sample_rate)
+                    wav.writeframes(pcm.tobytes())
+                result = decoder_backends_registry.decode(backend_id, DecoderRequest(
+                    audio_path=audio_path,
+                    sample_rate=sample_rate,
+                    mode_id=settings.mode_id,
+                    native_mode=binding.native_mode,
+                    sample_start=settings.sample_start,
+                    sample_count=settings.sample_count,
+                    carrier_hz=settings.carrier_hz,
+                    metadata={"capture_id": capture_id, "capture_sha256": capture["sha256"],
+                              "region_id": settings.region_id},
+                ))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except Exception as exc:
+            logging.getLogger(__name__).exception("Native decoder backend %s failed", backend_id)
+            raise HTTPException(status_code=503, detail=f"native decoder failed: {exc}") from exc
+        products = []
+        for product in result.products:
+            if isinstance(product.content, bytes):
+                if len(product.content) > 8 * 1024 * 1024:
+                    raise HTTPException(status_code=413, detail="decoder output artifact exceeds the 8 MiB response limit")
+                content = base64.b64encode(product.content).decode("ascii")
+                encoding = "base64"
+            else:
+                content = product.content
+                encoding = "utf-8"
+            products.append({"kind": product.kind, "content": content, "encoding": encoding,
+                             "media_type": product.media_type, "metadata": product.metadata})
+        text_output = "\n".join(
+            product.content for product in result.products
+            if product.kind == "text" and isinstance(product.content, str)
+        )
+        product_kinds = sorted({product.kind for product in result.products})
+        run_id = store.create_decoder_run(
+            session_id=f"saved-capture:{capture_id}",
+            capture_id=capture_id,
+            region_id=settings.region_id,
+            track_id=f"native:{backend_id}:{settings.sample_start}:{settings.sample_count}",
+            sample_start=settings.sample_start,
+            sample_count=settings.sample_count,
+            sample_rate=sample_rate,
+            carrier_hz=settings.carrier_hz,
+            modulation_hypothesis="manual native-backend selection",
+            backend=result.backend_id,
+            modes=[result.native_mode],
+            attempted_modes=[result.native_mode],
+            current_mode=result.native_mode,
+            output_offset=0,
+            status=result.status,
+            note=result.note or f"Native decoder returned {', '.join(product_kinds) or 'no'} products; review before treating as a label.",
+            output_scope="isolated_native_window",
+            association="exact_selected_capture_window",
+        )
+        store.update_decoder_run(run_id, {
+            "attempted_modes": [result.native_mode], "current_mode": result.native_mode,
+            "output_offset": 0, "output_end": len(text_output), "text": text_output,
+            "status": result.status,
+            "note": result.note or f"Native decoder returned {', '.join(product_kinds) or 'no'} products; review before treating as a label.",
+        })
+        return {
+            "run_id": run_id,
+            "backend_id": result.backend_id, "application": result.application,
+            "mode_id": result.mode_id, "native_mode": result.native_mode,
+            "status": result.status, "version": result.version, "note": result.note,
+            "capture_id": capture_id, "sample_start": settings.sample_start,
+            "sample_count": settings.sample_count, "sample_rate": sample_rate,
+            "products": products,
+        }
 
     @app.get("/api/fldigi/modes")
     def fldigi_modes() -> list[str]:
@@ -1087,8 +2252,10 @@ def create_app(
             modes = fldigi.mode_names()
         except Exception as exc:
             raise HTTPException(status_code=503, detail=f"Fldigi mode catalog unavailable: {exc}") from exc
-        if settings.mode not in modes:
-            raise HTTPException(status_code=422, detail="selected mode is not available in the Fldigi catalog")
+        try:
+            candidates = _checked_replay_modes(settings, modes)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         channels = int(snapshot["channels"])
         pcm = np.frombuffer(snapshot["pcm"], dtype="<i2").reshape(-1, channels)
         left = settings.sample_start - window_start
@@ -1104,17 +2271,18 @@ def create_app(
                 session_id=session_id, track_id=track_id,
                 sample_start=settings.sample_start, sample_count=settings.sample_count,
                 sample_rate=int(snapshot["sample_rate"]), modulation_hypothesis="unknown",
-                backend="fldigi-isolated-replay", modes=[settings.mode], attempted_modes=[],
-                current_mode=settings.mode, output_offset=0, status="queued",
-                note="Waiting to replay the selected live track window in an isolated Fldigi instance.",
+                backend="fldigi-isolated-replay", modes=candidates, attempted_modes=[],
+                current_mode=candidates[0], output_offset=0, status="queued",
+                note=("Waiting for isolated RSID-assisted mode identification." if settings.auto_identify
+                      else "Waiting to replay the selected live track window in an isolated Fldigi instance."),
                 carrier_hz=settings.carrier_hz,
                 output_scope="isolated_live_window_replay", association="exact_live_track_window",
             )
             decode_executor.submit(
-                run_region_replay, run_id, settings, int(snapshot["sample_rate"]),
+                run_region_replay, run_id, settings.model_copy(update={"candidate_modes": candidates}), int(snapshot["sample_rate"]),
                 lambda: samples.tolist(),
             )
-            return {"run_id": run_id, "status": "queued", "mode": settings.mode, "carrier_hz": settings.carrier_hz}
+            return {"run_id": run_id, "status": "queued", "mode": candidates[0], "modes": candidates, "auto_identify": settings.auto_identify, "carrier_hz": settings.carrier_hz}
         except Exception as exc:
             decode_job_lock.release()
             raise HTTPException(status_code=503, detail=f"could not queue live track replay: {exc}") from exc
@@ -1172,8 +2340,10 @@ def create_app(
             modes = fldigi.mode_names()
         except Exception as exc:
             raise HTTPException(status_code=503, detail=f"Fldigi mode catalog unavailable: {exc}") from exc
-        if settings.mode not in modes:
-            raise HTTPException(status_code=422, detail="selected mode is not available in the Fldigi catalog")
+        try:
+            candidates = _checked_replay_modes(settings, modes)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         if not decode_job_lock.acquire(blocking=False):
             raise HTTPException(status_code=409, detail="an isolated Fldigi replay is already running")
         track_id = settings.track_id or f"capture:{capture_id}:samples:{settings.sample_start}:{settings.sample_count}"
@@ -1183,17 +2353,21 @@ def create_app(
                 track_id=track_id, sample_start=settings.sample_start,
                 sample_count=settings.sample_count, sample_rate=int(capture["sample_rate"]),
                 modulation_hypothesis="unknown", backend="fldigi-isolated-replay",
-                modes=[settings.mode], attempted_modes=[], current_mode=settings.mode,
+                modes=candidates, attempted_modes=[], current_mode=candidates[0],
                 output_offset=0, status="queued",
-                note="Waiting to replay the selected saved-capture region.",
+                note=("Waiting for isolated RSID-assisted mode identification." if settings.auto_identify
+                      else "Waiting to replay the selected saved-capture region."),
                 carrier_hz=settings.carrier_hz,
                 region_id=settings.region_id,
                 classifier_evidence=(linked_region["evidence"].get("classifier_proposal") if linked_region else None),
                 detector_evidence=saved_detector_evidence,
                 output_scope="isolated_region_replay", association="exact_capture_window",
             )
-            decode_executor.submit(run_saved_replay, run_id, capture, settings)
-            return {"run_id": run_id, "status": "queued", "mode": settings.mode, "carrier_hz": settings.carrier_hz}
+            decode_executor.submit(
+                run_saved_replay, run_id, capture,
+                settings.model_copy(update={"candidate_modes": candidates}),
+            )
+            return {"run_id": run_id, "status": "queued", "mode": candidates[0], "modes": candidates, "auto_identify": settings.auto_identify, "carrier_hz": settings.carrier_hz}
         except Exception as exc:
             decode_job_lock.release()
             raise HTTPException(status_code=503, detail=f"could not queue the selected-region replay: {exc}") from exc
@@ -1319,6 +2493,27 @@ def create_app(
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="capture not found") from exc
 
+    @app.delete("/api/captures/{capture_id}")
+    def delete_capture(capture_id: str) -> dict[str, bool]:
+        try:
+            capture = store.capture(capture_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="capture not found") from exc
+        if not capture["source_metadata"].get("auto_review_queue"):
+            raise HTTPException(status_code=409, detail="only queued live review samples can be deleted here")
+        audio_path = Path(capture["audio_path"]).resolve()
+        try:
+            audio_path.relative_to(capture_dir.resolve())
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail="review sample is outside the managed capture folder") from exc
+        try:
+            audio_path.unlink(missing_ok=True)
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail=f"could not remove review sample audio: {exc}") from exc
+        if not store.delete_capture(capture_id):
+            raise HTTPException(status_code=404, detail="capture not found")
+        return {"deleted": True}
+
     @app.get("/api/captures/{capture_id}/audio")
     def audio(capture_id: str, request: Request) -> Response:
         try:
@@ -1390,6 +2585,8 @@ def create_app(
         fft_size: int = 4096,
         hop_size: int = 512,
         max_rows: int = 512,
+        sample_start: int = 0,
+        window_sample_count: int | None = None,
     ) -> dict[str, Any]:
         try:
             capture = store.capture(capture_id)
@@ -1401,6 +2598,8 @@ def create_app(
                 fft_size=fft_size,
                 hop_size=hop_size,
                 max_rows=max_rows,
+                sample_start=sample_start,
+                window_sample_count=window_sample_count,
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -1423,6 +2622,48 @@ def create_app(
         except Exception as exc:
             logging.getLogger(__name__).exception("Optional CV detection failed for capture %s", capture_id)
             raise HTTPException(status_code=503, detail=f"CV inference failed: {exc}") from exc
+        classifier = app.state.classifier
+        classifier_available = classifier is not None
+        if classifier is not None:
+            sample_rate = int(capture["sample_rate"])
+            window_seconds = float(
+                classifier["metadata"].get("classifier_window_seconds") or CLASSIFIER_WINDOW_SECONDS
+            )
+            target_count = max(1, round(window_seconds * sample_rate))
+            max_scored = set(id(item) for item in sorted(
+                detections, key=lambda item: float(item["confidence"]), reverse=True
+            )[:32])
+            for detection in detections:
+                if id(detection) not in max_scored:
+                    detection["classifier_proposal"] = {
+                        "available": False, "reason": "32-box classification limit reached",
+                    }
+                    continue
+                if int(capture["sample_count"]) < target_count:
+                    detection["classifier_proposal"] = {
+                        "available": False,
+                        "reason": f"capture is shorter than a {window_seconds:g}-second classifier crop",
+                    }
+                    continue
+                midpoint = int(detection["sample_start"]) + int(detection["sample_count"]) // 2
+                crop_start = max(0, min(int(capture["sample_count"]) - target_count,
+                                        midpoint - target_count // 2))
+                try:
+                    crop_rate, crop = read_audio_range(capture["audio_path"], crop_start, target_count)
+                    detection["classifier_proposal"] = {
+                        "sample_start": crop_start,
+                        "sample_count": target_count,
+                        **_classify_signal_crop(
+                            classifier, crop, crop_rate,
+                            float(detection["frequency_low_hz"]),
+                            float(detection["frequency_high_hz"]),
+                        ),
+                    }
+                except Exception as exc:
+                    logging.getLogger(__name__).exception(
+                        "Classifier proposal failed for CV detection in capture %s", capture_id,
+                    )
+                    detection["classifier_proposal"] = {"available": False, "reason": str(exc)}
         for detection in detections:
             detection["proposal_id"] = cv_proposal_id(detection)
         return {
@@ -1434,6 +2675,7 @@ def create_app(
             "window_stride_seconds": WINDOW_STRIDE_SECONDS,
             "overlap_deduplication_iou": OVERLAP_DEDUP_IOU,
             "confidence_threshold": detector.confidence_threshold,
+            "classifier_available": classifier_available,
             "detections": detections,
             "dismissed_proposals": store.cv_proposal_decisions(
                 capture_id, model_sha256=detector.model_sha256,
@@ -1579,6 +2821,7 @@ def create_app(
         capture_id: str, capture: dict[str, Any], sample_start: int,
         classified_sample_count: int, selection_sample_count: int,
         frequency_low_hz: float | None = None, frequency_high_hz: float | None = None,
+        crop_count: int = 1,
     ) -> dict[str, Any]:
         if app.state.classifier is None:
             raise HTTPException(status_code=503, detail="no valid modulation model is configured")
@@ -1593,8 +2836,12 @@ def create_app(
             not 0 <= frequency_low_hz < frequency_high_hz <= int(capture["sample_rate"]) / 2
         ):
             raise ValueError("classifier frequency bounds are invalid for this capture")
+        model = app.state.classifier
+        feature_version = model["metadata"]["feature_version"]
+        if not 1 <= crop_count <= 20:
+            raise ValueError("classifier crop count must be between 1 and 20")
         end = sample_start + classified_sample_count
-        values: list[float] = []
+        selected_values: list[float] = []
         for block in WavSource(capture["audio_path"]).blocks():
             block_end = block.first_sample + block.sample_count
             if block_end <= sample_start:
@@ -1603,43 +2850,108 @@ def create_app(
                 break
             left = max(0, sample_start - block.first_sample)
             right = min(block.sample_count, end - block.first_sample)
-            values.extend(block.samples[left:right])
-        model = app.state.classifier
-        feature_version = model["metadata"]["feature_version"]
+            selected_values.extend(block.samples[left:right])
+        sample_rate = int(capture["sample_rate"])
+        classifier_window_seconds = float(model["metadata"].get("classifier_window_seconds") or CLASSIFIER_WINDOW_SECONDS)
+        target_count = max(1, round(sample_rate * classifier_window_seconds))
+        crop_ranges: list[tuple[int, list[float]]] = []
+        if model["metadata"].get("classifier_window_seconds") is not None:
+            if len(selected_values) > target_count:
+                last_start = len(selected_values) - target_count
+                available_crops = max(1, len(selected_values) // target_count)
+                offsets = np.asarray([last_start // 2]) if crop_count == 1 else (
+                    np.linspace(0, available_crops - 1, min(crop_count, available_crops))
+                    .round().astype(int) * target_count
+                )
+                unique_offsets = list(dict.fromkeys(int(offset) for offset in offsets))
+                crop_ranges = [(sample_start + offset, selected_values[offset : offset + target_count]) for offset in unique_offsets]
+            else:
+                crop_ranges = [(sample_start, selected_values)]
+        else:
+            crop_ranges = [(sample_start, selected_values)]
         classifier_frequency_range = None
-        if feature_version == ROI_FEATURE_VERSION:
+        if feature_version in ROI_FEATURE_VERSIONS:
             classifier_frequency_range = (
                 (frequency_low_hz, frequency_high_hz)
                 if frequency_low_hz is not None
                 else (200.0, min(3800.0, int(capture["sample_rate"]) / 2 - 20.0))
             )
-        features = extract_features(
-            values,
-            int(capture["sample_rate"]),
-            feature_version=feature_version,
-            frequency_range_hz=classifier_frequency_range,
-        )
-        result = propose(
-            features,
-            model["parameters"],
-            model["metadata"]["classes"],
-            threshold=float(model["metadata"]["abstention_threshold"]),
-            family_threshold=float(model["metadata"]["family_abstention_threshold"]),
-            novelty_threshold=model["metadata"].get("novelty_distance_threshold"),
-        )
+        crop_results = []
+        for crop_start, crop_values in crop_ranges:
+            features = extract_features(
+                crop_values,
+                sample_rate,
+                feature_version=feature_version,
+                frequency_range_hz=classifier_frequency_range,
+                classifier_window_seconds=classifier_window_seconds,
+            )
+            crop_results.append({
+                "sample_start": crop_start,
+                "sample_count": target_count if feature_version in FIXED_WINDOW_FEATURE_VERSIONS else len(crop_values),
+                **propose_loaded(features, model["metadata"], model["parameters"]),
+            })
+        result = max(crop_results, key=lambda item: item["confidence"]).copy()
+        method_votes: dict[str, list[dict[str, Any]]] = {}
+        family_votes: dict[str, list[dict[str, Any]]] = {}
+        for crop_result in crop_results:
+            if crop_result["method"]:
+                method_votes.setdefault(crop_result["method"], []).append(crop_result)
+            if crop_result["family"]:
+                family_votes.setdefault(crop_result["family"], []).append(crop_result)
+        majority = len(crop_results) // 2 + 1
+        method_consensus = next(((name, votes) for name, votes in method_votes.items() if len(votes) >= majority), (None, []))
+        family_consensus = next(((name, votes) for name, votes in family_votes.items() if len(votes) >= majority), (None, []))
+        if method_consensus[0]:
+            result.update(method_consensus[1][0])
+            result["method"] = method_consensus[0]
+            result["method_id"] = method_consensus[1][0]["method_id"]
+            result["family"] = method_consensus[1][0]["family"]
+            result["abstained"] = False
+            result["consensus_label"] = method_consensus[0]
+            result["consensus_count"] = len(method_consensus[1])
+            result["confidence"] = float(np.mean([vote["confidence"] for vote in method_consensus[1]]))
+        elif family_consensus[0]:
+            result["method"] = None
+            result["method_id"] = None
+            result["family"] = family_consensus[0]
+            result["family_confidence"] = float(np.mean([vote["family_confidence"] for vote in family_consensus[1]]))
+            result["family_abstained"] = False
+            result["abstained"] = True
+            result["consensus_label"] = family_consensus[0]
+            result["consensus_count"] = len(family_consensus[1])
+            result["confidence"] = float(np.mean([vote["confidence"] for vote in family_consensus[1]]))
+        else:
+            result["method"] = None
+            result["method_id"] = None
+            result["family"] = None
+            result["family_abstained"] = True
+            result["abstained"] = True
+            result["consensus_label"] = None
+            result["consensus_count"] = 0
+        result["crop_count"] = len(crop_results)
+        result["requested_crop_count"] = crop_count
+        result["crop_results"] = [
+            {key: crop.get(key) for key in ("sample_start", "sample_count", "method", "method_id", "family", "confidence", "top_candidate", "novelty_rejected")}
+            for crop in crop_results
+        ]
+        result["consensus"] = bool(result.get("method") or result.get("family"))
         return {
             **result,
             "model_sha256": model["metadata"]["model_sha256"],
             "feature_version": model["metadata"]["feature_version"],
             "capture_id": capture_id,
             "sample_start": sample_start,
-            "sample_count": len(values),
+            "sample_count": classified_sample_count,
             "selection_sample_count": selection_sample_count,
             "selection_frequency_range_hz": [frequency_low_hz, frequency_high_hz],
             "feature_frequency_scope": (
-                "roi_bandpass_expanded" if feature_version == ROI_FEATURE_VERSION and frequency_low_hz is not None
-                else "full_audio_passband" if feature_version != ROI_FEATURE_VERSION
+                "roi_bandpass_expanded" if feature_version in ROI_FEATURE_VERSIONS and frequency_low_hz is not None
+                else "full_audio_passband" if feature_version not in ROI_FEATURE_VERSIONS
                 else "full_range_roi_bandpass"
+            ),
+            "classifier_input_duration_seconds": (
+                float(model["metadata"].get("classifier_window_seconds") or CLASSIFIER_WINDOW_SECONDS)
+                if model["metadata"].get("classifier_window_seconds") is not None else len(selected_values) / sample_rate
             ),
             "capture_sha256": capture["sha256"],
         }
@@ -1656,6 +2968,7 @@ def create_app(
                 min(settings.sample_count, int(capture["sample_count"]) - settings.sample_start),
                 settings.sample_count,
                 settings.frequency_low_hz, settings.frequency_high_hz,
+                settings.crop_count,
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -1944,6 +3257,30 @@ def create_app(
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="capture not found") from exc
 
+    @app.get("/api/signal-identities")
+    def get_signal_identities() -> list[dict[str, Any]]:
+        return store.signal_identities()
+
+    @app.delete("/api/captures/{capture_id}/regions/{region_id}")
+    def delete_region(
+        capture_id: str, region_id: str,
+        expected_revision: int = Query(ge=1),
+        expected_geometry_revision: int = Query(ge=1),
+    ) -> dict[str, Any]:
+        try:
+            store.delete_region(
+                capture_id, region_id,
+                expected_revision=expected_revision,
+                expected_geometry_revision=expected_geometry_revision,
+            )
+            return {"deleted": True, "region_id": region_id}
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="capture or region not found") from exc
+        except LabelRevisionConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
     @app.get("/api/captures/{capture_id}/bit-annotations")
     def get_bit_annotations(capture_id: str) -> list[dict[str, Any]]:
         try:
@@ -1987,7 +3324,7 @@ def create_app(
     @app.get("/api/captures/{capture_id}/regions/{region_id}/history")
     def region_history(capture_id: str, region_id: str) -> list[dict[str, Any]]:
         try:
-            if not any(region["id"] == region_id for region in store.regions(capture_id)):
+            if not store.region_exists(capture_id, region_id):
                 raise KeyError("region not in this capture")
             return store.label_history(region_id)
         except KeyError as exc:
@@ -1995,7 +3332,19 @@ def create_app(
 
     @app.get("/api/modes")
     def search_modes(q: str = Query(min_length=1, max_length=80), limit: int = Query(default=20, ge=1, le=50)) -> dict[str, Any]:
-        return {"registry_version": MODE_REGISTRY_VERSION, "modes": find_modes(q, limit=limit, additional_modes=store.accepted_mode_definitions())}
+        modes = find_modes(q, limit=limit, additional_modes=store.accepted_mode_definitions())
+        backends = {item["backend_id"]: item for item in decoder_backends_registry.info()}
+        for mode in modes:
+            backend = backends.get(mode.get("native_backend_id"))
+            if backend is None:
+                continue
+            binding = next((item for item in backend.get("modes", []) if item.get("mode_id") == mode["id"]), None)
+            if binding and backend.get("connected"):
+                mode["decoder_status"] = "native decoder ready" if binding.get("selectable") else "native live decoder linked"
+                mode["backend_selectable"] = bool(binding.get("selectable"))
+            else:
+                mode["decoder_status"] = "native decoder registered; this mode is not selectable"
+        return {"registry_version": MODE_REGISTRY_VERSION, "modes": modes}
 
     @app.get("/api/mode-proposals")
     def list_mode_proposals() -> list[dict[str, Any]]:
@@ -2037,13 +3386,18 @@ def create_app(
                     capture_id, store.capture(capture_id), proposal.sample_start,
                     proposal.sample_count, proposal.selection_sample_count,
                     proposal.frequency_low_hz, proposal.frequency_high_hz,
+                    proposal.crop_count,
                 )
             resolved = resolve_mode_label(data.mode_id, {
                 "family": data.family, "method": data.method,
                 "protocol": data.protocol, "variant": data.variant,
             }, additional_modes=store.accepted_mode_definitions())
             has_label = any((resolved["family"], resolved["method"], resolved["protocol"], resolved["variant"]))
+            if data.identity_unknown_confirmed and has_label:
+                raise ValueError("an explicitly unknown label cannot also contain a mode or taxonomy")
             label_evidence = {"reviewed_from_revision": data.expected_revision}
+            if data.identity_unknown_confirmed:
+                label_evidence["identity_unknown_confirmed"] = True
             if resolved["mode_id"]:
                 label_evidence["mode_registry_version"] = resolved["registry_version"]
             label_evidence.update({
@@ -2058,8 +3412,8 @@ def create_app(
             store.revise_label(region_id, SignalLabel(
                 family=resolved["family"], method=resolved["method"], protocol=resolved["protocol"], variant=resolved["variant"],
                 mode_id=resolved["mode_id"], notes=data.notes,
-                source="human" if has_label else "unknown",
-                review_state="accepted" if has_label else "pending",
+                source="human" if has_label or data.identity_unknown_confirmed else "unknown",
+                review_state="accepted" if has_label or data.identity_unknown_confirmed else "pending",
                 evidence=label_evidence,
             ), expected_revision=data.expected_revision)
             return next(region for region in store.regions(capture_id) if region["id"] == region_id)
@@ -2073,7 +3427,7 @@ def create_app(
     @app.get("/api/captures/{capture_id}/regions/{region_id}/feedback")
     def region_feedback_history(capture_id: str, region_id: str) -> list[dict[str, Any]]:
         try:
-            if not any(region["id"] == region_id for region in store.regions(capture_id)):
+            if not store.region_exists(capture_id, region_id):
                 raise KeyError("region not in this capture")
             return store.feedback_history(region_id)
         except KeyError as exc:
@@ -2082,7 +3436,7 @@ def create_app(
     @app.get("/api/captures/{capture_id}/regions/{region_id}/geometry")
     def region_geometry_history(capture_id: str, region_id: str) -> list[dict[str, Any]]:
         try:
-            if not any(region["id"] == region_id for region in store.regions(capture_id)):
+            if not store.region_exists(capture_id, region_id):
                 raise KeyError("region not in this capture")
             return store.geometry_history(region_id)
         except KeyError as exc:
@@ -2110,7 +3464,7 @@ def create_app(
     @app.get("/api/captures/{capture_id}/regions/{region_id}/lineage")
     def region_lineage_history(capture_id: str, region_id: str) -> list[dict[str, Any]]:
         try:
-            if not any(region["id"] == region_id for region in store.regions(capture_id)):
+            if not store.region_exists(capture_id, region_id):
                 raise KeyError("region not in this capture")
             return store.region_lineage(region_id)
         except KeyError as exc:
@@ -2139,9 +3493,28 @@ def create_app(
     @app.post("/api/captures/{capture_id}/regions/merge", status_code=201)
     def merge_regions(capture_id: str, data: RegionMergeCreate) -> dict[str, Any]:
         try:
+            capture = store.capture(capture_id)
+            cv_proposals = []
+            for proposal in data.cv_proposals:
+                evidence = proposal.detector_evidence.model_dump()
+                if proposal.decision != "dismissed":
+                    raise HTTPException(status_code=422, detail="merged CV proposals must be dismissed from the current scan")
+                if proposal.proposal_id != cv_proposal_id({
+                    "model_sha256": evidence["model_sha256"],
+                    "sample_start": proposal.sample_start,
+                    "sample_count": proposal.sample_count,
+                    "frequency_low_hz": proposal.frequency_low_hz,
+                    "frequency_high_hz": proposal.frequency_high_hz,
+                }):
+                    raise HTTPException(status_code=422, detail="proposal id does not match its model and geometry")
+                if evidence["sample_rate"] != capture["sample_rate"]:
+                    raise HTTPException(status_code=422, detail="proposal sample rate does not match the capture")
+                cv_proposals.append({**proposal.model_dump(), "detector_evidence": evidence})
             return store.merge_regions(
                 capture_id, source_region_ids=data.source_region_ids,
                 expected_geometry_revisions=data.expected_geometry_revisions,
+                cv_proposals=cv_proposals,
+                result_bounds=data.result_bounds.model_dump() if data.result_bounds else None,
             )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="capture or region not found") from exc
@@ -2228,15 +3601,13 @@ def create_app(
                 window_end = window_start + detector_evidence.window_sample_count
                 if window_end > int(capture["sample_count"]):
                     raise ValueError("detector window exceeds the capture sample range")
-                if data.sample_start < window_start or data.sample_start + data.sample_count > window_end:
-                    raise ValueError("proposal region must remain inside its detector window")
+                if data.sample_start + data.sample_count > int(capture["sample_count"]):
+                    raise ValueError("proposal region exceeds the capture sample range")
                 for source_window in detector_evidence.supporting_windows:
                     source_start = source_window.sample_start
                     source_end = source_start + source_window.sample_count
                     if source_end > int(capture["sample_count"]):
                         raise ValueError("supporting detector window exceeds the capture sample range")
-                    if min(source_end, data.sample_start + data.sample_count) <= max(source_start, data.sample_start):
-                        raise ValueError("supporting detector window must overlap the proposed region")
             elif data.signal_presence_confirmed:
                 raise ValueError("signal presence confirmation requires detector evidence")
             resolved = resolve_mode_label(data.mode_id, {
@@ -2244,6 +3615,8 @@ def create_app(
                 "protocol": data.protocol, "variant": data.variant,
             }, additional_modes=store.accepted_mode_definitions())
             has_label = any((resolved["family"], resolved["method"], resolved["protocol"], resolved["variant"]))
+            if data.identity_unknown_confirmed and has_label:
+                raise ValueError("an explicitly unknown label cannot also contain a mode or taxonomy")
             accepted_presence = data.signal_presence_confirmed
             classifier_evidence = None
             if data.classifier_proposal is not None:
@@ -2259,7 +3632,43 @@ def create_app(
                     capture_id, capture, proposal.sample_start,
                     proposal.sample_count, proposal.selection_sample_count,
                     proposal.frequency_low_hz, proposal.frequency_high_hz,
+                    proposal.crop_count,
                 )
+            if data.prediction_only:
+                if classifier_evidence is None:
+                    raise ValueError("a classifier proposal is required for a pending annotation")
+                if data.mode_id or data.signal_presence_confirmed or data.identity_unknown_confirmed:
+                    raise ValueError("pending predictions cannot claim a reviewed mode or signal presence")
+                resolved = {
+                    "family": classifier_evidence.get("family"),
+                    "method": classifier_evidence.get("method"),
+                    "protocol": None, "variant": None, "mode_id": None,
+                    "registry_version": None,
+                }
+                has_label = bool(resolved["family"] or resolved["method"])
+                for existing in store.regions(capture_id):
+                    same_geometry = (existing["sample_start"] == data.sample_start
+                                     and existing["sample_count"] == data.sample_count
+                                     and existing["frequency_low_hz"] == data.frequency_low_hz
+                                     and existing["frequency_high_hz"] == data.frequency_high_hz)
+                    same_proposal = (detector_evidence is not None and detector_evidence.proposal_id is not None
+                                     and existing["evidence"].get("detector_proposal", {}).get("proposal_id")
+                                     == detector_evidence.proposal_id)
+                    if not same_geometry and not same_proposal:
+                        continue
+                    if not same_geometry:
+                        return existing
+                    if existing["review_state"] == "pending" and existing["lineage_state"] == "active":
+                        evidence = {**existing["evidence"], "classifier_proposal": classifier_evidence}
+                        if detector_evidence is not None:
+                            evidence["detector_proposal"] = detector_evidence.model_dump()
+                        store.revise_label(existing["id"], SignalLabel(
+                            family=resolved["family"], method=resolved["method"],
+                            source="prediction" if has_label else "unknown", review_state="pending", evidence=evidence,
+                            notes=existing["notes"] or data.notes,
+                        ), expected_revision=existing["revision"])
+                        return next(region for region in store.regions(capture_id) if region["id"] == existing["id"])
+                    return existing
             region_id = store.add_region(
                 capture_id,
                 sample_start=data.sample_start,
@@ -2272,13 +3681,14 @@ def create_app(
                     protocol=resolved["protocol"],
                     variant=resolved["variant"],
                     mode_id=resolved["mode_id"],
-                    source="human" if has_label or accepted_presence else "unknown",
-                    review_state="accepted" if has_label or accepted_presence else "pending",
+                    source=("prediction" if has_label else "unknown") if data.prediction_only else "human" if has_label or accepted_presence or data.identity_unknown_confirmed else "unknown",
+                    review_state="pending" if data.prediction_only else "accepted" if has_label or accepted_presence or data.identity_unknown_confirmed else "pending",
                     evidence={
                         **({"mode_registry_version": resolved["registry_version"]} if resolved["mode_id"] else {}),
                         **({"detector_proposal": detector_evidence.model_dump()} if detector_evidence else {}),
                         **({"classifier_proposal": classifier_evidence} if classifier_evidence is not None else {}),
                         **({"signal_presence_review": "confirmed_unknown_identity"} if accepted_presence else {}),
+                        **({"identity_unknown_confirmed": True} if data.identity_unknown_confirmed else {}),
                     } or None,
                     notes=data.notes,
                 ),
@@ -2287,6 +3697,220 @@ def create_app(
             return next(region for region in store.regions(capture_id) if region["id"] == region_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="capture not found") from exc
+        except LabelRevisionConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/captures/{capture_id}/regions/batch", status_code=201)
+    def create_annotation_batch(capture_id: str, data: WindowAnnotationBatchCreate) -> dict[str, Any]:
+        try:
+            capture = store.capture(capture_id)
+            if data.window_start_sample + data.window_sample_count > int(capture["sample_count"]):
+                raise ValueError("annotation window exceeds the capture sample range")
+            if data.window_sample_count > int(capture["sample_rate"]) * 10 + 1:
+                raise ValueError("annotation batches must cover one 10-second window")
+            additional_modes = store.accepted_mode_definitions()
+            batch_regions = []
+            for item in data.regions:
+                detector_evidence = item.detector_evidence
+                if item.signal_presence_confirmed and item.origin != "detector_proposal":
+                    raise ValueError("signal presence confirmation is only valid for a detector proposal")
+                if detector_evidence is not None:
+                    if item.origin != "detector_proposal":
+                        raise ValueError("detector evidence is only valid for a detector proposal")
+                    if detector_evidence.sample_rate != int(capture["sample_rate"]):
+                        raise ValueError("detector sample rate does not match the capture")
+                    if detector_evidence.window_sample_start + detector_evidence.window_sample_count > int(capture["sample_count"]):
+                        raise ValueError("detector window exceeds the capture sample range")
+                    if item.sample_start + item.sample_count > int(capture["sample_count"]):
+                        raise ValueError("proposal region exceeds the capture sample range")
+                    if any(
+                        window.sample_start + window.sample_count > int(capture["sample_count"])
+                        for window in detector_evidence.supporting_windows
+                    ):
+                        raise ValueError("supporting detector window exceeds the capture sample range")
+                resolved = resolve_mode_label(item.mode_id, {
+                    "family": item.family, "method": item.method,
+                    "protocol": item.protocol, "variant": item.variant,
+                }, additional_modes=additional_modes)
+                has_identity = any(resolved[key] for key in ("family", "method", "protocol", "variant"))
+                accepted_presence = item.signal_presence_confirmed
+                human_reviewed = has_identity or accepted_presence or item.identity_unknown_confirmed
+                classifier_evidence = None
+                if item.classifier_proposal is not None:
+                    proposal = item.classifier_proposal
+                    if proposal.sample_start != item.sample_start or proposal.selection_sample_count != item.sample_count:
+                        raise ValueError("classifier proposal selection must match the saved region geometry")
+                    if proposal.frequency_low_hz is not None and (
+                        proposal.frequency_low_hz != item.frequency_low_hz
+                        or proposal.frequency_high_hz != item.frequency_high_hz
+                    ):
+                        raise ValueError("classifier proposal frequency bounds must match the saved region geometry")
+                    classifier_evidence = classifier_proposal_for_range(
+                        capture_id, capture, proposal.sample_start,
+                        proposal.sample_count, proposal.selection_sample_count,
+                        proposal.frequency_low_hz, proposal.frequency_high_hz,
+                        proposal.crop_count,
+                    )
+                batch_regions.append({
+                    "client_id": item.client_id,
+                    "sample_start": item.sample_start,
+                    "sample_count": item.sample_count,
+                    "frequency_low_hz": item.frequency_low_hz,
+                    "frequency_high_hz": item.frequency_high_hz,
+                    "origin": item.origin,
+                    "label": SignalLabel(
+                        family=resolved["family"], method=resolved["method"],
+                        protocol=resolved["protocol"], variant=resolved["variant"],
+                        mode_id=resolved["mode_id"],
+                        source="human" if human_reviewed else "unknown",
+                        review_state="accepted" if human_reviewed else "pending",
+                        evidence={
+                        "annotation_window": {
+                            "sample_start": data.window_start_sample,
+                            "sample_count": data.window_sample_count,
+                            "duration_seconds": data.window_sample_count / int(capture["sample_rate"]),
+                        },
+                        **({"detector_proposal": detector_evidence.model_dump()} if detector_evidence else {}),
+                        **({"classifier_proposal": classifier_evidence} if classifier_evidence is not None else {}),
+                        **({"signal_presence_review": "confirmed_unknown_identity"} if accepted_presence else {}),
+                        **({"identity_unknown_confirmed": True} if item.identity_unknown_confirmed else {}),
+                        **({"mode_registry_version": resolved["registry_version"]} if resolved["mode_id"] else {}),
+                    },
+                        notes=item.notes,
+                    ),
+                })
+            current_regions = {region["id"]: region for region in store.regions(capture_id)}
+            batch_updates = []
+            for item in data.updates:
+                current_region = current_regions.get(item.region_id)
+                if current_region is None:
+                    raise KeyError(f"unknown region in capture: {item.region_id}")
+                resolved = resolve_mode_label(item.mode_id, {
+                    "family": item.family, "method": item.method,
+                    "protocol": item.protocol, "variant": item.variant,
+                }, additional_modes=additional_modes)
+                has_identity = any(resolved[key] for key in ("family", "method", "protocol", "variant"))
+                human_reviewed = has_identity or item.identity_unknown_confirmed
+                evidence = {
+                    **current_region.get("evidence", {}),
+                    "reviewed_from_revision": item.expected_revision,
+                    "annotation_window": {
+                        "sample_start": data.window_start_sample,
+                        "sample_count": data.window_sample_count,
+                        "duration_seconds": data.window_sample_count / int(capture["sample_rate"]),
+                    },
+                }
+                if item.identity_unknown_confirmed:
+                    evidence["identity_unknown_confirmed"] = True
+                else:
+                    evidence.pop("identity_unknown_confirmed", None)
+                if resolved["mode_id"]:
+                    evidence["mode_registry_version"] = resolved["registry_version"]
+                else:
+                    evidence.pop("mode_registry_version", None)
+                batch_updates.append({
+                    "region_id": item.region_id,
+                    "expected_revision": item.expected_revision,
+                    "expected_geometry_revision": item.expected_geometry_revision,
+                    "sample_start": item.sample_start,
+                    "sample_count": item.sample_count,
+                    "frequency_low_hz": item.frequency_low_hz,
+                    "frequency_high_hz": item.frequency_high_hz,
+                    "label": SignalLabel(
+                        family=resolved["family"], method=resolved["method"],
+                        protocol=resolved["protocol"], variant=resolved["variant"],
+                        mode_id=resolved["mode_id"],
+                        source="human" if human_reviewed else "unknown",
+                        review_state="accepted" if human_reviewed else "pending",
+                        evidence=evidence,
+                        notes=item.notes,
+                    ),
+                })
+            batch_deletions = [item.model_dump() for item in data.deletions]
+            batch_merges = []
+            for item in data.merges:
+                resolved = resolve_mode_label(item.mode_id, {
+                    "family": item.family, "method": item.method,
+                    "protocol": item.protocol, "variant": item.variant,
+                }, additional_modes=additional_modes)
+                has_identity = any(resolved[key] for key in ("family", "method", "protocol", "variant"))
+                human_reviewed = has_identity or item.identity_unknown_confirmed
+                evidence = {
+                    "annotation_window": {
+                        "sample_start": data.window_start_sample,
+                        "sample_count": data.window_sample_count,
+                        "duration_seconds": data.window_sample_count / int(capture["sample_rate"]),
+                    },
+                    "merge_target_region_id": item.target_region_id,
+                    **({"identity_unknown_confirmed": True} if item.identity_unknown_confirmed else {}),
+                    **({"mode_registry_version": resolved["registry_version"]} if resolved["mode_id"] else {}),
+                }
+                if item.target_region_id and item.target_region_id in current_regions:
+                    target = current_regions[item.target_region_id]
+                    evidence["merged_target_label_evidence"] = target.get("evidence", {})
+                cv_proposals = []
+                for proposal in item.cv_proposals:
+                    proposal_data = proposal.model_dump()
+                    detector = proposal_data["detector_evidence"]
+                    if proposal_data["decision"] != "dismissed":
+                        raise HTTPException(status_code=422, detail="merged CV proposals must be dismissed from the current scan")
+                    if proposal_data["proposal_id"] != cv_proposal_id({
+                        "model_sha256": detector["model_sha256"],
+                        "sample_start": proposal_data["sample_start"],
+                        "sample_count": proposal_data["sample_count"],
+                        "frequency_low_hz": proposal_data["frequency_low_hz"],
+                        "frequency_high_hz": proposal_data["frequency_high_hz"],
+                    }):
+                        raise HTTPException(status_code=422, detail="proposal id does not match its model and geometry")
+                    if detector["sample_rate"] != capture["sample_rate"]:
+                        raise HTTPException(status_code=422, detail="proposal sample rate does not match the capture")
+                    cv_proposals.append(proposal_data)
+                heuristic_proposals = [proposal.model_dump() for proposal in item.heuristic_proposals]
+                batch_merges.append({
+                    "client_id": item.client_id,
+                    "source_region_ids": item.source_region_ids,
+                    "expected_revisions": item.expected_revisions,
+                    "expected_geometry_revisions": item.expected_geometry_revisions,
+                    "cv_proposals": cv_proposals,
+                    "heuristic_proposals": heuristic_proposals,
+                    "target_region_id": item.target_region_id,
+                    "sample_start": item.sample_start,
+                    "sample_count": item.sample_count,
+                    "frequency_low_hz": item.frequency_low_hz,
+                    "frequency_high_hz": item.frequency_high_hz,
+                    "label": SignalLabel(
+                        family=resolved["family"], method=resolved["method"],
+                        protocol=resolved["protocol"], variant=resolved["variant"],
+                        mode_id=resolved["mode_id"],
+                        source="human" if human_reviewed else "unknown",
+                        review_state="accepted" if human_reviewed else "pending",
+                        evidence=evidence,
+                        notes=item.notes,
+                    ),
+                })
+            batch_identity_links = [item.model_dump() for item in data.identity_links]
+            region_ids, replayed = store.add_regions_batch(
+                capture_id, data.idempotency_key, batch_regions,
+                updates=batch_updates,
+                deletions=batch_deletions,
+                merges=batch_merges,
+                identity_links=batch_identity_links,
+                window_start_sample=data.window_start_sample,
+                window_sample_count=data.window_sample_count,
+            )
+            current = {region["id"]: region for region in store.regions(capture_id)}
+            return {
+                "capture_id": capture_id,
+                "idempotency_key": data.idempotency_key,
+                "replayed": replayed,
+                "regions": [current[region_id] for region_id in region_ids if region_id in current],
+            }
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="capture not found") from exc
+        except LabelRevisionConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -2320,44 +3944,47 @@ def create_app(
             filename="cv-proposal-review-decisions.jsonl",
         )
 
+    def web_asset(name: str, media_type: str | None = None) -> FileResponse:
+        return FileResponse(WEB_DIR / name, media_type=media_type, headers={"Cache-Control": "no-store"})
+
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:
-        return FileResponse(WEB_DIR / "index.html")
+        return web_asset("index.html")
 
     @app.get("/app.js", include_in_schema=False)
     def javascript() -> FileResponse:
-        return FileResponse(WEB_DIR / "app.js", media_type="text/javascript")
+        return web_asset("app.js", "text/javascript")
 
     @app.get("/waterfall-window.mjs", include_in_schema=False)
     def waterfall_window_module() -> FileResponse:
-        return FileResponse(WEB_DIR / "waterfall-window.mjs", media_type="text/javascript")
+        return web_asset("waterfall-window.mjs", "text/javascript")
 
     @app.get("/demod-export.mjs", include_in_schema=False)
     def demod_export_module() -> FileResponse:
-        return FileResponse(WEB_DIR / "demod-export.mjs", media_type="text/javascript")
+        return web_asset("demod-export.mjs", "text/javascript")
 
     @app.get("/bit-inspector.mjs", include_in_schema=False)
     def bit_inspector_module() -> FileResponse:
-        return FileResponse(WEB_DIR / "bit-inspector.mjs", media_type="text/javascript")
+        return web_asset("bit-inspector.mjs", "text/javascript")
 
     @app.get("/protocol-stencils.mjs", include_in_schema=False)
     def protocol_stencils_module() -> FileResponse:
-        return FileResponse(WEB_DIR / "protocol-stencils.mjs", media_type="text/javascript")
+        return web_asset("protocol-stencils.mjs", "text/javascript")
 
     @app.get("/mode-candidates.mjs", include_in_schema=False)
     def mode_candidates_module() -> FileResponse:
-        return FileResponse(WEB_DIR / "mode-candidates.mjs", media_type="text/javascript")
+        return web_asset("mode-candidates.mjs", "text/javascript")
 
     @app.get("/signal-overlays.mjs", include_in_schema=False)
     def signal_overlays_module() -> FileResponse:
-        return FileResponse(WEB_DIR / "signal-overlays.mjs", media_type="text/javascript")
+        return web_asset("signal-overlays.mjs", "text/javascript")
 
     @app.get("/live-waterfall.mjs", include_in_schema=False)
     def live_waterfall_module() -> FileResponse:
-        return FileResponse(WEB_DIR / "live-waterfall.mjs", media_type="text/javascript")
+        return web_asset("live-waterfall.mjs", "text/javascript")
 
     @app.get("/style.css", include_in_schema=False)
     def stylesheet() -> FileResponse:
-        return FileResponse(WEB_DIR / "style.css", media_type="text/css")
+        return web_asset("style.css", "text/css")
 
     return app

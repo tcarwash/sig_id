@@ -49,16 +49,27 @@ geometry refinements.
 The first slice reuses the existing selection and geometry correction tools to
 inspect and adjust proposed boxes. A held-out downstream evaluator now measures
 detection-to-classifier behavior and limited oracle-assisted bit recovery on direct
-synthetic captures. Live YOLO scanning, independent real-capture quality evidence,
+synthetic captures. Independent real-capture quality evidence,
 automatic classifier-driven mode selection, and protocol interoperability
-validation remain follow-up work. The classifier now offers explicit compatible
+validation remain follow-up work. Provisional live CV scanning is now available on
+the rolling buffer: before ten seconds, it noise-pads the unobserved leading time,
+clips returned boxes to observed audio, and refreshes every 2.5 seconds. This is an
+exploratory path and has not been evaluated for live latency or partial-window
+accuracy. The live audio writer saves each completed 10-second interval as a
+separate WAV in a persistent review queue. The Review queue
+badge counts samples without a fresh full-window detection review. Opening one
+opens the recording for signal annotation and scans it for provisional boxes;
+coverage review starts only when the reviewer requests it after box annotation.
+Only a complete review can export, while partial/uncertain samples remain out of training. Capture windows
+from one live session and the final recording share a lineage group so they cannot
+leak across dataset splits. The classifier now offers explicit compatible
 Fldigi mode suggestions without selecting or running a decoder automatically.
 
 ### 1. Define the detection contract
 
 - Use 10-second spectrogram windows as the initial inference unit.
 - Specify and version the spectrogram preprocessing: sample rate, FFT/window and hop, frequency range, intensity scaling, image dimensions, and time/frequency orientation.
-- Preserve the native 1024x256 spectrogram shape through rectangular YOLO training batches and inference to avoid square-padding mismatch.
+- Use the live-waterfall-aligned 640x1024 landscape raster through rectangular YOLO training batches and inference; version the preprocessing so earlier portrait checkpoints cannot be mistaken for compatible models.
 - Return boxes in normalized image coordinates plus confidence and model version. Convert them to authoritative sample and frequency bounds using the window metadata.
 - Inference responses now preserve normalized XYXY coordinates, image dimensions, a content-hash model version, and a stable model-and-geometry proposal ID alongside converted sample/frequency bounds. Saving or correcting a detector proposal retains its original proposal ID and mapping evidence for traceability.
 - Keep detector proposals distinct from reviewed annotations and classifier predictions.
@@ -73,6 +84,7 @@ Fldigi mode suggestions without selecting or running a decoder automatically.
   selection and geometry-editing controls; those reviewed regions feed the CV
   export path.
 - Store box geometry in sample and frequency coordinates, not display pixels. Preserve capture/session lineage and annotation revision history.
+- CV training and inference use complete ten-second spectrogram windows so detector boxes span the full reviewed interval. The shared `windows.jsonl` records detector boxes and overlapping modulation labels, preserving the source interval for classifier training; the classifier can apply its own two-second audio crop.
 - A capture-wide review queue now steps through the exporter's non-overlapping 10-second windows over the detector's 0–3 kHz band. It skips fresh complete reviews, revisits missing or stale coverage, advances after each saved complete/partial review, and leaves uncertain windows out of export. Accepted signal boxes remain separate annotations.
 - The review UI and training guide now make the export consequence explicit: a complete window with no accepted boxes becomes a negative example. Reviewers should save all signal boxes first, mark uncertain coverage partial, and rerun the queue after label or geometry edits stale overlapping reviews.
 - Deterministic synthetic imports now derive signal-frequency geometry from their validated generator manifests. The CV exporter can recover missing geometry on older imports only when the sidecar hash matches the stored capture provenance.
@@ -100,6 +112,7 @@ Fldigi mode suggestions without selecting or running a decoder automatically.
 - A larger corpus with 120 original FSK/PSK sources plus 20 each of OOK, 4-ASK and PPM yielded 136 lineage groups and 590 captures with 375 positive and 215 negative reviewed windows. A 100-epoch run in the pinned ROCm image matched 63/69 held-out boxes at IoU 0.50 (91.3% recall, 98.4% precision), with one false box over 710.32 seconds (5.07/hour) and no false boxes in 33 pure-noise windows. Held-out recall was 11/12 OOK, 9/10 4-ASK and 2/2 PPM; QPSK remained lower at 4/6. This shows the new CV-only source path exports and trains across the added visual families without changing classifier classes. It remains synthetic-only; the noise sample is too short for a reliable low false-alarm claim. The expanded dataset, model hash and run metrics are in the report; weights and logs remain under `/tmp`.
 - An exploratory ROCm scan of five locally saved recordings (480 seconds total) produced 11 proposals against eight existing accepted regions. None reached IoU 0.50; the best overlaps were below the threshold. Those labels cover only selected regions, so this is not a complete recall or false-alarm evaluation. The result does show that the synthetic-trained detector needs independently reviewed real captures before live inference or unattended use. Aggregate evidence, model hash, and limitations are in [`reports/cv-real-capture-exploration-2026-10-23.json`](reports/cv-real-capture-exploration-2026-10-23.json); capture identities, paths, and audio remain local.
 - A read-only audit of the local review dataset found 15 live captures totaling 2,280 seconds, eight accepted human region labels, and no scene-coverage reviews. This is not enough to evaluate real-capture recall or false alarms; do not treat the exploratory scan as a held-out real-capture benchmark. The capture paths and identities remain local.
+- Future collection/storage improvement: after enough real captures have complete human coverage reviews, retain up to eight confirmed-empty 10-second windows per live session while keeping every labeled-signal and partial/uncertain window. Compare CV proposals against those reviewed labels before using the detector or another automatic signal gate to discard unreviewed audio; the current synthetic-trained detector is not validated enough to make that decision safely.
 
 ### 4. Add optional packaging and inference
 
@@ -109,7 +122,7 @@ Fldigi mode suggestions without selecting or running a decoder automatically.
 - Optional Compose inference can use the CPU-capable base image or an AMD ROCm/PyTorch image with explicit `/dev/kfd` and `/dev/dri` pass-through.
 - Container paths were built and exercised locally: the default image omits Ultralytics, the optional CPU image uses CPU-only PyTorch, and the pinned ROCm image completed an Ultralytics model forward pass on the RX 6700 XT. The ROCm Dockerfile honors `INSTALL_CV`: both the no-CV branch (ROCm PyTorch import only) and the CV branch (Ultralytics, OpenCV, and ROCm PyTorch imports) built successfully. This branch-build evidence does not itself exercise GPU inference. The earlier ROCm inference run used the host's render GID 110; Compose and `.env.example` use that default while still allowing host-specific overrides. MIOpen emitted missing optional gfx1031 kernel/database warnings during the successful forward pass.
 - Keep inference failures isolated so the classifier, manual selection, capture, and decoding workflows remain usable.
-- Begin with batch detection on completed captures. Training evaluation now records model size, per-window latency/throughput, process RSS, and accelerator memory when exposed by PyTorch. Real-capture and hardware measurements are still required before enabling periodic live inference.
+- Begin with batch detection on completed captures. Training evaluation now records model size, per-window latency/throughput, process RSS, and accelerator memory when exposed by PyTorch. Provisional periodic live inference is available for supervised evaluation; real-capture quality, padded-window accuracy, and end-to-end hardware latency remain unmeasured.
 - Keep model weights and writable CV data in the configured persistent data directory for Compose deployments; do not bake user-trained weights into the base image.
 
 ### 5. Connect detections to the existing workflow
@@ -117,7 +130,7 @@ Fldigi mode suggestions without selecting or running a decoder automatically.
 - Render boxes as provisional overlays on the waterfall and let users accept, reject, or adjust them. Dismissal decisions are now persisted per capture and model, can be restored into the current scan, and remain review feedback only; the complete event history exports separately with an explicit non-training marker, and decisions do not create a no-signal label or detector training example.
 - Convert accepted boxes into the existing exact time/frequency selection contract and fetch/replay the matching audio range. Decoder runs preserve CV proposal evidence even when replay begins before the proposal is saved as a region; saved-region runs inherit the region's detector evidence when available.
 - Run the existing classifier on each accepted region. Keep classifier proposals reviewable and preserve its abstention behavior.
-- Classifier proposal evidence records the selected frequency bounds for traceability. An opt-in ROI feature version expands each selected band by 25% of its width with a 100 Hz minimum margin, bandpass filters before feature extraction, and trains from verified synthetic region bounds; existing models remain full-passband by default. Synthetic and real-capture evaluation is still required before recommending or promoting ROI-trained artifacts.
+- Classifier proposal evidence records the selected frequency bounds for traceability. An opt-in ROI feature version expands each selected band by 25% of its width with a 100 Hz minimum margin, bandpass filters before feature extraction, and trains from verified synthetic region bounds; existing models remain full-passband by default. The fixed-window ROI version takes one model-metadata-defined center crop from each selected bbox, then applies its prediction to the bbox's full time and frequency area. Separate 1-, 2-, and 4-second artifacts are being compared on the same held-out synthetic split; none should be promoted without adequate held-out coverage and later real-capture evaluation.
 - When the classifier is uncertain, offer embedding-based nearest examples and an unknown label. The initial UI exposes candidate retrieval for an active selection and points to it after classifier abstention; retrieval remains an explicit user action. Treat embeddings as candidate retrieval, not proof of identity.
 - Offer decoder choices based on supported classifier results, but keep decoder execution explicit initially. The UI now intersects canonical modes matching the classifier's proposed modulation method with Fldigi's selectable catalog; suggestions only stage a mode and require the existing explicit mode-selection and decode actions. Saved regions retain the server-generated classifier proposal (including abstentions, model hash, and exact audio sample range); saved-capture Fldigi replays snapshot that evidence and retain a validated link to the active region when replay bounds match its saved geometry.
 - Deduplicate boxes from overlapping windows and track a detection across windows without losing its source-window lineage. Batch capture scanning now uses a 5-second stride, suppresses cross-window boxes at 0.30 2D IoU, and retains supporting window metadata on the surviving proposal; temporal tracking beyond one completed-capture scan remains future work.
@@ -135,7 +148,7 @@ Fldigi mode suggestions without selecting or running a decoder automatically.
 - The base application installs and runs without CV dependencies or a CV model.
 - ROCm is an opt-in Compose override with device pass-through; actual GPU support still depends on the host driver and GPU compatibility with the chosen AMD image.
 - Similarity search uses a model-hash-bound index of reviewed regions, skips stale capture/label/geometry revisions, and clearly labels results as candidates rather than identifications.
-- With CV enabled, a 10-second window produces boxes that map back to the correct sample and frequency ranges.
+- With CV enabled, a ten-second window produces boxes that map back to the correct sample and frequency ranges.
 - Users can correct or reject boxes, and reviewed labels export reproducibly with preprocessing and source metadata.
 - Evaluation uses source/session-held-out data and reports detection misses and false detections, including empty/no-signal windows.
 - A detector proposal can enter the existing classifier flow; classifier abstention leads to candidate retrieval or unknown handling rather than a forced known identity.

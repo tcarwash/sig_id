@@ -1,5 +1,8 @@
 # Waterfall-centered GUI overhaul
 
+Follow-up: [Annotation workflow simplification](ANNOTATION_WORKFLOW_PLAN.md)
+records the planned window-level draw → label → refine → save workflow.
+
 Status: core overhaul implemented and verified in Chromium at desktop/mobile sizes.
 This includes layout, interactive overlays, binary live display, fixed history,
 freeze controls, raw-result provenance and saved-label revision/history review.

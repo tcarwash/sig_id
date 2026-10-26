@@ -6,8 +6,157 @@ import { narrowKnownModes } from "/mode-candidates.mjs";
 import { layoutSignalLabels, signalCaption, hitSignal } from "/signal-overlays.mjs";
 
 const el = (id) => document.getElementById(id);
-const state = { capture: null, waterfall: null, drag: null, selection: null, regions: [], tracks: [], cvDetections: [], cvDismissedCount: 0, cvRejectedProposals: [], cvAvailable: false, cvSimilarAvailable: false, bitAnnotations: [], protocolStencils: [], liveView: false, liveSessionId: null, modelAvailable: false, view: null, demodExports: {}, selectedTrack: null, classifierProposal: null, frozen: false, labelModeId: null, modeSearchResults: [], modeSearchRequest: 0, applyingMode: false, adjustingGeometry: false, geometryDraft: false, splitMode: false, splitChildren: [], splitParentSelection: null, mergeRegionIds: new Set(), modeProposalRegion: null, proposalCaptureRequest: 0, proposalEvidenceCaptures: [] };
-state.layaAvailable = false;
+const state = { capture: null, waterfall: null, drag: null, resizeDrag: null, moveDrag: null, selection: null, regions: [], tracks: [], cvDetections: [], cvDetectionCache: new Map(), cvDismissedCount: 0, cvRejectedProposals: [], cvAvailable: false, cvSimilarAvailable: false, bitAnnotations: [], protocolStencils: [], liveView: false, liveSessionId: null, modelAvailable: false, modelTraining: false, view: null, demodExports: {}, selectedTrack: null, classifierProposal: null, frozen: false, labelModeId: null, modeSearchResults: [], modeSearchRequest: 0, applyingMode: false, adjustingGeometry: false, geometryDraft: false, adjustingCandidate: null, drawingSignalBox: false, batchBoxMode: false, batchBoxes: [], batchBoxUndo: [], batchReviewBox: null, batchSaveKey: null, batchSaveDigest: null, batchSaving: false, windowRegionEdits: new Map(), windowRegionDeletes: new Map(), windowMerges: [], windowIdentityLinks: [], identityLinkSelection: new Set(), splitMode: false, splitChildren: [], splitParentSelection: null, mergeRegionIds: new Set(), selectionMergeRegions: [], excludedMergeCandidates: new Set(), modeProposalRegion: null, proposalCaptureRequest: 0, proposalEvidenceCaptures: [] };
+state.geometryMergeRegions = [];
+state.showSupersededRegions = false;
+let nativeDecoderBindings = [];
+function savedInspectorPreference(key, accepted, fallback) {
+  try {
+    const value = localStorage.getItem(key);
+    return accepted.includes(value) ? value : fallback;
+  } catch {
+    return fallback;
+  }
+}
+const FREQUENCY_NOTCH_KEY = "sig-id-frequency-notches";
+const NOTCH_COLORS = ["#ff6b6b", "#ffd166", "#65d6a6", "#68b7ff", "#d58cff", "#ff9f5a"];
+function loadFrequencyNotches() {
+  try {
+    const values = JSON.parse(localStorage.getItem(FREQUENCY_NOTCH_KEY) || "[]");
+    return Array.isArray(values) ? values.filter((item) => Number.isFinite(item.low_hz)
+      && Number.isFinite(item.high_hz) && item.high_hz > item.low_hz) : [];
+  } catch { return []; }
+}
+state.frequencyNotches = loadFrequencyNotches();
+state.notchPlacement = false;
+state.notchDrag = null;
+function frequencyNotchMatches(candidate) {
+  const low = Number(candidate?.frequency_low_hz);
+  const high = Number(candidate?.frequency_high_hz);
+  if (!Number.isFinite(low) || !Number.isFinite(high) || high <= low) return false;
+  const center = (low + high) / 2;
+  return state.frequencyNotches.some((notch) => {
+    const overlap = Math.max(0, Math.min(high, notch.high_hz) - Math.max(low, notch.low_hz));
+    return (center >= notch.low_hz && center <= notch.high_hz) || overlap / (high - low) >= 0.5;
+  });
+}
+function withoutNotchedCandidates(items) {
+  return items.filter((item) => !frequencyNotchMatches(item));
+}
+function visibleCvDetections() { return withoutNotchedCandidates(state.cvDetections); }
+function visibleTracks() { return withoutNotchedCandidates(state.tracks); }
+function saveFrequencyNotches() {
+  try { localStorage.setItem(FREQUENCY_NOTCH_KEY, JSON.stringify(state.frequencyNotches)); } catch {}
+  if (state.selectedTrack && !state.editRegion && !state.batchReviewBox
+      && frequencyNotchMatches(state.selectedTrack)) {
+    state.selectedTrack = null;
+    state.selection = null;
+    state.classifierProposal = null;
+    beginNewRegion();
+  }
+  renderFrequencyNotches();
+  renderCvDetections();
+  renderTracks();
+  drawOverlays();
+}
+state.inspectorMode = savedInspectorPreference("sig-id-inspector-mode", ["classify", "annotate"], "classify");
+state.inspectorTab = savedInspectorPreference("sig-id-inspector-tab", ["label", "decode", "raw", "signals"], "label");
+state.inspectorDetailLevel = savedInspectorPreference("sig-id-inspector-detail", ["simple", "advanced"], "simple");
+const classifierCropOptions = Array.from({ length: 20 }, (_, index) => String(index + 1));
+const classifierCropCount = savedInspectorPreference("sig-id-classifier-crop-count", classifierCropOptions, "1");
+el("classifier-crop-count").value = classifierCropCount;
+el("live-cv-enabled").checked = savedInspectorPreference("sig-id-live-cv-enabled", ["on", "off"], "on") === "on";
+el("live-classifier-enabled").checked = savedInspectorPreference("sig-id-live-classifier-enabled", ["on", "off"], "on") === "on";
+for (const id of ["live-cv-enabled", "live-classifier-enabled"]) {
+  el(id).addEventListener("change", () => {
+    try { localStorage.setItem(`sig-id-${id}`, el(id).checked ? "on" : "off"); } catch {}
+    if (!el("live-cv-enabled").checked) {
+      state.cvDetections = [];
+      renderCvDetections();
+    }
+    if (el("live-cv-enabled").checked && !el("live-classifier-enabled").checked) {
+      for (const detection of state.cvDetections) delete detection.classifier_proposal;
+      renderCvDetections();
+    }
+    state.liveTrackModeMessage = el("live-cv-enabled").checked
+      ? "CV boxes are active above; heuristic track boxes are hidden. Turn CV off to inspect classifier-only track candidates."
+      : el("live-classifier-enabled").checked
+        ? null
+        : "Candidate analysis is paused. Turn on CV signal boxes or classifier suggestions to show candidates.";
+    if (el("live-cv-enabled").checked || !el("live-classifier-enabled").checked) {
+      state.tracks = [];
+      renderTracks();
+    }
+    if (state.liveView && !state.frozen) drawWaterfall();
+  });
+}
+const liveCvMergeOptions = Array.from({ length: 15 }, (_, index) => String((index + 2) * 5));
+const liveCvMergeOverlap = savedInspectorPreference("sig-id-live-cv-merge-overlap", liveCvMergeOptions, "30");
+el("live-cv-merge-overlap").value = liveCvMergeOverlap;
+const ANNOTATION_WINDOW_SECONDS = 10;
+state.annotationWindowIndex = 0;
+function annotationWindowBounds(capture = state.capture) {
+  if (!capture) return {startSample: 0, sampleCount: 0, endSample: 0, index: 0, total: 0};
+  const windowLength = Math.max(1, Math.round(capture.sample_rate * ANNOTATION_WINDOW_SECONDS));
+  const total = Math.max(1, Math.ceil(capture.sample_count / windowLength));
+  state.annotationWindowIndex = Math.max(0, Math.min(total - 1, state.annotationWindowIndex || 0));
+  const startSample = state.annotationWindowIndex * windowLength;
+  const sampleCount = Math.max(0, Math.min(windowLength, capture.sample_count - startSample));
+  return {startSample, sampleCount, endSample: startSample + sampleCount, index: state.annotationWindowIndex, total};
+}
+function updateAnnotationWindowView(redraw = true) {
+  const bounds = annotationWindowBounds();
+  if (state.waterfall && !state.liveView && state.view && bounds.sampleCount > 0) {
+    state.view.timeStartSample = bounds.startSample;
+    state.view.timeEndSample = bounds.endSample;
+    state.view.followTime = false;
+    reprojectSelection();
+    if (redraw) drawWaterfall();
+  }
+  return bounds;
+}
+function setRegionSaveDisabled(disabled) {
+  const value = Boolean(disabled);
+  el("save-region").disabled = value;
+  el("save-annotations").disabled = value;
+  el("save-annotations-close").disabled = value;
+  el("save-annotations-complete").disabled = value;
+}
+
+function syncLiveAnnotationSaveButton() {
+  const selection = state.selection;
+  const windowStart = state.liveWindowStartSample;
+  const windowEnd = state.liveWindowEndSample;
+  const valid = Boolean(state.liveView && state.liveSessionId && selection
+    && Number.isFinite(windowStart) && Number.isFinite(windowEnd)
+    && selection.sample_start >= windowStart
+    && selection.sample_start + selection.sample_count <= windowEnd
+    && windowEnd - windowStart >= (state.liveSampleRate || 0) * 10);
+  el("save-annotations").disabled = !valid;
+  el("save-annotations").textContent = "Save annotations";
+  el("save-annotations").title = valid
+    ? "Save this labeled signal as a training candidate from the current 10-second live window."
+    : "Select a signal fully inside a complete 10-second live window to save a training candidate.";
+}
+
+function recordCompleteReviewWindowCoverage(capture, window = annotationWindowBounds(capture)) {
+  return request(`/api/captures/${capture.id}/coverage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sample_start: window.startSample,
+      sample_count: window.sampleCount,
+      frequency_low_hz: 0,
+      frequency_high_hz: state.cvReviewMaxFrequencyHz,
+      task: "detection",
+      taxonomy_scope: [],
+      state: "complete",
+      ignore_regions: [],
+      uncertain_regions: [],
+      notes: "",
+    }),
+  });
+}
 state.coverageWindow = null;
 state.coverageMasks = { ignore_regions: [], uncertain_regions: [] };
 state.coverageMaskMode = null;
@@ -317,6 +466,105 @@ async function refreshFldigiStatus() {
   }
 }
 
+async function refreshNativeDecoderStatus() {
+  const statusNode = el("native-decoder-status");
+  const resultNode = el("native-decoder-results");
+  if (!statusNode || !resultNode) return;
+  try {
+    const response = await request("/api/decoder-backends");
+    const backends = response.backends || [];
+    statusNode.textContent = backends.map((backend) => {
+      const modeCount = (backend.modes || []).length;
+      return `${backend.application || backend.backend_id}: ${backend.connected ? "ready" : "not connected"} · ${modeCount} modes · ${backend.note || ""}`;
+    }).join("\n") || "No native decoder backends are registered.";
+    statusNode.style.whiteSpace = "pre-line";
+    if (response.plugin_errors?.length) {
+      statusNode.textContent += `\nPlugin load errors: ${response.plugin_errors.map((item) => `${item.plugin}: ${item.error}`).join("; ")}`;
+    }
+    nativeDecoderBindings = backends.flatMap((backend) => (backend.modes || [])
+      .filter((mode) => backend.connected && mode.selectable)
+      .map((mode) => ({...mode, backend_id: backend.backend_id, application: backend.application})));
+    const modeSelect = el("native-decoder-mode");
+    const selectedValue = modeSelect.value;
+    modeSelect.replaceChildren(...nativeDecoderBindings.map((mode) => new Option(
+      `${mode.application} · ${mode.display_name}`, `${mode.backend_id}|${mode.mode_id}`,
+    )));
+    modeSelect.disabled = nativeDecoderBindings.length === 0;
+    if (nativeDecoderBindings.some((mode) => `${mode.backend_id}|${mode.mode_id}` === selectedValue)) {
+      modeSelect.value = selectedValue;
+    } else {
+      const selectedLabelMode = nativeDecoderBindings.find((mode) => mode.mode_id === state.labelModeId);
+      if (selectedLabelMode) modeSelect.value = `${selectedLabelMode.backend_id}|${selectedLabelMode.mode_id}`;
+    }
+    updateDecoderSelectionControls();
+    const events = [];
+    for (const backend of backends) {
+      if (backend.backend_id !== "wsjtx" || !backend.connected) continue;
+      const received = await request(`/api/decoder-backends/${encodeURIComponent(backend.backend_id)}/events?limit=100`);
+      events.push(...received);
+    }
+    if (!events.length && !resultNode.children.length) {
+      resultNode.replaceChildren(Object.assign(document.createElement("p"), {
+        className: "muted",
+        textContent: "No new native decoder results. Results from WSJT-X appear here when its UDP reporting is configured.",
+      }));
+      return;
+    }
+    if (!events.length) return;
+    for (const event of events) {
+      const row = document.createElement("div");
+      row.className = "decode-run";
+      const products = (event.products || []).map((product) => product.kind === "text" ? product.content : `[${product.kind} product]`);
+      const frequency = Number.isFinite(event.frequency_hz) ? ` · ${event.frequency_hz} Hz audio offset` : "";
+      const snr = Number.isFinite(event.snr_db) ? ` · ${event.snr_db} dB SNR` : "";
+      row.textContent = `${event.native_mode} · ${event.observed_utc}${frequency}${snr}\n${products.join("\n") || "No text product"}`;
+      row.style.whiteSpace = "pre-line";
+      resultNode.prepend(row);
+    }
+    while (resultNode.children.length > 100) resultNode.lastElementChild.remove();
+    updateDecoderSelectionControls();
+  } catch (error) {
+    statusNode.textContent = `Native decoder status unavailable · ${error.message}`;
+  }
+}
+
+el("native-decoder-mode").addEventListener("change", updateDecoderSelectionControls);
+el("native-decode-selection").addEventListener("click", async () => {
+  const selection = state.selection;
+  const capture = state.capture;
+  const [backendId, modeId] = el("native-decoder-mode").value.split("|");
+  if (!capture || state.liveView || !selection || !backendId || !modeId) return;
+  const linkedRegion = state.editRegion && state.regions.find((region) =>
+    region.id === state.editRegion.id && region.lineage_state === "active"
+      && region.sample_start === selection.sample_start && region.sample_count === selection.sample_count,
+  );
+  const button = el("native-decode-selection");
+  button.disabled = true;
+  el("native-decode-status").textContent = `Sending selected audio to ${backendId} · ${modeId}…`;
+  try {
+    const result = await request(`/api/captures/${encodeURIComponent(capture.id)}/decoder-backends/${encodeURIComponent(backendId)}/decode`, {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({mode_id: modeId, sample_start: selection.sample_start,
+        sample_count: selection.sample_count, region_id: linkedRegion?.id || null,
+        carrier_hz: Number.isFinite(selection.frequency_low_hz) && Number.isFinite(selection.frequency_high_hz)
+          ? (selection.frequency_low_hz + selection.frequency_high_hz) / 2 : null}),
+    });
+    const text = (result.products || []).filter((product) => product.kind === "text")
+      .map((product) => product.content).join("\n");
+    el("native-decode-status").textContent = `${result.status.toUpperCase()} · ${result.application} · ${result.note}`;
+    showOutput("text");
+    state.textOutputContext = `${result.application} · ${result.native_mode} · exact selected window`;
+    el("output-context").textContent = state.textOutputContext;
+    el("decoded-text").textContent = text || "No decoded text in this window.";
+    state.decodeRuns = await request(`/api/captures/${encodeURIComponent(capture.id)}/decode-runs`);
+    renderDecodeRuns();
+  } catch (error) {
+    el("native-decode-status").textContent = `Native decode failed · ${error.message}`;
+  } finally {
+    updateDecoderSelectionControls();
+  }
+});
+
 async function refreshReceivedImages(products = null) {
   const target = el("received-images");
   try {
@@ -552,6 +800,69 @@ el("decode-selection").addEventListener("click", async () => {
   }
 });
 
+el("auto-identify-selection").addEventListener("click", async () => {
+  const selection = state.selection;
+  const captureId = state.capture?.id;
+  const liveSessionId = state.liveView ? state.liveSessionId : null;
+  const available = new Set(state.fldigiModes || []);
+  if (!selection || (!captureId && !liveSessionId) || !available.size) return;
+  const carrierText = el("fldigi-carrier-hz").value.trim();
+  const carrierHz = carrierText ? Number(carrierText) : null;
+  if (carrierText && (!Number.isFinite(carrierHz) || carrierHz <= 0 || carrierHz > 20000)) {
+    el("replay-status").textContent = "Enter an audio carrier frequency from 1 to 20000 Hz, or clear the field to leave it unset.";
+    return;
+  }
+  const proposal = state.classifierProposal?.selection === selection
+    && (!captureId || state.classifierProposal.capture_id === captureId)
+    ? state.classifierProposal.result : null;
+  let candidates = [];
+  const searchTerm = proposal?.method || proposal?.family;
+  if (searchTerm) {
+    try {
+      const response = await request(`/api/modes?q=${encodeURIComponent(searchTerm)}&limit=50`);
+      const expected = (proposal.method || proposal.family).trim().toLocaleLowerCase();
+      candidates = response.modes
+        .filter((item) => (proposal.method
+          ? item.method?.trim().toLocaleLowerCase() === expected
+          : item.family?.trim().toLocaleLowerCase() === expected))
+        .map((item) => item.display_name)
+        .filter((name) => available.has(name));
+    } catch { /* use the known tested receive candidates below */ }
+  }
+  for (const fallback of ["BPSK31", "RTTY", "THOR16", "MFSK16", "QPSK31", "OLIVIA-8/250"]) {
+    if (available.has(fallback) && !candidates.includes(fallback)) candidates.push(fallback);
+  }
+  candidates = candidates.slice(0, 6);
+  if (!candidates.length) {
+    el("replay-status").textContent = "No candidate receive modes are available in the connected Fldigi catalog.";
+    return;
+  }
+  const button = el("auto-identify-selection");
+  button.disabled = true;
+  el("replay-status").textContent = `Checking RSID, then testing ${candidates.join(", ")} against this exact audio window…`;
+  try {
+    const endpoint = liveSessionId
+      ? `/api/live/sessions/${encodeURIComponent(liveSessionId)}/decode`
+      : `/api/captures/${captureId}/decode`;
+    const result = await request(endpoint, {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({
+        mode: candidates[0], auto_identify: true, candidate_modes: candidates,
+        sample_start: selection.sample_start, sample_count: selection.sample_count,
+        track_id: state.selectedTrack?.track_id || null, carrier_hz: carrierHz,
+        region_id: null,
+      }),
+    });
+    el("replay-status").textContent = `Auto-identification ${result.status} · ${candidates.length} candidates · isolated ${liveSessionId ? "live track" : "selected region"} input · tentative only`;
+    if (liveSessionId) pollLiveDecodeRun(liveSessionId, result.run_id);
+    else pollSavedDecodeRun(captureId, result.run_id);
+  } catch (error) {
+    el("replay-status").textContent = `Auto-identification could not start · ${error.message}`;
+  } finally {
+    updateDecoderSelectionControls();
+  }
+});
+
 async function pollLiveDecodeRun(sessionId, runId) {
   for (let attempt = 0; attempt < 240; attempt++) {
     if (state.liveSessionId !== sessionId) return;
@@ -668,10 +979,15 @@ async function refreshModelStatus() {
         : model.feature_frequency_scope === "full_range_roi_bandpass"
           ? "full-range ROI features"
           : `${model.feature_frequency_scope} features`;
+    const classifierWindow = model.classifier_window_seconds
+      ? ` · ${Number(model.classifier_window_seconds).toFixed(1)} s per crop`
+      : "";
     el("model-status").textContent = model.available
-      ? `Method model ready · method ${(100 * model.threshold).toFixed(0)}% · family ${(100 * model.family_threshold).toFixed(0)}%${unknownStatus} · ${featureScope} · synthetic only`
+      ? `Method model ready · method ${(100 * model.threshold).toFixed(0)}% · family ${(100 * model.family_threshold).toFixed(0)}%${unknownStatus} · ${featureScope}${classifierWindow} · synthetic only`
       : `No model loaded${model.error ? ` · ${model.error}` : " · configure SIG_ID_MODEL_PATH"}`;
     updateModelButton();
+    updateTrainingButton();
+    renderBatchBoxes();
   } catch (error) {
     el("auto-trial").disabled = true;
     el("model-status").textContent = `Model status unavailable · ${error.message}`;
@@ -705,19 +1021,79 @@ async function refreshCvStatus() {
       ? status.held_out_test_source_kinds.join(", ")
       : "not recorded";
     el("cv-status").textContent = status.available
-      ? `YOLO signal detector loaded · ${backendDescription} · ${evaluationDescription} · train sources: ${trainingKinds} · held-out sources: ${testKinds} · ${status.training_scope || "training scope not recorded"} · ${status.window_seconds}s windows · confidence ${(100 * status.confidence_threshold).toFixed(0)}% · class agnostic`
-      : `Optional CV detector unavailable${status.error ? ` · ${status.error}` : " · install the cv extra and configure SIG_ID_CV_MODEL_PATH"}`;
+      ? `YOLO detector ready · ${backendDescription}`
+      : status.error
+        ? `Optional CV detector unavailable · ${status.error}`
+        : `No CV detector loaded · checked ${status.active_models_file || "active model configuration"}`;
+    el("cv-model-details").textContent = status.available
+      ? `${evaluationDescription} · train sources: ${trainingKinds} · held-out sources: ${testKinds} · ${status.training_scope || "training scope not recorded"} · ${status.window_seconds}s windows · confidence ${(100 * status.confidence_threshold).toFixed(0)}% · class agnostic`
+      : "Install the cv extra and configure SIG_ID_CV_MODEL_PATH to enable detection.";
     updateCvButton();
+    updateTrainingButton();
     updateCvSimilarButton();
   } catch (error) {
     state.cvAvailable = false;
     state.cvSimilarAvailable = false;
     el("cv-status").textContent = `CV status unavailable · ${error.message}`;
+    el("cv-model-details").textContent = "Detector information is unavailable.";
     updateCvButton();
     updateCvSimilarButton();
   }
 }
 refreshCvStatus();
+
+function updateTrainingButton() {
+  const button = el("train-models");
+  if (!button) return;
+  button.disabled = state.modelTraining || !state.modelAvailable || !state.cvAvailable;
+  button.textContent = state.modelTraining ? "Training models…" : "Train both models from new reviews";
+}
+
+async function refreshTrainingStatus() {
+  try {
+    const job = await request("/api/models/training/status");
+    state.modelTraining = job.status === "running";
+    const status = el("train-models-status");
+    const progress = el("model-training-progress");
+    const percent = Math.max(0, Math.min(100, Number(job.progress) || 0));
+    progress.value = percent;
+    progress.hidden = !state.modelTraining && job.status !== "complete";
+    if (job.status === "running") {
+      status.textContent = `${job.stage || "Training both models…"} · ${percent}%`;
+      window.setTimeout(refreshTrainingStatus, 2500);
+    } else if (job.status === "failed") {
+      status.textContent = `Training failed · ${job.error || "see server log"}`;
+    } else if (job.status === "complete") {
+      const examples = job.result?.new_classifier_examples ?? 0;
+      status.textContent = `Both models updated · ${examples} new classifier crops · active until replaced by a base-model pipeline run`;
+      refreshModelStatus();
+      refreshCvStatus();
+    } else {
+      status.textContent = "Uses fresh, fully reviewed live captures; base training remains in the full pipeline.";
+    }
+    updateTrainingButton();
+  } catch (error) {
+    el("train-models-status").textContent = `Training status unavailable · ${error.message}`;
+  }
+}
+refreshTrainingStatus();
+
+el("train-models").addEventListener("click", async () => {
+  const button = el("train-models");
+  button.disabled = true;
+  el("train-models-status").textContent = "Starting paired model training…";
+  el("model-training-progress").value = 0;
+  el("model-training-progress").hidden = false;
+  try {
+    await request("/api/models/train", { method: "POST" });
+    state.modelTraining = true;
+    updateTrainingButton();
+    refreshTrainingStatus();
+  } catch (error) {
+    el("train-models-status").textContent = `Could not start training · ${error.message}`;
+    updateTrainingButton();
+  }
+});
 
 function updateCvButton() {
   const button = el("cv-scan");
@@ -809,6 +1185,114 @@ function renderCvSimilarResults(neighbors) {
   }
 }
 
+function applyCvDetectionResult(capture, result, { reused = false } = {}) {
+  const dismissed = result.dismissed_proposals || [];
+  const dismissedIds = new Set(dismissed.map((item) => item.proposal_id));
+  const detections = (result.detections || [])
+    .map((detection) => ({
+      ...detection,
+      cv_proposal_id: detection.proposal_id || detection.cv_proposal_id,
+      detector_evidence: detection.detector_evidence || detectorEvidenceFor(detection),
+    }))
+    .filter((detection) => !dismissedIds.has(detection.cv_proposal_id));
+  state.cvDetections = detections;
+  state.cvRejectedProposals = dismissed;
+  state.cvDismissedCount = 0;
+  state.cvDetectionCache.set(capture.id, {
+    model_sha256: result.model_sha256,
+    detections,
+    dismissed_proposals: dismissed,
+    total_proposed: result.detections?.length || 0,
+  });
+  renderCvDetections();
+  renderCvDismissedProposals();
+  const visibleCount = visibleCvDetections().length;
+  const classifierCount = visibleCvDetections().filter((item) => item.classifier_proposal?.available).length;
+  el("cv-status").textContent = reused
+    ? `Showing saved CV scan · ${visibleCount} boxes visible${detections.length > visibleCount ? ` · ${detections.length - visibleCount} suppressed by frequency notches` : ""} · ${dismissed.length} saved dismissals`
+    : `CV proposed ${result.detections.length} box${result.detections.length === 1 ? "" : "es"} · ${visibleCount} visible${detections.length > visibleCount ? ` · ${detections.length - visibleCount} suppressed by frequency notches` : ""} · ${dismissed.length} saved dismissals · ${result.classifier_available ? `classifier scored ${classifierCount}` : "classifier unavailable"} · provisional; review before labeling or decoding`;
+  drawOverlays();
+}
+
+function mergeLiveCvDetections(incoming) {
+  const retained = [...state.cvDetections];
+  const minimumOverlap = Number(el("live-cv-merge-overlap").value) / 100;
+  const maxScanGapSamples = Math.max(1, state.liveSampleRate || 1) * 3;
+  const overlapFraction = (leftStart, leftEnd, rightStart, rightEnd) => {
+    const intersection = Math.max(0, Math.min(leftEnd, rightEnd) - Math.max(leftStart, rightStart));
+    return intersection / Math.max(1, Math.min(leftEnd - leftStart, rightEnd - rightStart));
+  };
+  for (const detection of incoming || []) {
+    const detectionEnd = detection.sample_start + detection.sample_count;
+    const match = retained.find((existing) => {
+      const existingEnd = existing.sample_start + existing.sample_count;
+      const timeOverlap = overlapFraction(existing.sample_start, existingEnd,
+        detection.sample_start, detectionEnd) >= minimumOverlap;
+      const timeGap = Math.max(0, Math.max(existing.sample_start, detection.sample_start)
+        - Math.min(existingEnd, detectionEnd));
+      const sameFrequency = overlapFraction(existing.frequency_low_hz, existing.frequency_high_hz,
+        detection.frequency_low_hz, detection.frequency_high_hz) >= minimumOverlap;
+      return sameFrequency && (timeOverlap || timeGap <= maxScanGapSamples);
+    });
+    if (!match) {
+      retained.push(detection);
+      continue;
+    }
+    // Join the observed bounds so a signal found in several rolling windows
+    // gets one continuous box instead of a short box from its first sighting.
+    const sampleEnd = Math.max(match.sample_start + match.sample_count,
+      detection.sample_start + detection.sample_count);
+    match.sample_start = Math.min(match.sample_start, detection.sample_start);
+    match.sample_count = sampleEnd - match.sample_start;
+    match.frequency_low_hz = Math.min(match.frequency_low_hz, detection.frequency_low_hz);
+    match.frequency_high_hz = Math.max(match.frequency_high_hz, detection.frequency_high_hz);
+    match.confidence = Math.max(match.confidence || 0, detection.confidence || 0);
+    if (detection.classifier_proposal?.available
+      && (!match.classifier_proposal?.available
+        || (detection.classifier_proposal.confidence || 0) > (match.classifier_proposal.confidence || 0))) {
+      match.classifier_proposal = detection.classifier_proposal;
+    }
+    const windows = new Set([...(match.supporting_windows || []), ...(detection.supporting_windows || [])]);
+    if (windows.size) match.supporting_windows = [...windows];
+  }
+  state.cvDetections = retained.sort((left, right) => left.sample_start - right.sample_start);
+}
+
+function restoreCachedCvDetection(capture) {
+  const cached = state.cvDetectionCache.get(capture.id);
+  if (!cached) return false;
+  applyCvDetectionResult(capture, {
+    model_sha256: cached.model_sha256,
+    detections: cached.detections,
+    dismissed_proposals: cached.dismissed_proposals,
+  }, { reused: true });
+  return true;
+}
+
+function removeSavedCvProposal(proposalId) {
+  if (!proposalId) return;
+  const previousCount = state.cvDetections.length;
+  state.cvDetections = state.cvDetections.filter((detection) => detection.cv_proposal_id !== proposalId);
+  if (state.cvDetections.length === previousCount) return;
+  const cached = state.cvDetectionCache.get(state.capture?.id);
+  if (cached) state.cvDetectionCache.set(state.capture.id, { ...cached, detections: state.cvDetections });
+  renderCvDetections();
+  drawOverlays();
+}
+
+function cvClassifierCaption(detection) {
+  const proposal = detection?.classifier_proposal;
+  if (!proposal) return "classifier not run";
+  if (!proposal.available) return `classifier skipped · ${proposal.reason || "unavailable"}`;
+  const candidateFamily = proposal.candidate_family || proposal.family;
+  const candidateMode = proposal.candidate_mode_name || proposal.mode_name || proposal.variant || proposal.method;
+  const candidate = proposal.abstained
+    ? [candidateFamily, candidateMode].filter(Boolean).join(" → ") || proposal.top_candidate || "unknown"
+    : proposal.mode_name || proposal.variant || proposal.protocol || proposal.method || proposal.family || "unknown";
+  if (proposal.abstained) return `classifier unsure · ${candidate}`;
+  return `classifier · ${candidate} · ${(100 * (proposal.confidence || 0)).toFixed(0)}%`;
+}
+
 el("cv-scan").addEventListener("click", async () => {
   if (!state.capture || state.liveView || !state.cvAvailable) return;
   const capture = state.capture;
@@ -819,20 +1303,7 @@ el("cv-scan").addEventListener("click", async () => {
   try {
     const result = await request(`/api/captures/${encodeURIComponent(capture.id)}/cv-detections`, { method: "POST" });
     if (state.capture !== capture || state.liveView) return;
-    state.cvRejectedProposals = result.dismissed_proposals || [];
-    const dismissedIds = new Set(state.cvRejectedProposals.map((item) => item.proposal_id));
-    state.cvDetections = result.detections
-      .map((detection) => ({
-        ...detection,
-        cv_proposal_id: detection.proposal_id,
-        detector_evidence: detectorEvidenceFor(detection),
-      }))
-      .filter((detection) => !dismissedIds.has(detection.cv_proposal_id));
-    state.cvDismissedCount = 0;
-    renderCvDetections();
-    renderCvDismissedProposals();
-    el("cv-status").textContent = `CV proposed ${result.detections.length} box${result.detections.length === 1 ? "" : "es"} · ${state.cvDetections.length} remain after ${state.cvRejectedProposals.length} saved dismissals · provisional; review before labeling or decoding`;
-    drawOverlays();
+    applyCvDetectionResult(capture, result);
   } catch (error) {
     if (state.capture === capture) el("cv-status").textContent = `CV scan failed · ${error.message}`;
   } finally {
@@ -845,14 +1316,19 @@ function renderCvDetections() {
   const list = el("cv-detection-list");
   if (!list) return;
   list.replaceChildren();
-  for (const [index, detection] of state.cvDetections.entries()) {
+  const detections = visibleCvDetections();
+  for (const [index, detection] of detections.entries()) {
     const row = document.createElement("div");
-    row.className = "track-row";
+    const pendingMerge = pendingWindowMergeSources().proposals.has(detection.cv_proposal_id || detection.proposal_id);
+    row.className = `track-row${pendingMerge ? " pending-merge" : ""}`;
     const summary = document.createElement("div");
     summary.className = "track-summary";
     const supportingWindows = (detection.supporting_windows || []).length;
     const corroboration = supportingWindows > 1 ? ` · seen in ${supportingWindows} windows` : "";
-    summary.textContent = `CV box ${index + 1} · ${(detection.confidence * 100).toFixed(1)}% detector score${corroboration} · identity unknown`;
+    const classification = detection.classifier_proposal
+      ? cvClassifierCaption(detection)
+      : "identity unknown";
+    summary.textContent = `CV box ${index + 1} · ${(detection.confidence * 100).toFixed(1)}% detector score${corroboration} · ${pendingMerge ? "merge staged" : classification}`;
     const detail = document.createElement("div");
     detail.className = "region-detail";
     detail.textContent = `${detection.frequency_low_hz.toFixed(0)}–${detection.frequency_high_hz.toFixed(0)} Hz · ${(detection.sample_start / detection.sample_rate).toFixed(2)}–${((detection.sample_start + detection.sample_count) / detection.sample_rate).toFixed(2)} s`;
@@ -860,49 +1336,78 @@ function renderCvDetections() {
     button.type = "button";
     button.textContent = "Review selection";
     button.addEventListener("click", () => selectCvDetection(detection));
+    const adjust = document.createElement("button");
+    adjust.type = "button";
+    adjust.textContent = "Redraw bounds";
+    adjust.title = "Redraw the corrected time/frequency bounds on the waterfall; you can extend beyond the detector box.";
+    adjust.addEventListener("click", () => armCandidateRedraw(detection));
     const reject = document.createElement("button");
     reject.type = "button";
     reject.textContent = "Reject box";
     reject.title = "Remove this proposal from the current scan; this does not create a training label.";
-    reject.addEventListener("click", async () => {
-      const capture = state.capture;
-      if (!capture || state.liveView) return;
-      reject.disabled = true;
-      reject.textContent = "Saving dismissal…";
-      try {
-        const saved = await saveCvProposalDecision(capture.id, detection, "dismissed");
-        if (state.capture !== capture) return;
-        state.cvDetections = state.cvDetections.filter((item) => item !== detection);
-        state.cvRejectedProposals = [saved, ...state.cvRejectedProposals.filter((item) => item.proposal_id !== saved.proposal_id)];
-        state.cvDismissedCount += 1;
-        if (state.selectedTrack?.cv_proposal_id === detection.cv_proposal_id) {
-          state.selection = null;
-          beginNewRegion();
-          el("selection-summary").textContent = "No selection";
-          el("selection-details").textContent = "The dismissed CV proposal was cleared from the label editor.";
-          el("inspector-context").textContent = "Select a signal region to inspect or label it.";
-        }
-        renderCvDetections();
-        renderCvDismissedProposals();
-        drawOverlays();
-        el("cv-status").textContent = `${state.cvDetections.length} proposals remain · ${state.cvDismissedCount} dismissed from this scan and saved as review history; no training label was recorded`;
-      } catch (error) {
-        if (state.capture !== capture) return;
-        reject.disabled = false;
-        reject.textContent = "Reject box";
-        el("cv-status").textContent = `Could not save proposal dismissal · ${error.message}`;
-      }
-    });
-    row.append(summary, detail, button, reject);
+    reject.addEventListener("click", () => rejectCvDetection(detection, reject));
+    button.disabled = pendingMerge;
+    adjust.disabled = pendingMerge;
+    reject.disabled = pendingMerge;
+    if (state.liveView) {
+      summary.textContent = `Live CV box ${index + 1} · ${(detection.confidence * 100).toFixed(1)}% detector score · ${cvClassifierCaption(detection)} · provisional`;
+      row.append(summary, detail);
+    } else {
+      row.append(summary, detail, button, adjust, reject);
+    }
     list.append(row);
   }
-  if (!state.cvDetections.length) {
+  if (!detections.length) {
     const empty = document.createElement("p");
     empty.className = "subhead";
-    empty.textContent = state.cvDismissedCount
-      ? `No proposals remain · ${state.cvDismissedCount} rejected from this scan; dismissals are not training labels.`
-      : "No boxes proposed. The detector may miss weak or unfamiliar signals.";
+    empty.textContent = state.liveView && !el("live-cv-enabled").checked
+      ? "CV is paused."
+      : state.cvDismissedCount
+        ? `No proposals remain · ${state.cvDismissedCount} rejected from this scan; dismissals are not training labels.`
+        : state.cvDetections.length
+          ? `All ${state.cvDetections.length} detector box${state.cvDetections.length === 1 ? " is" : "es are"} suppressed by frequency notches.`
+          : "No boxes proposed. The detector may miss weak or unfamiliar signals.";
     list.append(empty);
+  }
+}
+
+async function rejectCvDetection(detection, button = null) {
+  const capture = state.capture;
+  if (!capture || state.liveView) return;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Saving dismissal…";
+  }
+  try {
+    const saved = await saveCvProposalDecision(capture.id, detection, "dismissed");
+    if (state.capture !== capture) return;
+    state.cvDetections = state.cvDetections.filter((item) => item !== detection);
+    state.cvRejectedProposals = [saved, ...state.cvRejectedProposals.filter((item) => item.proposal_id !== saved.proposal_id)];
+    state.cvDismissedCount += 1;
+    const cached = state.cvDetectionCache.get(capture.id);
+    if (cached) state.cvDetectionCache.set(capture.id, {
+      ...cached,
+      detections: state.cvDetections,
+      dismissed_proposals: state.cvRejectedProposals,
+    });
+    if (state.selectedTrack?.cv_proposal_id === detection.cv_proposal_id) {
+      state.selection = null;
+      beginNewRegion();
+      el("selection-summary").textContent = "No selection";
+      el("selection-details").textContent = "The dismissed CV proposal was cleared from the label editor.";
+      el("inspector-context").textContent = "Select a signal region to inspect or label it.";
+    }
+    renderCvDetections();
+    renderCvDismissedProposals();
+    drawOverlays();
+    el("cv-status").textContent = `${state.cvDetections.length} proposals remain · ${state.cvDismissedCount} dismissed from this scan and saved as review history; no training label was recorded`;
+  } catch (error) {
+    if (state.capture !== capture) return;
+    if (button) {
+      button.disabled = false;
+      button.textContent = "Reject box";
+    }
+    el("cv-status").textContent = `Could not save proposal dismissal · ${error.message}`;
   }
 }
 
@@ -924,17 +1429,44 @@ function detectorEvidenceFor(detection) {
   };
 }
 
+function savePendingClassifierRegion(capture, selection, track = null, result = null) {
+  return request(`/api/captures/${capture.id}/regions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sample_start: selection.sample_start,
+      sample_count: selection.sample_count,
+      frequency_low_hz: selection.frequency_low_hz,
+      frequency_high_hz: selection.frequency_high_hz,
+      origin: track?.detector_evidence ? "detector_proposal" : "manual",
+      detector_evidence: track?.detector_evidence || null,
+      classifier_proposal: {
+        sample_start: selection.sample_start,
+        sample_count: Math.min(1_000_000, selection.sample_count),
+        selection_sample_count: selection.sample_count,
+        frequency_low_hz: selection.frequency_low_hz,
+        frequency_high_hz: selection.frequency_high_hz,
+      },
+      prediction_only: true,
+      notes: result && !result.family && !result.method
+        ? "Classifier abstained; signal identity needs operator review."
+        : "Classifier suggestion awaiting operator review.",
+    }),
+  });
+}
+
 async function saveCvProposalDecision(captureId, proposal, decision) {
+  const bounds = proposal._originalProposalBounds || proposal;
   return request(`/api/captures/${encodeURIComponent(captureId)}/cv-proposal-decisions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       proposal_id: proposal.cv_proposal_id || proposal.proposal_id,
       decision,
-      sample_start: proposal.sample_start,
-      sample_count: proposal.sample_count,
-      frequency_low_hz: proposal.frequency_low_hz,
-      frequency_high_hz: proposal.frequency_high_hz,
+      sample_start: bounds.sample_start,
+      sample_count: bounds.sample_count,
+      frequency_low_hz: bounds.frequency_low_hz,
+      frequency_high_hz: bounds.frequency_high_hz,
       confidence: proposal.confidence,
       detector_evidence: proposal.detector_evidence || detectorEvidenceFor(proposal),
       note: "Operator dismissed this proposal; this is not a no-signal annotation.",
@@ -1011,9 +1543,61 @@ function renderCvDismissedProposals() {
   }
 }
 
+function matchingSavedRegionForCandidate(candidate) {
+  const proposalId = candidate?.cv_proposal_id || candidate?.proposal_id;
+  const active = state.regions.filter((region) => region.lineage_state !== "superseded"
+    && !state.windowRegionDeletes.has(region.id)
+    && !pendingWindowMergeSources().regions.has(region.id));
+  if (proposalId) {
+    const byProposal = active.find((region) =>
+      region.evidence?.detector_proposal?.proposal_id === proposalId);
+    if (byProposal) return byProposal;
+  }
+  const bounds = candidate?._originalProposalBounds || candidate;
+  if (!Number.isFinite(bounds?.sample_start) || !Number.isFinite(bounds?.sample_count)
+    || !Number.isFinite(bounds?.frequency_low_hz) || !Number.isFinite(bounds?.frequency_high_hz)) return null;
+  const exact = active.filter((region) => {
+    const geometry = state.windowRegionEdits.get(region.id)?.geometry || region;
+    return geometry.sample_start === bounds.sample_start
+      && geometry.sample_count === bounds.sample_count
+      && Math.abs(geometry.frequency_low_hz - bounds.frequency_low_hz) < 0.01
+      && Math.abs(geometry.frequency_high_hz - bounds.frequency_high_hz) < 0.01;
+  });
+  return exact.length === 1 ? exact[0] : null;
+}
+
+function selectSavedRegionFromCandidate(region, candidate) {
+  selectSavedRegion(region);
+  const original = candidate?._originalProposalBounds;
+  if (!original) return;
+  const bounds = candidate;
+  const wasRedrawn = ["sample_start", "sample_count", "frequency_low_hz", "frequency_high_hz"]
+    .some((field) => bounds[field] !== original[field]);
+  if (!wasRedrawn) return;
+  state.selection = {
+    ...state.selection,
+    sample_start: bounds.sample_start,
+    sample_count: bounds.sample_count,
+    frequency_low_hz: bounds.frequency_low_hz,
+    frequency_high_hz: bounds.frequency_high_hz,
+  };
+  reprojectSelection();
+  saveSelectedExistingRegionDraft();
+  state.selectionMergeRegions = boxesCrossedBySelection(state.selection, region.id);
+  state.geometryMergeRegions = [...state.selectionMergeRegions];
+  updateSelectionMergeControls();
+  drawOverlays();
+}
+
 function selectCvDetection(detection) {
   const data = state.waterfall;
   if (!data || state.liveView) return;
+  const savedRegion = matchingSavedRegionForCandidate(detection);
+  if (savedRegion) {
+    selectSavedRegionFromCandidate(savedRegion, detection);
+    el("inspector-context").textContent = `Saved CV region · ${savedRegion.signal_id || "signal identity"} · revise its existing label or bounds.`;
+    return;
+  }
   const proposal = {
     sample_start: detection.sample_start,
     sample_count: detection.sample_count,
@@ -1035,70 +1619,970 @@ function selectCvDetection(detection) {
   el("selection-details").textContent += " · inspect bounds, then run the existing classifier or save as unknown";
 }
 
-async function refreshLayaStatus() {
-  try {
-    const provider = await request("/api/laya/status");
-    state.layaAvailable = Boolean(provider.available);
-    el("laya-status").textContent = state.layaAvailable
-      ? `Laya System One ready · ${provider.reference_examples} labeled synthetic train references · sends selected-region features when clicked`
-      : "Laya unavailable · configure LAYA_ENDPOINT";
-  } catch (error) {
-    state.layaAvailable = false;
-    el("laya-status").textContent = `Laya status unavailable · ${error.message}`;
+function updateSingleBoxButton() {
+  const button = el("draw-signal-box");
+  if (button) {
+    button.textContent = state.drawingSignalBox ? "Cancel box drawing" : "Draw signal box";
+    button.setAttribute("aria-pressed", String(state.drawingSignalBox));
   }
-  updateLayaButton();
+  const batchButton = el("batch-box-toggle");
+  if (batchButton) {
+    batchButton.setAttribute("aria-pressed", String(state.batchBoxMode));
+    batchButton.textContent = state.batchBoxMode ? "Done drawing" : state.batchBoxes.length ? "Add boxes" : "Draw boxes";
+  }
 }
-refreshLayaStatus();
+
+function cancelSingleBoxDrawing(message = "Box drawing cancelled.") {
+  state.drawingSignalBox = false;
+  updateSingleBoxButton();
+  el("box-draw-status").textContent = message;
+  drawOverlays();
+}
+
+function armCandidateRedraw(candidate) {
+  if (!state.waterfall || state.liveView || state.coverageOnly) return;
+  saveSelectedBatchLabelDraft();
+  state.drawingSignalBox = false;
+  updateSingleBoxButton();
+  if (state.cvDetections.includes(candidate) && !candidate._originalProposalBounds) {
+    candidate._originalProposalBounds = {
+      sample_start: candidate.sample_start,
+      sample_count: candidate.sample_count,
+      frequency_low_hz: candidate.frequency_low_hz,
+      frequency_high_hz: candidate.frequency_high_hz,
+    };
+  }
+  state.adjustingCandidate = candidate;
+  el("cv-status").textContent = "Redrawing candidate bounds · drag the corrected time/frequency rectangle on the waterfall. It can extend beyond the detector box; the original detection evidence is retained.";
+  el("hint").classList.add("hidden");
+}
+
+el("draw-signal-box").addEventListener("click", () => {
+  if (!state.waterfall || state.liveView || state.coverageOnly) return;
+  if (state.drawingSignalBox) {
+    cancelSingleBoxDrawing();
+    return;
+  }
+  if (state.batchBoxMode) {
+    state.batchBoxMode = false;
+    renderBatchBoxes();
+  }
+  saveSelectedBatchLabelDraft();
+  state.selection = null;
+  state.classifierProposal = null;
+  beginNewRegion();
+  state.adjustingCandidate = null;
+  state.drawingSignalBox = true;
+  updateSingleBoxButton();
+  el("box-draw-status").textContent = "Drawing mode active · drag a rectangle on the waterfall. Save the selection as a region in the label panel.";
+  updateSceneReviewAvailability();
+  drawOverlays();
+  el("hint").classList.add("hidden");
+});
+
+function renderBatchBoxes() {
+  const list = el("batch-box-list");
+  list.replaceChildren();
+  el("batch-box-summary").textContent = `${state.batchBoxes.length} ${state.batchBoxes.length === 1 ? "box" : "boxes"}`;
+  state.batchBoxes.forEach((box, index) => {
+    const row = document.createElement("div");
+    row.className = `batch-box-item${state.batchReviewBox === box ? " is-selected" : ""}`;
+    const title = document.createElement("strong");
+    const savedLabel = box.labelDraft?.mode_name
+      || [box.labelDraft?.variant, box.labelDraft?.protocol, box.labelDraft?.method, box.labelDraft?.family].find(Boolean);
+    const identityState = box.labelDraft?.identity_unknown_confirmed ? "Unknown" : savedLabel || "needs label";
+    title.textContent = `Signal ${index + 1} · ${identityState}`;
+    const time = document.createElement("span");
+    const start = box.sample_start / state.capture.sample_rate;
+    const end = (box.sample_start + box.sample_count) / state.capture.sample_rate;
+    time.textContent = `${start.toFixed(2)}–${end.toFixed(2)} s · ${box.frequency_low_hz.toFixed(0)}–${box.frequency_high_hz.toFixed(0)} Hz`;
+    row.append(title, time);
+    if (box.result) {
+      const suggestion = document.createElement("span");
+      suggestion.textContent = box.error
+        ? `Classification failed · ${box.error}`
+        : box.result.choice === "unknown" || (!box.result.family && !box.result.method)
+          ? `No confident suggestion${box.result.top_candidate ? ` · top guess ${box.result.top_candidate}` : ""}`
+          : `Suggested ${box.result.method || box.result.family}${box.result.family && box.result.method ? ` · ${box.result.family}` : ""}${Number.isFinite(box.result.confidence) ? ` · ${(100 * box.result.confidence).toFixed(1)}%` : ""}`;
+      row.append(suggestion);
+    }
+    const review = document.createElement("button");
+    review.type = "button";
+    review.textContent = state.batchReviewBox === box ? "Selected for labeling" : "Select to label";
+    review.setAttribute("aria-pressed", String(state.batchReviewBox === box));
+    review.disabled = state.batchClassifying;
+    review.addEventListener("click", () => reviewBatchBox(index));
+    row.append(review);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "Remove box";
+    remove.disabled = state.batchClassifying;
+    remove.addEventListener("click", () => {
+      const wasSelected = state.batchReviewBox === box;
+      if (wasSelected) clearCurrentSelection("Draft signal removed.");
+      if (box.draftMergeId) {
+        const undoIndex = state.batchBoxUndo.findLastIndex((change) => change.type === "undo-merge" && change.box === box);
+        const stagedUndo = undoIndex >= 0 ? state.batchBoxUndo.splice(undoIndex, 1)[0] : null;
+        state.batchBoxUndo = state.batchBoxUndo.filter((change) => change.box !== box);
+        if (stagedUndo) {
+          state.batchBoxes = stagedUndo.previousBoxes;
+          state.windowMerges = stagedUndo.previousMerges;
+          for (const edit of stagedUndo.priorSourceEdits || []) state.windowRegionEdits.set(edit.region_id, edit);
+          state.batchReviewBox = stagedUndo.previousSelection || null;
+          state.editRegion = stagedUndo.previousEditRegion || null;
+          state.selection = stagedUndo.previousGeometrySelection ? {...stagedUndo.previousGeometrySelection} : null;
+        } else state.batchBoxes.splice(index, 1);
+      } else {
+        state.batchBoxUndo.push({type: "remove", box, index});
+        state.batchBoxes.splice(index, 1);
+      }
+      renderBatchBoxes();
+      renderRegions();
+      state.selectionMergeRegions = state.selection ? boxesCrossedBySelection(state.selection, state.editRegion?.id) : [];
+      updateSelectionMergeControls();
+      drawOverlays();
+    });
+    row.append(remove);
+    list.append(row);
+  });
+  el("batch-box-classify").disabled = state.batchClassifying || !state.batchBoxes.length || !state.modelAvailable || state.batchBoxMode || state.batchBoxes.some((box) => box.sample_count < 1024);
+  el("batch-box-clear").disabled = state.batchClassifying || !state.batchBoxes.length;
+  el("batch-box-toggle").disabled = state.batchClassifying || !state.capture || state.liveView || state.coverageOnly;
+  el("batch-box-toggle").textContent = state.batchBoxMode ? "Done drawing" : state.batchBoxes.length ? "Add boxes" : "Draw boxes";
+  updateSingleBoxButton();
+  el("batch-box-status").textContent = state.batchClassifying
+    ? `Getting independent classifier suggestions for ${state.batchBoxes.length} draft signals…`
+    : state.batchBoxMode
+      ? `Drawing mode active · drag over each signal. ${state.batchBoxes.length} box${state.batchBoxes.length === 1 ? "" : "es"} marked so far.`
+      : state.batchBoxes.some((box) => box.sample_count < 1024)
+        ? `${state.batchBoxes.length} box${state.batchBoxes.length === 1 ? "" : "es"} marked · each box needs at least 1,024 samples.`
+        : !state.modelAvailable
+          ? `${state.batchBoxes.length} box${state.batchBoxes.length === 1 ? "" : "es"} marked · no classifier suggestion is loaded, but you can assign labels manually.`
+        : state.batchBoxes.length || state.windowRegionEdits.size || state.windowRegionDeletes.size || state.windowMerges.length || state.windowIdentityLinks.length
+          ? `${state.batchBoxes.length} new · ${state.windowRegionEdits.size} edited · ${state.windowRegionDeletes.size} to remove · ${state.windowMerges.length} merge${state.windowMerges.length === 1 ? "" : "s"} · ${state.windowIdentityLinks.length} identity link${state.windowIdentityLinks.length === 1 ? "" : "s"} staged · save the window changes together.`
+          : "Draw a box around each signal, then label and save the window together.";
+  updateAnnotationSaveAvailability();
+}
+
+function readBatchLabelDraft() {
+  return {
+    mode_id: state.labelModeId || null,
+    mode_name: el("mode-search").value.trim(),
+    family: el("family").value.trim(),
+    method: el("method").value.trim(),
+    protocol: el("protocol").value.trim(),
+    variant: el("variant").value.trim(),
+    notes: el("notes").value.trim(),
+    identity_unknown_confirmed: el("batch-unknown-confirmed").checked,
+  };
+}
+
+function saveSelectedBatchLabelDraft() {
+  if (state.batchReviewBox) {
+    const box = state.batchReviewBox;
+    const previous = box.labelDraft || {};
+    const next = readBatchLabelDraft();
+    if (JSON.stringify(previous) !== JSON.stringify(next)) {
+      const lastChange = state.batchBoxUndo.at(-1);
+      if (lastChange?.type !== "restore-box-label" || lastChange.box !== box) {
+        state.batchBoxUndo.push({type: "restore-box-label", box, labelDraft: {...previous}});
+      }
+      box.labelDraft = next;
+    }
+  } else saveSelectedExistingRegionDraft();
+}
+
+function stageCurrentSelectionAsWindowDraft() {
+  if (!state.selection || state.editRegion || state.batchReviewBox || state.batchBoxMode || !state.capture) return null;
+  const selection = {...state.selection};
+  const selectedTrack = state.selectedTrack;
+  const detectorEvidence = selectedTrack?.detector_evidence
+    || (selectedTrack?.cv_proposal_id ? detectorEvidenceFor(selectedTrack) : null);
+  const proposal = state.classifierProposal?.capture_id === state.capture.id
+    && state.classifierProposal.selection === state.selection
+    ? state.classifierProposal.result : null;
+  const box = {
+    client_id: crypto.randomUUID(),
+    ...selection,
+    labelDraft: readBatchLabelDraft(),
+    origin: detectorEvidence ? "detector_proposal" : el("missed-signal").checked ? "user_added_missed_detection" : "manual",
+    detector_evidence: detectorEvidence,
+    signal_presence_confirmed: Boolean(detectorEvidence && el("cv-presence-confirmed").checked),
+    classifier_proposal: proposal ? {
+      sample_start: proposal.sample_start,
+      sample_count: Math.min(1_000_000, proposal.sample_count),
+      selection_sample_count: selection.sample_count,
+      frequency_low_hz: proposal.selection_frequency_range_hz?.[0] ?? selection.frequency_low_hz,
+      frequency_high_hz: proposal.selection_frequency_range_hz?.[1] ?? selection.frequency_high_hz,
+      crop_count: proposal.requested_crop_count || 1,
+    } : null,
+  };
+  state.batchBoxes.push(box);
+  state.batchBoxUndo.push({type: "add", box});
+  state.batchReviewBox = box;
+  state.selectedTrack = null;
+  state.classifierProposal = null;
+  state.selectionMergeRegions = boxesCrossedBySelection(state.selection);
+  updateSelectionMergeControls();
+  restoreBatchLabelDraft(box);
+  renderBatchBoxes();
+  drawOverlays();
+  return box;
+}
+
+function saveSelectedExistingRegionDraft() {
+  const edit = state.editRegion;
+  if (!edit || !state.selection || state.batchReviewBox) return;
+  const region = state.regions.find((item) => item.id === edit.id);
+  if (!region) return;
+  const geometry = {
+    sample_start: state.selection.sample_start,
+    sample_count: state.selection.sample_count,
+    frequency_low_hz: state.selection.frequency_low_hz,
+    frequency_high_hz: state.selection.frequency_high_hz,
+  };
+  const base = state.windowRegionEdits.get(region.id) || {
+    region_id: region.id,
+    expected_revision: edit.revision,
+    expected_geometry_revision: edit.geometry_revision,
+    geometry: {
+      sample_start: region.sample_start,
+      sample_count: region.sample_count,
+      frequency_low_hz: region.frequency_low_hz,
+      frequency_high_hz: region.frequency_high_hz,
+    },
+    labelDraft: {
+      mode_id: region.mode_id || null,
+      mode_name: region.mode_id || "",
+      family: region.family || "",
+      method: region.method || "",
+      protocol: region.protocol || "",
+      variant: region.variant || "",
+      notes: region.notes || "",
+      identity_unknown_confirmed: Boolean(region.evidence?.identity_unknown_confirmed),
+    },
+  };
+  const previousDraft = state.windowRegionEdits.has(region.id)
+    ? JSON.parse(JSON.stringify(state.windowRegionEdits.get(region.id)))
+    : null;
+  const previousFingerprint = previousDraft ? JSON.stringify(previousDraft) : "";
+  base.geometry = geometry;
+  base.labelDraft = readBatchLabelDraft();
+  const sameGeometry = geometry.sample_start === region.sample_start
+    && geometry.sample_count === region.sample_count
+    && geometry.frequency_low_hz === region.frequency_low_hz
+    && geometry.frequency_high_hz === region.frequency_high_hz;
+  const sameLabel = base.labelDraft.mode_id === (region.mode_id || null)
+    && ["family", "method", "protocol", "variant", "notes"].every((field) => base.labelDraft[field] === (region[field] || ""))
+    && base.labelDraft.identity_unknown_confirmed === Boolean(region.evidence?.identity_unknown_confirmed);
+  if (sameGeometry && sameLabel) state.windowRegionEdits.delete(region.id);
+  else state.windowRegionEdits.set(region.id, base);
+  const nextDraft = state.windowRegionEdits.get(region.id) || null;
+  const nextFingerprint = nextDraft ? JSON.stringify(nextDraft) : "";
+  if (previousFingerprint !== nextFingerprint) {
+    state.batchBoxUndo.push({type: "restore-region-edit", regionId: region.id, previousDraft});
+  }
+  updateAnnotationSaveAvailability();
+  renderRegions();
+}
+
+function windowRegionUpdatePayloads() {
+  return [...state.windowRegionEdits.values()].map((edit) => ({
+    region_id: edit.region_id,
+    expected_revision: edit.expected_revision,
+    expected_geometry_revision: edit.expected_geometry_revision,
+    ...edit.geometry,
+    mode_id: edit.labelDraft.mode_id || null,
+    family: edit.labelDraft.family || null,
+    method: edit.labelDraft.method || null,
+    protocol: edit.labelDraft.protocol || null,
+    variant: edit.labelDraft.variant || null,
+    notes: edit.labelDraft.notes || "",
+    identity_unknown_confirmed: Boolean(edit.labelDraft.identity_unknown_confirmed),
+  }));
+}
+
+function windowRegionDeletionPayloads() {
+  return [...state.windowRegionDeletes.values()].map((region) => ({
+    region_id: region.id,
+    expected_revision: region.revision,
+    expected_geometry_revision: region.geometry_revision,
+  }));
+}
+
+function windowMergePayloads() {
+  return state.windowMerges.map((merge) => {
+    const box = state.batchBoxes.find((item) => item.mergeClientId === merge.client_id);
+    const draft = box?.labelDraft || merge.labelDraft || {};
+    return {
+      client_id: merge.client_id,
+      source_region_ids: merge.source_region_ids,
+      expected_revisions: merge.expected_revisions,
+      expected_geometry_revisions: merge.expected_geometry_revisions,
+      cv_proposals: merge.cv_proposals,
+      heuristic_proposals: merge.heuristic_proposals || [],
+      target_region_id: merge.target_region_id,
+      sample_start: box?.sample_start ?? merge.sample_start,
+      sample_count: box?.sample_count ?? merge.sample_count,
+      frequency_low_hz: box?.frequency_low_hz ?? merge.frequency_low_hz,
+      frequency_high_hz: box?.frequency_high_hz ?? merge.frequency_high_hz,
+      mode_id: draft.mode_id || null,
+      family: draft.family || null,
+      method: draft.method || null,
+      protocol: draft.protocol || null,
+      variant: draft.variant || null,
+      notes: draft.notes || "",
+      identity_unknown_confirmed: Boolean(draft.identity_unknown_confirmed),
+    };
+  });
+}
+
+function windowIdentityLinkPayloads() {
+  return state.windowIdentityLinks.map((link) => ({
+    ...(link.signal_id ? {signal_id: link.signal_id} : {target_region_id: link.target_region_id}),
+    region_ids: [...link.region_ids],
+    expected_signal_ids: {...link.expected_signal_ids},
+    expected_revisions: {...link.expected_revisions},
+  }));
+}
+
+function refreshIdentityLinkControls() {
+  const window = state.capture ? annotationWindowBounds(state.capture) : null;
+  const selected = [...state.identityLinkSelection].filter((id) => {
+    const region = state.regions.find((item) => item.id === id);
+    return region && region.lineage_state !== "superseded" && !state.windowRegionDeletes.has(id)
+      && window && region.sample_start >= window.startSample
+      && region.sample_start + region.sample_count <= window.startSample + window.sampleCount;
+  });
+  state.identityLinkSelection = new Set(selected);
+  const button = el("link-signal-identity");
+  const undoButton = el("undo-signal-identity-link");
+  const status = el("identity-link-status");
+  if (!button || !status) return;
+  button.disabled = selected.length < 2 || state.liveView || state.batchSaving;
+  const currentButton = el("same-signal-current");
+  if (currentButton) currentButton.disabled = !state.editRegion || state.liveView || state.batchSaving;
+  if (undoButton) undoButton.disabled = !state.windowIdentityLinks.length || state.batchSaving;
+  status.textContent = selected.length
+    ? `${selected.length} boxes selected · they will remain separate regions.${state.windowIdentityLinks.length ? ` ${state.windowIdentityLinks.length} identity link${state.windowIdentityLinks.length === 1 ? "" : "s"} staged.` : ""}`
+    : state.windowIdentityLinks.length
+      ? `${state.windowIdentityLinks.length} identity link${state.windowIdentityLinks.length === 1 ? "" : "s"} staged · save annotations to apply.`
+      : "Select two or more saved signals below.";
+  for (const row of document.querySelectorAll(".region-row[data-region-id]")) {
+    row.classList.toggle("identity-link-selected", state.identityLinkSelection.has(row.dataset.regionId));
+  }
+}
+
+el("link-signal-identity")?.addEventListener("click", () => {
+  const selected = [...state.identityLinkSelection].map((id) => state.regions.find((region) => region.id === id)).filter(Boolean);
+  if (selected.length < 2) return;
+  openSameSignalDialog(selected.map((region) => region.id));
+});
+
+function openSameSignalDialog(regionIds) {
+  const ids = [...new Set(regionIds)];
+  const tbody = el("same-signal-parent-rows");
+  tbody.replaceChildren();
+  const choices = state.regions.filter((region) => region.lineage_state !== "superseded" && !state.windowRegionDeletes.has(region.id));
+  const rate = state.capture?.sample_rate || 1;
+  for (const region of choices) {
+    const row = document.createElement("tr");
+    const radioCell = document.createElement("td");
+    const radio = document.createElement("input");
+    radio.type = "radio"; radio.name = "same-signal-parent"; radio.value = region.id;
+    radio.disabled = ids.length > 1 ? !ids.includes(region.id) : region.id === ids[0];
+    radio.checked = ids.length > 1 && ids.includes(region.id) && region.id === ids[0];
+    radio.addEventListener("change", () => { el("same-signal-confirm").disabled = false; });
+    radioCell.append(radio); row.append(radioCell);
+    const label = [region.family, region.method, region.protocol, region.variant].filter(Boolean).join(" · ") || region.mode_name || "Needs label";
+    const source = [region.source, region.evidence?.detector_proposal ? "CV" : "", region.evidence?.classifier_proposal ? "Classifier" : ""].filter(Boolean).join(" · ");
+    const band = Number.isFinite(region.frequency_low_hz) && Number.isFinite(region.frequency_high_hz) ? `${region.frequency_low_hz.toFixed(0)}–${region.frequency_high_hz.toFixed(0)} Hz` : "Unknown";
+    for (const value of [region.signal_id || "New identity", label, source || "Saved", `${(region.sample_start / rate).toFixed(2)}–${((region.sample_start + region.sample_count) / rate).toFixed(2)} s`, band]) {
+      const cell = document.createElement("td"); cell.textContent = value; row.append(cell);
+    }
+    row.addEventListener("click", (event) => { if (event.target !== radio) { radio.checked = true; radio.dispatchEvent(new Event("change")); } });
+    tbody.append(row);
+  }
+  window.identityModalRegionIds = ids;
+  el("same-signal-dialog-summary").textContent = `${ids.length} box${ids.length === 1 ? "" : "es"} will keep separate bounds and share the parent’s identity and label.`;
+  el("same-signal-confirm").disabled = !tbody.querySelector('input[name="same-signal-parent"]:checked');
+  el("same-signal-dialog").showModal();
+}
+
+el("same-signal-current")?.addEventListener("click", () => {
+  if (state.editRegion) openSameSignalDialog([state.editRegion.id]);
+});
+el("same-signal-cancel")?.addEventListener("click", () => el("same-signal-dialog").close());
+el("same-signal-confirm")?.addEventListener("click", () => {
+  const target = state.regions.find((region) => region.id === document.querySelector('input[name="same-signal-parent"]:checked')?.value);
+  const selected = (window.identityModalRegionIds || []).map((id) => state.regions.find((region) => region.id === id)).filter(Boolean);
+  if (!target || !selected.length) return;
+  if (!selected.some((region) => region.id === target.id)) selected.push(target);
+  const signalIds = new Set(state.windowIdentityLinks.flatMap((link) => link.region_ids));
+  if (selected.some((region) => signalIds.has(region.id))) {
+    el("identity-link-status").textContent = "A selected box is already part of another pending identity link. Save or clear that link first.";
+    return;
+  }
+  state.windowIdentityLinks.push({
+    target_region_id: target.id,
+    region_ids: selected.map((region) => region.id),
+    expected_signal_ids: Object.fromEntries(selected.map((region) => [region.id, region.signal_id])),
+    expected_revisions: Object.fromEntries(selected.map((region) => [region.id, region.revision])),
+  });
+  el("identity-link-status").textContent = `Link staged to ${target.signal_id || "the selected parent"}. Save annotations to apply it.`;
+  state.identityLinkSelection.clear();
+  renderRegions();
+  updateAnnotationSaveAvailability();
+  el("same-signal-dialog").close();
+});
+
+el("undo-signal-identity-link")?.addEventListener("click", () => {
+  if (!state.windowIdentityLinks.length) return;
+  state.windowIdentityLinks.pop();
+  el("identity-link-status").textContent = "Last identity link removed from the window draft.";
+  refreshIdentityLinkControls();
+  updateAnnotationSaveAvailability();
+});
+
+document.getElementById("identity-signal-id")?.addEventListener("input", () => refreshIdentityLinkControls());
+
+function pendingWindowMergeSources() {
+  return {
+    regions: new Set(state.windowMerges.flatMap((merge) => merge.source_region_ids)),
+    proposals: new Set(state.windowMerges.flatMap((merge) => merge.cv_proposals.map((item) => item.proposal_id))),
+    tracks: new Set(state.windowMerges.flatMap((merge) => (merge.heuristic_proposals || []).map((item) => item.candidate_id))),
+  };
+}
+
+function restoreBatchLabelDraft(box) {
+  const draft = box.labelDraft || {};
+  state.labelModeId = draft.mode_id || null;
+  state.applyingMode = true;
+  el("mode-search").value = draft.mode_name || "";
+  for (const field of ["family", "method", "protocol", "variant", "notes"]) el(field).value = draft[field] || "";
+  el("batch-unknown-confirmed").checked = Boolean(draft.identity_unknown_confirmed);
+  el("batch-unknown-row").hidden = false;
+  el("mode-resolution").textContent = draft.mode_id
+    ? "Saved label selection for this draft."
+    : draft.identity_unknown_confirmed
+      ? "This is a confirmed signal with unknown identity."
+      : "Choose a known mode, enter a partial label, or leave it unlabeled.";
+  state.applyingMode = false;
+}
+
+function batchBoxLabelText(box, index) {
+  const draft = box.labelDraft;
+  const label = draft?.identity_unknown_confirmed
+    ? "Unknown"
+    : draft?.mode_name || [draft?.variant, draft?.protocol, draft?.method, draft?.family].find(Boolean);
+  return label ? `Draft ${index + 1} · ${label}` : `Draft ${index + 1}`;
+}
+
+function regionIdentityCaption(region, label = region, labelDraft = null) {
+  const identity = [label?.variant, label?.protocol, label?.method, label?.family, label?.mode_name, label?.mode_id]
+    .find(Boolean);
+  if (identity) return identity;
+  const explicitlyUnknown = labelDraft?.identity_unknown_confirmed
+    ?? label?.identity_unknown_confirmed
+    ?? Boolean(region?.evidence?.identity_unknown_confirmed);
+  return explicitlyUnknown ? "Unknown" : "Needs label";
+}
+
+function updateAnnotationSaveAvailability() {
+  const annotate = state.inspectorMode === "annotate";
+  const hasWindowChanges = state.batchBoxes.length > 0 || state.windowRegionEdits.size > 0
+    || state.windowRegionDeletes.size > 0 || state.windowMerges.length > 0 || state.windowIdentityLinks.length > 0;
+  const hasWindowDrafts = hasWindowChanges && !state.liveView && !state.batchSaving;
+  el("save-annotations").disabled = hasWindowDrafts
+    ? false
+    : !state.selection || !state.capture || state.liveView || state.batchSaving;
+  el("save-annotations").textContent = state.liveView
+    ? "Save annotations"
+    : hasWindowChanges ? "Save all annotations" : annotate ? "Save annotations" : "Save signal";
+  el("save-annotations").title = state.liveView
+    ? state.selection
+      ? "Save this labeled signal as a training candidate from the current 10-second live window."
+      : "Select a signal fully inside a complete 10-second live window to save a training candidate."
+    : hasWindowChanges
+      ? "Save new boxes, labels, geometry changes, identity links, merges, and removals together for this 10-second window."
+      : annotate
+        ? "Save this annotation as part of the current 10-second window."
+        : "Save the selected signal and its label.";
+  el("save-annotations").hidden = annotate;
+  el("save-annotations-close").disabled = !state.capture || state.liveView || state.batchSaving;
+  const reportButton = el("report-window-pdf");
+  if (reportButton) reportButton.disabled = !state.capture || !state.waterfall || state.liveView;
+  el("save-annotations-complete").disabled = state.batchSaving || !state.capture || state.liveView;
+}
+
+function reportRegionsForWindow(bounds) {
+  const inWindow = (item) => item.sample_start < bounds.endSample
+    && item.sample_start + item.sample_count > bounds.startSample;
+  const saved = state.regions.filter((region) => region.lineage_state !== "superseded"
+    && !state.windowRegionDeletes.has(region.id) && inWindow(region)).map((region) => {
+    const edit = state.windowRegionEdits.get(region.id);
+    return {...region, ...(edit?.geometry || {}), ...(edit?.labelDraft || {}), reportDraft: Boolean(edit)};
+  });
+  const drafts = state.batchBoxes.filter(inWindow).map((box, index) => ({
+    ...box, id: box.client_id || `draft-${index + 1}`, signal_id: null,
+    reportDraft: true, source: "Manual draft", ...(box.labelDraft || {}),
+  }));
+  return [...saved, ...drafts].sort((a, b) => a.sample_start - b.sample_start || a.frequency_low_hz - b.frequency_low_hz);
+}
+
+function reportWaterfallCanvas(bounds, regions, cropRegion = null) {
+  const data = state.waterfall;
+  const rowIndices = data.sample_starts.map((sample, index) => ({sample, index}))
+    .filter(({sample}) => sample < bounds.endSample && sample + data.fft_size > bounds.startSample);
+  const canvas = document.createElement("canvas");
+  if (!rowIndices.length) return canvas;
+  const hasBand = cropRegion && Number.isFinite(cropRegion.frequency_low_hz) && Number.isFinite(cropRegion.frequency_high_hz);
+  const frequencyStart = hasBand ? Math.max(0, lowerBound(data.frequency_hz, cropRegion.frequency_low_hz)) : 0;
+  const frequencyEnd = hasBand ? Math.min(data.frequency_hz.length, lowerBound(data.frequency_hz, cropRegion.frequency_high_hz) + 1) : data.frequency_hz.length;
+  const selectedRows = (cropRegion ? rowIndices.filter(({sample}) => sample < cropRegion.sample_start + cropRegion.sample_count && sample + data.fft_size > cropRegion.sample_start) : rowIndices).reverse();
+  canvas.width = Math.max(1, frequencyEnd - frequencyStart);
+  canvas.height = Math.max(1, selectedRows.length);
+  const context = canvas.getContext("2d", {alpha:false});
+  const image = context.createImageData(canvas.width, canvas.height);
+  const palette = state.palette || (state.palette = Array.from({length:256}, (_, i) => colorFor(-95 + i * 75 / 255, -95, -20)));
+  selectedRows.forEach(({index}, y) => {
+    for (let x = 0; x < canvas.width; x++) {
+      const level = Math.max(0, Math.min(255, Math.round((data.db[index][frequencyStart + x] + 95) * 255 / 75)));
+      const [r, g, b] = palette[level];
+      const offset = (y * canvas.width + x) * 4;
+      image.data[offset] = r; image.data[offset + 1] = g; image.data[offset + 2] = b; image.data[offset + 3] = 255;
+    }
+  });
+  context.putImageData(image, 0, 0);
+  if (!cropRegion) {
+    context.strokeStyle = "#ffffff"; context.lineWidth = Math.max(2, Math.round(canvas.width / 900));
+    context.font = `${Math.max(11, Math.round(canvas.width / 110))}px sans-serif`;
+    for (const region of regions) {
+      if (!Number.isFinite(region.frequency_low_hz) || !Number.isFinite(region.frequency_high_hz)) continue;
+      const x1 = Math.max(0, (region.frequency_low_hz - data.frequency_hz[frequencyStart]) / Math.max(1, data.frequency_hz[frequencyEnd - 1] - data.frequency_hz[frequencyStart]) * canvas.width);
+      const x2 = Math.min(canvas.width - 1, (region.frequency_high_hz - data.frequency_hz[frequencyStart]) / Math.max(1, data.frequency_hz[frequencyEnd - 1] - data.frequency_hz[frequencyStart]) * canvas.width);
+      const y1 = Math.max(0, Math.min(canvas.height - 1, (bounds.endSample - Math.min(bounds.endSample, region.sample_start + region.sample_count)) / Math.max(1, bounds.sampleCount) * canvas.height));
+      const y2 = Math.max(0, Math.min(canvas.height - 1, (bounds.endSample - Math.max(bounds.startSample, region.sample_start)) / Math.max(1, bounds.sampleCount) * canvas.height));
+      context.strokeStyle = "#f6d365"; context.strokeRect(x1, y1, Math.max(1, x2 - x1), Math.max(1, y2 - y1));
+      const caption = [region.signal_id, region.method || region.mode_name || region.family].filter(Boolean).join(" · ") || "Unlabeled";
+      context.fillStyle = "#08111de8"; context.fillRect(x1, Math.max(0, y1 - 16), Math.min(canvas.width - x1, context.measureText(caption).width + 8), 16);
+      context.fillStyle = "#ffffff"; context.fillText(caption, x1 + 4, Math.max(12, y1 - 4));
+    }
+  }
+  return canvas;
+}
+
+function reportSnrEstimate(region) {
+  const data = state.waterfall;
+  if (!Number.isFinite(region.frequency_low_hz) || !Number.isFinite(region.frequency_high_hz)) return "Unavailable (frequency bounds unknown)";
+  const f0 = Math.max(0, lowerBound(data.frequency_hz, region.frequency_low_hz));
+  const f1 = Math.min(data.frequency_hz.length, lowerBound(data.frequency_hz, region.frequency_high_hz) + 1);
+  const signal = [], noise = [];
+  for (let i = 0; i < data.sample_starts.length; i++) {
+    const sample = data.sample_starts[i];
+    if (sample >= region.sample_start + region.sample_count || sample + data.fft_size <= region.sample_start) continue;
+    for (let f = f0; f < f1; f++) signal.push(data.db[i][f]);
+    const width = Math.max(1, f1 - f0);
+    for (let f = Math.max(0, f0 - width); f < f0; f++) noise.push(data.db[i][f]);
+    for (let f = f1; f < Math.min(data.frequency_hz.length, f1 + width); f++) noise.push(data.db[i][f]);
+  }
+  const median = (values) => { if (!values.length) return null; values.sort((a, b) => a - b); return values[Math.floor(values.length / 2)]; };
+  const signalLevel = median(signal), noiseLevel = median(noise);
+  if (signalLevel === null || noiseLevel === null) return "Unavailable";
+  return `${(signalLevel - noiseLevel).toFixed(1)} dB estimated band contrast (local waterfall median)`;
+}
+
+function escapeReportText(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (char) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]));
+}
+
+function generateWindowPdfReport() {
+  if (!state.capture || !state.waterfall || state.liveView) return;
+  const popup = window.open("", "_blank");
+  if (!popup) { showError("Allow popups to open the printable window report."); return; }
+  const bounds = annotationWindowBounds();
+  const regions = reportRegionsForWindow(bounds);
+  const fullImage = reportWaterfallCanvas(bounds, regions).toDataURL("image/png");
+  const rate = state.capture.sample_rate;
+  const start = (bounds.startSample / rate).toFixed(2), end = (bounds.endSample / rate).toFixed(2);
+  const details = regions.map((region, index) => {
+    const crop = reportWaterfallCanvas(bounds, regions, region).toDataURL("image/png");
+    const mode = region.mode_name || region.method || region.variant || region.protocol || region.family || "Unclassified";
+    const time = `${(region.sample_start / rate).toFixed(2)}–${((region.sample_start + region.sample_count) / rate).toFixed(2)} s`;
+    const frequency = Number.isFinite(region.frequency_low_hz) && Number.isFinite(region.frequency_high_hz)
+      ? `${region.frequency_low_hz.toFixed(0)}–${region.frequency_high_hz.toFixed(0)} Hz` : "Unknown";
+    const confidence = region.confidence ?? region.evidence?.classifier_proposal?.confidence;
+    const confidenceLine = Number.isFinite(confidence) ? `<p><b>Classifier confidence:</b> ${(confidence * 100).toFixed(1)}%</p>` : "";
+    const taxonomy = [["Family", region.family], ["Method", region.method], ["Protocol", region.protocol], ["Variant", region.variant]]
+      .filter(([, value]) => value).map(([name, value]) => `<span><b>${name}:</b> ${escapeReportText(value)}</span>`).join(" ");
+    return `<article class="region"><h2>Region ${index + 1}${region.signal_id ? ` · ${escapeReportText(region.signal_id)}` : ""}${region.reportDraft ? " · Draft" : ""}</h2><img class="closeup" src="${crop}" alt="Waterfall closeup for region ${index + 1}"><div class="facts"><p><b>Classification:</b> ${escapeReportText(mode)}</p><p>${taxonomy || "No detailed taxonomy saved"}</p>${confidenceLine}<p><b>Time:</b> ${time} · <b>Frequency:</b> ${frequency}</p><p><b>Source:</b> ${escapeReportText(region.source || "Manual annotation")} · <b>Review:</b> ${escapeReportText(region.review_state || "Draft")}</p><p><b>SNR:</b> ${escapeReportText(reportSnrEstimate(region))}</p>${region.notes ? `<p><b>Notes:</b> ${escapeReportText(region.notes)}</p>` : ""}</div></article>`;
+  }).join("");
+  popup.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Signal window report · ${escapeReportText(state.capture.display_name || state.capture.id)}</title><style>@page{size:letter;margin:14mm}body{font:12px Arial,sans-serif;color:#17212b;margin:0}h1{font-size:22px;margin:0 0 8px}h2{font-size:16px;margin:0 0 8px}.meta{color:#485967;margin:4px 0 14px}.window{width:100%;max-height:220mm;object-fit:contain}.region{page-break-before:always;break-before:page}.closeup{display:block;width:100%;max-height:125mm;object-fit:contain;background:#08111b}.facts{display:grid;grid-template-columns:1fr 1fr;gap:2px 16px}.facts p{margin:5px 0}.foot{font-size:10px;color:#52616c;margin-top:12px}@media screen{body{max-width:850px;margin:24px auto;padding:24px}.window,.closeup{border:1px solid #ccd5dc}.print{position:fixed;top:12px;right:12px;padding:10px 16px}}@media print{.print{display:none}}</style></head><body><button class="print" onclick="window.print()">Print / Save as PDF</button><h1>Signal window report</h1><p class="meta"><b>${escapeReportText(state.capture.display_name || state.capture.id)}</b> · Window ${bounds.index + 1} of ${bounds.total} · ${start}–${end} s · ${regions.length} region${regions.length === 1 ? "" : "s"}</p><img class="window" src="${fullImage}" alt="Annotated full 10-second waterfall window"><p class="foot">SNR is estimated as median in-band waterfall level minus median adjacent-bin level; it is a visual estimate, not a calibrated receiver measurement. Draft markup is identified above.</p>${details || "<article class=region><p>No saved or draft regions are in this window.</p></article>"}</body></html>`);
+  popup.document.close();
+  popup.focus();
+  popup.setTimeout(() => popup.print(), 350);
+}
+
+el("report-window-pdf")?.addEventListener("click", generateWindowPdfReport);
+
+async function saveWindowAnnotationDrafts() {
+  const capture = state.capture;
+  if (!capture || state.liveView) return null;
+  saveSelectedBatchLabelDraft();
+  if (!state.batchBoxes.length && !state.windowRegionEdits.size && !state.windowRegionDeletes.size && !state.windowMerges.length && !state.windowIdentityLinks.length) return null;
+  const annotationWindow = annotationWindowBounds(capture);
+  const windowStart = annotationWindow.startSample;
+  const windowCount = annotationWindow.sampleCount;
+  if (state.batchBoxes.some((box) => box.sample_start < windowStart || box.sample_start + box.sample_count > windowStart + windowCount)) {
+    throw new Error("These boxes span beyond the current 10-second window. Save or review one 10-second window at a time.");
+  }
+  const annotations = state.batchBoxes.filter((box) => !box.mergeClientId).map((box) => {
+    const draft = box.labelDraft || {};
+    return {
+      client_id: box.client_id,
+      sample_start: box.sample_start,
+      sample_count: box.sample_count,
+      frequency_low_hz: box.frequency_low_hz,
+      frequency_high_hz: box.frequency_high_hz,
+      origin: box.origin || "manual",
+      detector_evidence: box.detector_evidence || null,
+      classifier_proposal: box.classifier_proposal || null,
+      signal_presence_confirmed: Boolean(box.signal_presence_confirmed),
+      mode_id: draft.mode_id || null,
+      family: draft.family || null,
+      method: draft.method || null,
+      protocol: draft.protocol || null,
+      variant: draft.variant || null,
+      notes: draft.notes || "",
+      identity_unknown_confirmed: Boolean(draft.identity_unknown_confirmed),
+    };
+  });
+  const updates = windowRegionUpdatePayloads();
+  const deletions = windowRegionDeletionPayloads();
+  const merges = windowMergePayloads();
+  const identityLinks = windowIdentityLinkPayloads();
+  await ensureWindowSaveCapabilities({updates, deletions, merges, identityLinks});
+  const contentDigest = JSON.stringify({windowStart, windowCount, annotations, updates, deletions, merges, identityLinks});
+  if (!state.batchSaveKey || state.batchSaveDigest !== contentDigest) {
+    state.batchSaveKey = crypto.randomUUID();
+    state.batchSaveDigest = contentDigest;
+  }
+  state.batchSaving = true;
+  updateAnnotationSaveAvailability();
+  const changeCount = annotations.length + updates.length + deletions.length + merges.length + identityLinks.length;
+  el("batch-box-status").textContent = `Saving ${changeCount} window change${changeCount === 1 ? "" : "s"} together…`;
+  el("label-state").textContent = "Saving all annotations for this 10-second window…";
+  try {
+    const result = await request(`/api/captures/${encodeURIComponent(capture.id)}/regions/batch`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        idempotency_key: state.batchSaveKey,
+        window_start_sample: windowStart,
+        window_sample_count: windowCount,
+        regions: annotations,
+        updates,
+        deletions,
+        merges,
+        identity_links: identityLinks,
+      }),
+    });
+    if (state.capture?.id !== capture.id) return null;
+    const mergeClientIds = new Set(merges.map((merge) => merge.client_id));
+    const mergedTrackIds = new Set(merges.flatMap((merge) => (merge.heuristic_proposals || []).map((item) => item.candidate_id)));
+    const mergedCvProposals = merges.flatMap((merge) => merge.cv_proposals || []);
+    const mergedCvProposalIds = new Set(mergedCvProposals.map((proposal) => proposal.proposal_id).filter(Boolean));
+    state.batchBoxes = [];
+    state.batchBoxUndo = [];
+    state.batchReviewBox = null;
+    state.windowRegionEdits.clear();
+    state.windowRegionDeletes.clear();
+    state.windowMerges = [];
+    state.windowIdentityLinks = [];
+    state.identityLinkSelection.clear();
+    state.batchSaveKey = null;
+    state.batchSaveDigest = null;
+    state.selection = null;
+    state.tracks = state.tracks.filter((track) => !mergedTrackIds.has(heuristicCandidateId(track)));
+    if (mergedCvProposalIds.size) {
+      state.cvDetections = state.cvDetections.filter((detection) =>
+        !mergedCvProposalIds.has(detection.cv_proposal_id || detection.proposal_id));
+      const knownDismissedIds = new Set(state.cvRejectedProposals.map((proposal) => proposal.proposal_id));
+      for (const proposal of mergedCvProposals) {
+        if (!proposal.proposal_id || knownDismissedIds.has(proposal.proposal_id)) continue;
+        const evidence = proposal.detector_evidence || detectorEvidenceFor(proposal);
+        state.cvRejectedProposals.push({
+          proposal_id: proposal.proposal_id,
+          decision: "dismissed",
+          sample_start: proposal.sample_start,
+          sample_count: proposal.sample_count,
+          frequency_low_hz: proposal.frequency_low_hz,
+          frequency_high_hz: proposal.frequency_high_hz,
+          confidence: proposal.confidence,
+          model_sha256: evidence.model_sha256 || proposal.model_sha256,
+          detector_evidence: evidence,
+          note: "Merged into a saved signal; this is not a no-signal annotation.",
+        });
+        knownDismissedIds.add(proposal.proposal_id);
+      }
+      const cached = state.cvDetectionCache.get(capture.id);
+      if (cached) state.cvDetectionCache.set(capture.id, {
+        ...cached,
+        detections: state.cvDetections,
+        dismissed_proposals: state.cvRejectedProposals,
+      });
+      renderCvDetections();
+      renderCvDismissedProposals();
+      drawOverlays();
+    }
+    state.selectionMergeRegions = [];
+    state.excludedMergeCandidates.clear();
+    beginNewRegion();
+    const savedCount = changeCount;
+    const savedMessage = `${savedCount} window change${savedCount === 1 ? "" : "s"} saved together${result.replayed ? " (safe retry)" : ""}.`;
+    el("batch-box-status").textContent = savedMessage;
+    el("label-state").textContent = `${savedCount} signal change${savedCount === 1 ? "" : "s"} saved for this 10-second window.`;
+
+    // The transaction is committed at this point. A later read failure must not
+    // make the operator think the save failed or invite a duplicate operation.
+    let refreshError = null;
+    try {
+      state.regions = await request(`/api/captures/${encodeURIComponent(capture.id)}/regions`);
+      renderRegions();
+      renderBatchBoxes();
+      renderTracks();
+      drawOverlays();
+      const savedMerge = state.regions.find((region) => mergeClientIds.has(region.evidence?.window_annotation_merge?.client_id));
+      if (savedMerge) selectSavedRegion(savedMerge, "label");
+    } catch (error) {
+      refreshError = error;
+    }
+    try {
+      await refreshSceneCoverage(capture.id);
+    } catch (error) {
+      refreshError ||= error;
+    }
+    if (refreshError) {
+      const message = `Annotations were saved, but the display could not refresh · ${refreshError.message}. Reopen this window to reload the saved signals.`;
+      el("batch-box-status").textContent = message;
+      el("label-state").textContent = message;
+    }
+    el("refresh-window-regions").hidden = true;
+    return result;
+  } catch (error) {
+    if (error.status === 409) el("refresh-window-regions").hidden = false;
+    throw error;
+  } finally {
+    state.batchSaving = false;
+    updateAnnotationSaveAvailability();
+  }
+}
+
+el("refresh-window-regions").addEventListener("click", async () => {
+  const captureId = state.capture?.id;
+  if (!captureId || state.liveView) return;
+  const button = el("refresh-window-regions");
+  button.disabled = true;
+  try {
+    const regions = await request(`/api/captures/${encodeURIComponent(captureId)}/regions`);
+    if (state.capture?.id !== captureId) return;
+    state.regions = regions;
+    renderRegions();
+    renderBatchBoxes();
+    state.selectionMergeRegions = state.selection
+      ? boxesCrossedBySelection(state.selection, state.editRegion?.id)
+      : [];
+    updateSelectionMergeControls();
+    drawOverlays();
+    el("batch-box-status").textContent = "Saved signals refreshed. Your draft is unchanged. Undo and restage edits or merges based on older signal versions before saving.";
+  } catch (error) {
+    el("batch-box-status").textContent = `Could not refresh saved signals · ${error.message}. Your draft is unchanged.`;
+  } finally {
+    button.disabled = false;
+  }
+});
+
+function reviewBatchBox(index) {
+  const box = state.batchBoxes[index];
+  if (!box || !state.capture) return;
+  saveSelectedBatchLabelDraft();
+  state.batchBoxMode = false;
+  beginNewRegion();
+  state.batchReviewBox = box;
+  updateSingleBoxButton();
+  renderBatchBoxes();
+  state.selection = { ...box };
+  state.selectionMergeRegions = boxesCrossedBySelection(state.selection);
+  updateSelectionMergeControls();
+  state.classifierProposal = null;
+  restoreBatchLabelDraft(box);
+  reprojectSelection();
+  updateCarrierFromSelection(state.selection);
+  openInspector("label");
+  const suggested = box.result?.method || box.result?.family;
+  el("selection-summary").textContent = `Signal ${index + 1} · ${suggested ? `suggestion: ${suggested}` : "label this signal"}`;
+  el("selection-details").textContent = `Draft · ${(box.sample_start / state.capture.sample_rate).toFixed(2)}–${((box.sample_start + box.sample_count) / state.capture.sample_rate).toFixed(2)} s · ${box.frequency_low_hz.toFixed(0)}–${box.frequency_high_hz.toFixed(0)} Hz. Drag inside to move or a corner to resize; its label stays with it.`;
+  el("label-state").textContent = box.labelDraft?.mode_id || box.labelDraft?.family || box.labelDraft?.identity_unknown_confirmed
+    ? "Label saved in this window draft."
+    : suggested ? `Classifier suggests ${suggested}; choose a label to confirm it.` : "Choose a mode or leave unlabeled for now.";
+  setRegionSaveDisabled(!state.selection || state.liveView || !state.capture);
+  updateModelButton();
+  updateSceneReviewAvailability();
+  drawOverlays();
+}
+
+el("batch-box-toggle").addEventListener("click", () => {
+  if (!state.capture || state.liveView || state.coverageOnly) return;
+  saveSelectedBatchLabelDraft();
+  if (state.batchBoxMode) {
+    state.batchBoxMode = false;
+  } else {
+    if (state.drawingSignalBox) cancelSingleBoxDrawing("Single-box drawing stopped · multi-box drawing is active.");
+    state.batchBoxMode = true;
+    state.selection = null;
+    state.classifierProposal = null;
+    beginNewRegion();
+    el("selection-summary").textContent = "Multi-box selection";
+    el("selection-details").textContent = "Draw separate boxes around each signal. Each box will receive an independent provisional classification.";
+    setRegionSaveDisabled(true);
+    updateModelButton();
+    updateSceneReviewAvailability();
+  }
+  updateSingleBoxButton();
+  renderBatchBoxes();
+  drawOverlays();
+});
+
+el("batch-box-clear").addEventListener("click", () => {
+  if (state.batchBoxes.length || state.windowMerges.length) state.batchBoxUndo.push({type: "restore-all", boxes: [...state.batchBoxes], merges: [...state.windowMerges]});
+  if (state.batchReviewBox) clearCurrentSelection("All draft signals removed.");
+  state.batchBoxes = [];
+  state.windowMerges = [];
+  state.windowIdentityLinks = [];
+  state.identityLinkSelection.clear();
+  state.batchReviewBox = null;
+  state.batchBoxMode = false;
+  renderBatchBoxes();
+  drawOverlays();
+});
+
+function undoBatchBoxChange() {
+  const change = state.batchBoxUndo.pop();
+  if (!change) return false;
+  if (change.type === "add") {
+    state.batchBoxes = state.batchBoxes.filter((box) => box !== change.box);
+    if (state.batchReviewBox === change.box) state.batchReviewBox = null;
+  } else if (change.type === "remove") {
+    state.batchBoxes.splice(Math.max(0, Math.min(change.index, state.batchBoxes.length)), 0, change.box);
+  } else if (change.type === "remove-merge") {
+    state.batchBoxes.splice(Math.max(0, Math.min(change.index, state.batchBoxes.length)), 0, change.box);
+    if (change.merge) state.windowMerges.push(change.merge);
+  } else if (change.type === "restore-all") {
+    state.batchBoxes = change.boxes;
+    if (change.merges) state.windowMerges = change.merges;
+  } else if (change.type === "delete-region") {
+    state.windowRegionDeletes.delete(change.regionId);
+    if (change.previousEdit) state.windowRegionEdits.set(change.regionId, change.previousEdit);
+  } else if (change.type === "restore-region-edit") {
+    if (change.previousDraft) state.windowRegionEdits.set(change.regionId, change.previousDraft);
+    else state.windowRegionEdits.delete(change.regionId);
+    const region = state.regions.find((item) => item.id === change.regionId);
+    if (region && state.editRegion?.id === change.regionId) {
+      state.editRegion = null;
+      selectSavedRegion(region);
+    }
+  } else if (change.type === "undo-merge") {
+    state.windowMerges = change.previousMerges || state.windowMerges.filter((merge) => merge !== change.merge);
+    state.batchBoxes = change.previousBoxes || state.batchBoxes.filter((box) => box !== change.box);
+    for (const edit of change.priorSourceEdits || []) state.windowRegionEdits.set(edit.region_id, edit);
+    state.batchReviewBox = change.previousSelection || null;
+    state.editRegion = change.previousEditRegion || null;
+    state.selection = change.previousGeometrySelection ? {...change.previousGeometrySelection} : null;
+  } else if (change.type === "restore-box-geometry") {
+    Object.assign(change.box, change.geometry);
+    if (state.batchReviewBox === change.box) {
+      state.selection = {...change.geometry};
+      reprojectSelection();
+    }
+  } else if (change.type === "restore-box-label") {
+    change.box.labelDraft = {...change.labelDraft};
+    if (state.batchReviewBox === change.box) restoreBatchLabelDraft(change.box);
+  }
+  renderBatchBoxes();
+  renderRegions();
+  state.selectionMergeRegions = state.selection ? boxesCrossedBySelection(state.selection, state.editRegion?.id) : [];
+  updateSelectionMergeControls();
+  drawOverlays();
+  updateAnnotationSaveAvailability();
+  return true;
+}
+
+el("batch-box-classify").addEventListener("click", async () => {
+  const capture = state.capture;
+  if (!capture || !state.modelAvailable || !state.batchBoxes.length || state.batchBoxMode) return;
+  state.batchClassifying = true;
+  renderBatchBoxes();
+  let savedCount = 0;
+  let unknownCount = 0;
+  try {
+    for (const box of [...state.batchBoxes]) {
+      try {
+        box.engine = "method-model";
+        box.result = await request(`/api/captures/${capture.id}/classify`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sample_start: box.sample_start,
+            sample_count: Math.min(1_000_000, box.sample_count),
+            frequency_low_hz: box.frequency_low_hz,
+            frequency_high_hz: box.frequency_high_hz,
+            crop_count: Number(el("classifier-crop-count").value),
+          }),
+        });
+        box.error = null;
+        savedCount += 1;
+        if (!box.result.family && !box.result.method) unknownCount += 1;
+      } catch (error) {
+        box.error = error.message;
+      }
+      if (state.capture !== capture) return;
+      renderBatchBoxes();
+    }
+  } finally {
+    state.batchClassifying = false;
+    renderBatchBoxes();
+    if (state.capture === capture && savedCount) {
+      el("batch-box-status").textContent = `${savedCount} suggestion${savedCount === 1 ? "" : "s"} ready to review${unknownCount ? ` · ${unknownCount} have no confident identity` : ""}. Choose labels, then save the window changes together.${state.batchBoxes.some((box) => box.error) ? " Some suggestions failed; those boxes remain available for manual labeling." : ""}`;
+    }
+  }
+});
 
 function updateModelButton() {
   const tooShort = (state.selection?.sample_count ?? 0) < 1024;
   el("model-propose").disabled = !state.modelAvailable || !state.capture || !state.selection || state.liveView || tooShort;
-  el("model-propose").title = tooShort ? "The classifier needs at least 1024 audio samples in this selection." : "Suggest a modulation method for this selection.";
+  el("model-propose").title = tooShort ? "The classifier needs at least 1024 audio samples in this selection." : state.selectedTrack?.cv_proposal_id && !state.editRegion
+    ? "Classify this CV box and save a pending region, including unknown identity when the model abstains."
+    : "Suggest a modulation method for this selection.";
+  el("model-propose").textContent = state.selectedTrack?.cv_proposal_id && !state.editRegion
+    ? "Classify and save region" : "Suggest method";
+  const cropCount = Number(el("classifier-crop-count").value);
+  el("classifier-crop-count-value").value = String(cropCount);
+  el("classifier-crop-count-value").textContent = String(cropCount);
   updateCvSimilarButton();
-  updateLayaButton();
 }
 
-function updateLayaButton() {
-  el("laya-propose").disabled = !state.layaAvailable || !state.capture || !state.selection || (state.selection.sample_count ?? 0) < 1024 || state.liveView || state.coverageOnly || state.adjustingGeometry;
-}
+el("classifier-crop-count").addEventListener("input", () => {
+  try { localStorage.setItem("sig-id-classifier-crop-count", el("classifier-crop-count").value); } catch {}
+  updateModelButton();
+});
 
-el("laya-propose").addEventListener("click", async () => {
-  if (!state.capture || !state.selection || state.liveView || !state.layaAvailable || state.coverageOnly) return;
-  const selection = state.selection;
-  const sourceCapture = state.capture;
-  const button = el("laya-propose");
-  button.disabled = true;
-  button.textContent = "Asking Laya…";
-  el("label-state").textContent = "Sending selected-region measurements to Laya for a provisional method judgment…";
-  try {
-    const result = await request(`/api/captures/${sourceCapture.id}/classify/laya`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sample_start: selection.sample_start,
-        sample_count: Math.min(1_000_000, selection.sample_count),
-        frequency_low_hz: selection.frequency_low_hz ?? null,
-        frequency_high_hz: selection.frequency_high_hz ?? null,
-      }),
-    });
-    if (state.capture !== sourceCapture || state.selection !== selection) return;
-    if (result.choice === "unknown") {
-      el("label-state").textContent = "Laya abstained · insufficient or mixed evidence; no label changed";
-    } else {
-      el("family").value = result.family || "";
-      el("method").value = result.method || "";
-      el("protocol").value = "";
-      el("variant").value = "";
-      const evidence = `Laya System One proposed ${result.method} from selected-region measurements. Protocol and variant remain unknown; review before saving.`;
-      el("notes").value = [el("notes").value.trim(), evidence].filter(Boolean).join(" ");
-      el("label-state").textContent = `Laya proposed ${result.method} · review then save to accept`;
-    }
-  } catch (error) {
-    el("label-state").textContent = `Laya identification failed · ${error.message}`;
-  } finally {
-    button.textContent = "Auto ID with Laya";
-    updateLayaButton();
-  }
+el("live-cv-merge-overlap-value").value = `${liveCvMergeOverlap}%`;
+el("live-cv-merge-overlap-value").textContent = `${liveCvMergeOverlap}%`;
+el("live-cv-merge-overlap").addEventListener("input", () => {
+  const value = el("live-cv-merge-overlap").value;
+  el("live-cv-merge-overlap-value").value = `${value}%`;
+  el("live-cv-merge-overlap-value").textContent = `${value}%`;
+  try { localStorage.setItem("sig-id-live-cv-merge-overlap", value); } catch {}
 });
 
 el("model-propose").addEventListener("click", async () => {
@@ -1120,6 +2604,7 @@ el("model-propose").addEventListener("click", async () => {
         sample_count: Math.min(1_000_000, selection.sample_count),
         frequency_low_hz: selection.frequency_low_hz,
         frequency_high_hz: selection.frequency_high_hz,
+        crop_count: Number(el("classifier-crop-count").value),
       }),
     });
     if (state.capture !== sourceCapture || state.selection !== selection) return;
@@ -1132,7 +2617,7 @@ el("model-propose").addEventListener("click", async () => {
       clearDecoderRecommendations();
       el("label-state").textContent = result.novelty_rejected
         ? `Model abstained · outside trained modulation range (distance ${result.novelty_distance.toFixed(2)} > ${result.novelty_threshold.toFixed(2)})`
-        : `Model abstained · top guess ${result.top_candidate} at ${(100 * result.confidence).toFixed(1)}%`;
+        : `Model abstained · ${result.requested_crop_count > 1 ? `no majority across ${result.crop_count} crops · ` : ""}top guess ${result.top_candidate} at ${(100 * result.confidence).toFixed(1)}%`;
       if (state.cvSimilarAvailable) {
         el("label-state").textContent += " · Find similar signal examples to review nearest known regions, or leave identity unknown.";
       }
@@ -1146,13 +2631,32 @@ el("model-propose").addEventListener("click", async () => {
         : "";
       const evidence = `Model proposal ${result.method || result.family} (${(100 * (result.method ? result.confidence : result.family_confidence)).toFixed(1)}%; calibrated threshold).${noveltyEvidence} Review before saving; protocol remains unknown.`;
       el("notes").value = [el("notes").value.trim(), evidence].filter(Boolean).join(" ");
-      el("label-state").textContent = `Proposed ${result.method || result.family} · review then save to accept`;
+      el("label-state").textContent = `Proposed ${result.method || result.family} · ${result.requested_crop_count > 1 ? `${result.consensus_count}/${result.crop_count} crops agree` : "single crop"} · review then save to accept`;
       await updateDecoderRecommendations(result, selection);
+    }
+    if (state.capture !== sourceCapture || state.selection !== selection) return;
+    if (state.selectedTrack?.cv_proposal_id && !state.editRegion) {
+      const saved = await savePendingClassifierRegion(sourceCapture, selection, state.selectedTrack, result);
+      if (state.capture !== sourceCapture || state.selection !== selection) return;
+      state.regions = await request(`/api/captures/${sourceCapture.id}/regions`);
+      renderRegions();
+      await refreshSceneCoverage(sourceCapture.id);
+      selectSavedRegion(saved);
+      const sameBounds = saved.sample_start === selection.sample_start
+        && saved.sample_count === selection.sample_count
+        && saved.frequency_low_hz === selection.frequency_low_hz
+        && saved.frequency_high_hz === selection.frequency_high_hz;
+      el("label-state").textContent = !sameBounds
+        ? "This CV proposal already has a saved region with different bounds. Adjust that region before reclassifying."
+        : saved.review_state === "pending"
+          ? result.family || result.method
+            ? "Classifier label saved as pending. Review it, then save the revision to accept."
+            : "Classifier abstained. The box is saved with unknown identity for manual review."
+          : "This selection already has a reviewed region; no duplicate was added.";
     }
   } catch (error) {
     el("label-state").textContent = `Model proposal failed · ${error.message}`;
   } finally {
-    button.textContent = "Suggest method";
     updateModelButton();
   }
 });
@@ -1233,14 +2737,25 @@ async function refreshAudioDevices() {
 el("live-start").addEventListener("click", async () => {
   stopSelectedAudioPlayback(null);
   clearError();
+  if ((state.batchBoxes.length || state.windowRegionEdits.size || state.windowRegionDeletes.size || state.windowMerges.length || state.windowIdentityLinks.length)
+    && !await resolveWindowDraftsBeforeSwitch("starting live capture")) return;
   try {
     const device = el("audio-device").value;
+    const captureMode = el("live-capture-mode").value;
+    const noiseIntervalSeconds = Number(el("noise-interval-minutes").value) * 60;
     const started = await request("/api/live/start", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ device_id: device === "" ? null : Number(device), sample_rate: Number(el("audio-rate").value), channels: 1, max_duration_seconds: 600 }),
+      body: JSON.stringify({
+        device_id: device === "" ? null : Number(device),
+        sample_rate: Number(el("audio-rate").value), channels: 1,
+        max_duration_seconds: captureMode === "unattended" ? 28800 : 600,
+        capture_mode: captureMode, noise_interval_seconds: noiseIntervalSeconds,
+      }),
     });
+    state.captureMode = captureMode;
     el("live-start").disabled = true;
     el("live-stop").disabled = false;
+    el("live-stop").textContent = captureMode === "record" ? "Stop and review" : "Stop live scan";
     clearDemodExports();
     state.capture = null;
     state.cvDetections = [];
@@ -1251,6 +2766,11 @@ el("live-start").addEventListener("click", async () => {
     updateCvButton();
     state.liveView = true;
     state.liveSessionId = started.session_id;
+    state.liveSampleRate = started.sample_rate;
+    state.liveWindowStartSample = null;
+    state.liveWindowEndSample = null;
+    setInspectorMode("classify");
+    openInspector("label");
     resetOutputSession();
     state.waterfall = null;
     state.view = null;
@@ -1271,32 +2791,78 @@ el("live-start").addEventListener("click", async () => {
     el("qpsk-output").textContent = el("demod-output").textContent;
     el("empty-state").classList.add("hidden");
     el("workspace").classList.remove("hidden");
-    el("capture-title").textContent = "Live passband";
-    el("capture-meta").textContent = `${started.sample_rate.toLocaleString()} samples/s · ${started.device_name} · rolling analysis`;
+    el("capture-title").textContent = captureMode === "unattended" ? "Unattended signal monitor" : "Live passband";
+    const modeDescription = captureMode === "record" ? "recording full audio" : captureMode === "scan_only" ? "audio stays in memory" : "only selected clips are saved";
+    el("capture-meta").textContent = `${started.sample_rate.toLocaleString()} samples/s · ${started.device_name} · ${modeDescription}`;
     el("time-start").textContent = "Now";
     el("time-end").textContent = "−30 s";
     el("audio-player").removeAttribute("src");
     el("waterfall-state").textContent = "Waiting for audio frames…";
     el("track-status").textContent = "Waiting for enough samples to analyze…";
-    el("save-region").disabled = true;
+    setRegionSaveDisabled(true);
     updateModelButton();
     renderTracks();
-    el("live-status").textContent = `Recording · ${started.device_name} · ${started.sample_rate.toLocaleString()} Hz`;
+    el("live-status").textContent = captureMode === "record"
+      ? `Recording · ${started.device_name} · ${started.sample_rate.toLocaleString()} Hz`
+      : captureMode === "scan_only"
+        ? `Live scan only · no recording is being saved · ${started.device_name}`
+        : `Unattended monitoring · selected clips go to the review queue · ${started.device_name}`;
     renderRegions();
     renderDecodeRuns();
     const generation = state.liveGeneration = (state.liveGeneration || 0) + 1;
     liveDisplay = new LiveWaterfall(60);
     startSpectrumStream(generation, started.session_id);
     let pending = false;
+    let lastLiveCvAt = 0;
     livePoll = setInterval(async () => {
       if (pending) return;
       pending = true;
       try {
         const status = await request("/api/live");
         if (generation !== state.liveGeneration || !state.liveView) return;
-        if (status.active) el("live-status").textContent = state.frozen ? "Recording · view frozen" : `${status.state} · ${status.frames_written.toLocaleString()} samples`;
-        const autoTrial = el("auto-trial").checked;
-        const analysis = await request(`/api/live/analysis?fft_size=4096&hop_size=512&max_rows=640&include_spectrum=false&auto_trial=${autoTrial}`);
+        if (status.active) {
+          const modeLabel = state.captureMode === "record" ? "Recording" : state.captureMode === "scan_only" ? "Live scan only · no audio saved" : `Unattended · ${status.saved_review_clips || 0} clips queued`;
+          el("live-status").textContent = state.frozen ? `${modeLabel} · view frozen` : `${modeLabel} · ${status.frames_written.toLocaleString()} samples analyzed`;
+        }
+        const cvEnabled = el("live-cv-enabled").checked;
+        const classifierEnabled = el("live-classifier-enabled").checked;
+        const autoTrial = el("auto-trial").checked && classifierEnabled;
+        const useHeuristicTracks = classifierEnabled && (!cvEnabled || autoTrial);
+        const classifierCropCount = Number(el("classifier-crop-count").value) || 1;
+        const analysis = await request(`/api/live/analysis?fft_size=4096&hop_size=512&max_rows=640&include_spectrum=false&classifier_crop_count=${classifierCropCount}&include_tracks=${useHeuristicTracks}&include_classifier=${useHeuristicTracks}&auto_trial=${autoTrial && useHeuristicTracks}`);
+        if (generation !== state.liveGeneration || !state.liveView) return;
+        state.liveWindowStartSample = Number.isFinite(analysis.sample_offset) ? analysis.sample_offset : null;
+        state.liveWindowEndSample = Number.isFinite(analysis.sample_offset) && Number.isFinite(analysis.window_sample_count)
+          ? analysis.sample_offset + analysis.window_sample_count : null;
+        syncLiveAnnotationSaveButton();
+        if (cvEnabled && state.cvAvailable && Date.now() - lastLiveCvAt >= 2500) {
+          lastLiveCvAt = Date.now();
+          try {
+            const cv = await request(`/api/live/cv-detections?session_id=${encodeURIComponent(started.session_id)}&include_classifier=${classifierEnabled}`);
+            if (generation === state.liveGeneration && state.liveView) {
+              mergeLiveCvDetections(cv.detections);
+              if (!classifierEnabled) {
+                for (const detection of state.cvDetections) delete detection.classifier_proposal;
+              }
+              renderCvDetections();
+              const visibleLiveDetections = visibleCvDetections().length;
+              const visibleScannedDetections = (cv.detections || []).filter((item) => !frequencyNotchMatches(item)).length;
+              el("cv-status").textContent = cv.warming_up
+                ? `Live CV warming up · ${cv.observed_seconds.toFixed(2)} s of audio`
+                : `Live CV · ${visibleLiveDetections} visible boxes${state.cvDetections.length > visibleLiveDetections ? ` · ${state.cvDetections.length - visibleLiveDetections} suppressed by notches` : ""} · ${visibleScannedDetections} in latest scan · ${classifierEnabled ? (cv.classifier_available ? "classifier proposals attached" : "classifier unavailable") : "classifier paused"} · proposals are provisional`;
+            }
+          } catch (error) {
+            if (generation === state.liveGeneration) el("cv-status").textContent = `Live CV unavailable · ${error.message}`;
+          }
+        } else if (!cvEnabled) {
+          state.cvDetections = [];
+          renderCvDetections();
+          el("cv-status").textContent = "CV paused · no CV boxes are being generated";
+        } else if (!state.cvAvailable) {
+          state.cvDetections = [];
+          renderCvDetections();
+          el("cv-status").textContent = "CV is selected but unavailable · check the detector model status";
+        }
         if (generation !== state.liveGeneration || !state.liveView) return;
         if (analysis.automatic_trial?.run_id) watchDecoderTrial(analysis.automatic_trial);
         if (state.frozen) return;
@@ -1304,10 +2870,20 @@ el("live-start").addEventListener("click", async () => {
           el("waterfall-state").textContent = `Collecting analysis window · ${analysis.window_sample_count.toLocaleString()} samples`;
           return;
         }
-        state.tracks = analysis.tracks;
-        el("track-status").textContent = state.modelAvailable
-          ? "Model-ranked live candidates · proposals remain provisional"
-          : "Live spectral heuristic · candidates are provisional";
+        const showHeuristicTracks = !cvEnabled && classifierEnabled;
+        state.tracks = showHeuristicTracks ? analysis.tracks : [];
+        state.liveTrackModeMessage = cvEnabled
+          ? (state.cvAvailable
+            ? "CV boxes are active above; heuristic track boxes are hidden. Turn CV off to inspect classifier-only track candidates."
+            : "CV is selected but unavailable. Turn CV off to inspect classifier-only track candidates.")
+          : classifierEnabled
+            ? null
+            : "Candidate analysis is paused. Turn on CV signal boxes or classifier suggestions to show candidates.";
+        el("track-status").textContent = cvEnabled
+          ? "CV detection mode · classifier suggestions are attached to CV boxes when enabled"
+          : classifierEnabled
+            ? "Classifier-only mode · heuristic candidate bounds are provisional"
+            : "Candidate analysis paused";
         drawWaterfall();
         renderTracks();
       } catch (error) { if (generation === state.liveGeneration) showError(error.message); }
@@ -1324,12 +2900,29 @@ el("live-stop").addEventListener("click", async () => {
     state.liveGeneration = (state.liveGeneration || 0) + 1;
     if (livePoll) clearInterval(livePoll);
     if (spectrumPoll) clearTimeout(spectrumPoll);
-    state.capture = result.capture;
     state.liveSessionId = null;
-    await loadCapture();
-    el("live-status").textContent = result.truncated_reason
-      ? `Saved partial live capture · ${result.truncated_reason} · ${result.frames_written.toLocaleString()} samples`
-      : `Saved live capture · ${result.frames_written.toLocaleString()} samples`;
+    if (result.capture) {
+      state.capture = result.capture;
+      await loadCapture();
+      el("live-status").textContent = result.truncated_reason
+        ? `Saved partial live capture · ${result.truncated_reason} · ${result.frames_written.toLocaleString()} samples`
+        : `Saved live capture · ${result.frames_written.toLocaleString()} samples`;
+    } else {
+      state.liveView = false;
+      state.capture = null;
+      state.loadedCapture = null;
+      resetOutputSession();
+      state.waterfall = null;
+      state.view = null;
+      state.tracks = [];
+      state.regions = [];
+      el("workspace").classList.add("hidden");
+      el("empty-state").classList.remove("hidden");
+      el("live-status").textContent = state.captureMode === "unattended"
+        ? `Monitoring stopped · ${result.saved_review_clips} selected 10-second clips are in the review queue`
+        : "Live scan stopped · no recording was saved";
+      if (state.captureMode === "unattended") refreshLiveReviewQueue();
+    }
   } catch (error) {
     showError(error.message);
     const status = await request("/api/live").catch(() => null);
@@ -1352,8 +2945,24 @@ el("live-stop").addEventListener("click", async () => {
     if (!state.liveView) livePoll = null;
     el("live-start").disabled = state.liveView;
     el("live-stop").disabled = !state.liveView;
+    if (!state.liveView) {
+      el("live-stop").textContent = "Stop and review";
+      state.captureMode = null;
+      updateLiveCaptureModeControls();
+    }
   }
 });
+
+function updateLiveCaptureModeControls() {
+  const unattended = el("live-capture-mode").value === "unattended";
+  el("noise-interval-wrap").hidden = !unattended;
+  const mode = el("live-capture-mode").value;
+  el("live-start").textContent = mode === "scan_only"
+    ? "Start scan without saving"
+    : mode === "unattended" ? "Start unattended monitor" : "Start live capture";
+}
+el("live-capture-mode").addEventListener("change", updateLiveCaptureModeControls);
+updateLiveCaptureModeControls();
 
 refreshAudioDevices();
 
@@ -1371,11 +2980,36 @@ async function request(url, options) {
   const response = await fetch(url, options);
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    const error = new Error(typeof body.detail === "string" ? body.detail : `Request failed (${response.status})`);
+    const detail = typeof body.detail === "string"
+      ? body.detail
+      : Array.isArray(body.detail)
+        ? body.detail.map((issue) => {
+          const location = Array.isArray(issue.loc) ? issue.loc.join(" → ") : "request";
+          return `${location}: ${issue.msg || issue.type || "invalid value"}`;
+        }).join(" · ")
+        : body.detail && typeof body.detail === "object"
+          ? JSON.stringify(body.detail)
+          : `Request failed (${response.status})`;
+    const error = new Error(detail || `Request failed (${response.status})`);
     error.status = response.status;
     throw error;
   }
   return response.json();
+}
+
+async function ensureWindowSaveCapabilities({updates, deletions, merges, identityLinks = []}) {
+  if (!updates.length && !deletions.length && !merges.length && !identityLinks.length) return;
+  const schema = await request("/openapi.json");
+  const properties = schema.components?.schemas?.WindowAnnotationBatchCreate?.properties || {};
+  const missing = [
+    updates.length && !properties.updates && "saved-signal edits",
+    deletions.length && !properties.deletions && "signal removals",
+    merges.length && !properties.merges && "merges",
+    identityLinks.length && !properties.identity_links && "signal identity links",
+  ].filter(Boolean);
+  if (missing.length) {
+    throw new Error(`This running workbench server is older than the annotation editor and cannot save ${missing.join(", ")}. Your draft is still here. Restart the workbench from the current checkout before saving these changes.`);
+  }
 }
 
 function clearModeSelection(clearSearch = true) {
@@ -1389,47 +3023,99 @@ function applyModeSelection(mode) {
   state.labelModeId = mode.id;
   el("mode-search").value = mode.display_name;
   for (const field of ["family", "method", "protocol", "variant"]) el(field).value = mode[field] || "";
-  el("mode-resolution").textContent = `${mode.display_name} → ${mode.family} / ${mode.method} / ${mode.protocol} / ${mode.variant} · ${mode.status || "curated"} · registry ${mode.registry_version}`;
+  const support = [
+    mode.status || "curated",
+    mode.detector_status && `detector: ${mode.detector_status}`,
+    mode.decoder_status && `decoder: ${mode.decoder_status}`,
+  ].filter(Boolean).join(" · ");
+  el("mode-resolution").textContent = `${mode.display_name} → ${mode.family} / ${mode.method} / ${mode.protocol} / ${mode.variant} · ${support} · registry ${mode.registry_version}`;
+  el("mode-results").replaceChildren();
   state.applyingMode = false;
+  el("batch-unknown-confirmed").checked = false;
+  if (state.batchReviewBox) {
+    saveSelectedBatchLabelDraft();
+    renderBatchBoxes();
+    drawOverlays();
+  } else saveSelectedExistingRegionDraft();
 }
+
+el("batch-unknown-confirmed").addEventListener("change", () => {
+  if (el("batch-unknown-confirmed").checked) {
+    state.labelModeId = null;
+    el("mode-search").value = "";
+    for (const field of ["family", "method", "protocol", "variant"]) el(field).value = "";
+  }
+  saveSelectedBatchLabelDraft();
+  el("mode-resolution").textContent = el("batch-unknown-confirmed").checked
+    ? "Confirmed signal, identity unknown."
+    : "Choose a mode, enter a partial label, or leave this signal unlabeled.";
+  renderBatchBoxes();
+  drawOverlays();
+});
 
 el("mode-search").addEventListener("input", async () => {
   const query = el("mode-search").value.trim();
+  const replacingCanonicalMode = Boolean(state.labelModeId);
   clearModeSelection(false);
+  if (replacingCanonicalMode) {
+    for (const field of ["family", "method", "protocol", "variant"]) el(field).value = "";
+  }
+  el("batch-unknown-confirmed").checked = false;
+  saveSelectedBatchLabelDraft();
   const requestId = ++state.modeSearchRequest;
-  const options = el("mode-results");
-  options.replaceChildren();
+  const results = el("mode-results");
+  results.replaceChildren();
   if (query.length < 2) return;
   try {
     const result = await request(`/api/modes?q=${encodeURIComponent(query)}`);
     if (requestId !== state.modeSearchRequest) return;
     state.modeSearchResults = result.modes;
     for (const mode of result.modes) {
-      const option = document.createElement("option");
-      option.value = mode.display_name;
-      option.label = `${mode.family} · ${mode.method} · ${mode.protocol}${mode.status ? ` · ${mode.status}` : ""}`;
-      options.append(option);
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "mode-result";
+      button.setAttribute("role", "option");
+      const title = document.createElement("strong");
+      title.textContent = mode.display_name;
+      const taxonomy = document.createElement("span");
+      taxonomy.textContent = [mode.family, mode.method, mode.protocol, mode.variant].filter(Boolean).join(" / ");
+      const capability = document.createElement("small");
+      capability.textContent = [mode.status, mode.detector_status && `ID: ${mode.detector_status}`, mode.decoder_status && `decode: ${mode.decoder_status}`].filter(Boolean).join(" · ");
+      button.append(title, taxonomy, capability);
+      button.addEventListener("click", () => applyModeSelection(mode));
+      results.append(button);
     }
     el("mode-resolution").textContent = result.modes.length
-      ? `${result.modes.length} matching canonical modes · choose a specific result to fill the taxonomy.`
+      ? `${result.modes.length} canonical match${result.modes.length === 1 ? "" : "es"} · ${result.modes.slice(0, 3).map((mode) => {
+        const support = [mode.status || "registry mode", mode.detector_status && `ID ${mode.detector_status}`, mode.decoder_status && `decode ${mode.decoder_status}`].filter(Boolean).join(", ");
+        return `${mode.display_name}: ${support}`;
+      }).join(" · ")} · choose a result to fill the taxonomy.`
       : "No canonical match · keep a partial or unknown label if appropriate.";
   } catch (error) {
     if (requestId === state.modeSearchRequest) el("mode-resolution").textContent = `Mode lookup unavailable: ${error.message}`;
   }
 });
 
-el("mode-search").addEventListener("change", () => {
-  const query = el("mode-search").value.trim().toLocaleLowerCase();
-  const exact = state.modeSearchResults.find((mode) => mode.display_name.toLocaleLowerCase() === query || mode.id.toLocaleLowerCase() === query);
-  if (exact) applyModeSelection(exact);
-});
-
 for (const field of ["family", "method", "protocol", "variant"]) {
   el(field).addEventListener("input", () => {
     if (state.applyingMode) return;
-    if (state.labelModeId) clearModeSelection();
+    if (state.labelModeId) {
+      state.labelModeId = null;
+      el("mode-search").value = "";
+      for (const other of ["family", "method", "protocol", "variant"]) {
+        if (other !== field) el(other).value = "";
+      }
+    }
+    if (state.batchReviewBox) {
+      el("batch-unknown-confirmed").checked = false;
+      saveSelectedBatchLabelDraft();
+      drawOverlays();
+    } else saveSelectedExistingRegionDraft();
   });
 }
+el("notes").addEventListener("input", () => {
+  saveSelectedBatchLabelDraft();
+});
 
 function setModeProposalSource(region = null) {
   const eligible = Boolean(region && state.capture && region.lineage_state !== "superseded");
@@ -1637,23 +3323,110 @@ el("synthetic-form").addEventListener("submit", async (event) => {
   }
 });
 
-async function loadCapture() {
+function setCvCoverageQueueStatus(message, showLabel = true) {
+  el("cv-coverage-queue-status").textContent = message;
+  const labelStatus = el("cv-coverage-queue-label-status");
+  labelStatus.textContent = message;
+  labelStatus.hidden = !showLabel;
+}
+
+function chooseAnnotationDraftAction(message) {
+  const dialog = el("annotation-draft-dialog");
+  el("annotation-draft-message").textContent = message;
+  dialog.returnValue = "";
+  const choice = new Promise((resolve) => {
+    dialog.addEventListener("close", () => resolve(dialog.returnValue || "stay"), {once: true});
+  });
+  dialog.showModal();
+  return choice;
+}
+
+async function resolveWindowDraftsBeforeSwitch(context = "switching recordings") {
+  saveSelectedBatchLabelDraft();
+  if (!state.liveView) stageCurrentSelectionAsWindowDraft();
+  const hasDraftChanges = state.batchBoxes.length || state.windowRegionEdits.size || state.windowRegionDeletes.size || state.windowMerges.length || state.windowIdentityLinks.length;
+  if (!hasDraftChanges) return true;
+  const action = await chooseAnnotationDraftAction(`This 10-second window has unsaved changes. Save or discard them before ${context}?`);
+  if (action === "stay") return false;
+  if (action === "save") {
+    try {
+      await saveWindowAnnotationDrafts();
+      return true;
+    } catch (error) {
+      showError(`Could not save this window, so it stayed open · ${error.message}`);
+      return false;
+    }
+  }
+  if (action !== "discard") return false;
+  state.batchBoxes = [];
+  state.batchBoxUndo = [];
+  state.batchReviewBox = null;
+  state.windowRegionEdits.clear();
+  state.windowRegionDeletes.clear();
+  state.windowMerges = [];
+  state.windowIdentityLinks = [];
+  state.identityLinkSelection.clear();
+  state.batchSaveKey = null;
+  state.batchSaveDigest = null;
+  renderBatchBoxes();
+  drawOverlays();
+  return true;
+}
+
+async function loadCapture({windowIndex = 0, focusedWindow = false} = {}) {
+  const incomingCapture = state.capture;
+  const previousCapture = state.loadedCapture;
+  if (previousCapture && incomingCapture?.id !== previousCapture.id) {
+    state.capture = previousCapture;
+    if (!await resolveWindowDraftsBeforeSwitch("switching recordings")) return false;
+    state.capture = incomingCapture;
+  }
+  state.loadedCapture = incomingCapture;
+  state.annotationWindowIndex = windowIndex;
   stopSelectedAudioPlayback();
+  state.closeInspectorAfterSave = false;
+  state.returnInspectorTabAfterSave = null;
+  state.markCaptureCompleteAfterSave = false;
+  state.mergeRegionIds.clear();
+  state.excludedMergeCandidates.clear();
+  state.selectionMergeRegions = [];
+  state.geometryMergeRegions = [];
   const generation = state.captureGeneration = (state.captureGeneration || 0) + 1;
+  state.batchBoxMode = false;
+  state.batchBoxes = [];
+  state.batchBoxUndo = [];
+  state.windowRegionEdits.clear();
+  state.windowRegionDeletes.clear();
+  state.windowMerges = [];
+  state.windowIdentityLinks = [];
+  state.identityLinkSelection.clear();
+  state.batchSaveKey = null;
+  state.batchSaveDigest = null;
+  state.batchClassifying = false;
+  renderBatchBoxes();
   clearDemodExports();
   state.liveView = false;
   state.liveSessionId = null;
   resetOutputSession();
   state.coverageRecords = [];
   state.cvCoverageQueue = null;
-  el("cv-coverage-queue-status").textContent = "Save signal boxes first. A complete window without boxes becomes a negative training example.";
+  setCvCoverageQueueStatus("Review the recording in 10-second windows. Complete empty windows count as negative examples.", false);
   state.coverageEdit = null;
   state.coverageOnly = false;
   state.coverageWindow = null;
   state.coverageMasks = { ignore_regions: [], uncertain_regions: [] };
   state.coverageMaskMode = null;
+  state.adjustingCandidate = null;
+  state.drawingSignalBox = false;
+  updateSingleBoxButton();
   el("coverage-panel").hidden = true;
   state.editRegion = null;
+  state.selectionMergeRegions = [];
+  updateSelectionMergeControls();
+  state.geometryMergeRegions = [];
+  el("merge-redrawn-regions").hidden = true;
+  el("geometry-merge-status").hidden = true;
+  el("geometry-merge-status").textContent = "";
   state.classifierProposal = null;
   clearDecoderRecommendations();
   el("start-scene-review").disabled = true;
@@ -1665,6 +3438,11 @@ async function loadCapture() {
   el("signal-labels")?.replaceChildren();
   state.view = null;
   state.selection = null;
+  beginNewRegion();
+  el("selection-summary").textContent = "No region selected";
+  el("selection-details").textContent = "Drag over the waterfall to mark a signal.";
+  el("inspector-context").textContent = "Select a signal on the waterfall to inspect it.";
+  el("box-draw-status").textContent = "Drag on the waterfall to select a box, then save it as a region.";
   state.cvDetections = [];
   state.cvDismissedCount = 0;
   state.cvRejectedProposals = [];
@@ -1686,6 +3464,15 @@ async function loadCapture() {
   state.tracks = [];
   renderTracks();
   const c = state.capture;
+  const queuedReviewCapture = Boolean(c.source_metadata?.auto_review_queue && !c.source_metadata?.auto_review_queue_reviewed_utc);
+  el("save-annotations-complete").hidden = !queuedReviewCapture;
+  el("save-annotations-complete").title = queuedReviewCapture
+    ? "Save this annotation, record complete detection coverage for this 10-second review window, and return to the review queue."
+    : "Available for samples in the live review queue.";
+  el("save-annotations-complete").textContent = state.pendingCaptureCompletion === c.id
+    ? "Retry finish"
+    : "Save and finish";
+  renderBatchBoxes();
   updateCvButton();
   el("capture-title").textContent = c.source_metadata.uploaded_filename || c.source_metadata.device_name || c.source_metadata.generator || "Audio recording";
   const manifestLink = el("manifest-download");
@@ -1701,10 +3488,17 @@ async function loadCapture() {
   el("time-end").textContent = `${duration.toFixed(2)} s`;
   el("audio-player").src = `/api/captures/${c.id}/audio`;
   el("waterfall-state").textContent = "Calculating spectrum…";
-  const spectrum = await request(`/api/captures/${c.id}/waterfall?fft_size=4096&hop_size=512&max_rows=640`);
+  const spectrumParams = new URLSearchParams({fft_size: "4096", hop_size: "512", max_rows: focusedWindow ? "8192" : "640"});
+  if (focusedWindow) {
+    const bounds = annotationWindowBounds(c);
+    spectrumParams.set("sample_start", String(bounds.startSample));
+    spectrumParams.set("window_sample_count", String(bounds.sampleCount));
+  }
+  const spectrum = await request(`/api/captures/${c.id}/waterfall?${spectrumParams}`);
   if (generation !== state.captureGeneration || state.liveView) return;
   state.waterfall = spectrum;
   drawWaterfall();
+  updateAnnotationWindowView();
   updateSceneReviewAvailability();
   const regions = await request(`/api/captures/${c.id}/regions`);
   if (generation !== state.captureGeneration || state.liveView) return;
@@ -1734,6 +3528,7 @@ async function loadCapture() {
   }
   renderTracks();
   el("waterfall-state").textContent = `${state.waterfall.db.length} spectrum rows · ${state.waterfall.fft_size}-point FFT`;
+  return true;
 }
 
 async function refreshSceneCoverage(captureId = state.capture?.id) {
@@ -1746,7 +3541,7 @@ async function refreshSceneCoverage(captureId = state.capture?.id) {
     return records;
   } catch (error) {
     if (state.capture?.id === captureId) {
-      el("coverage-list").textContent = `Scene reviews unavailable · ${error.message}`;
+      el("coverage-list").textContent = `Window reviews unavailable · ${error.message}`;
     }
     return null;
   }
@@ -1756,15 +3551,18 @@ function updateSceneReviewAvailability() {
   const selection = state.selection;
   const valid = Boolean(state.capture && !state.liveView && !state.coverageOnly && selection && Number.isInteger(selection.sample_start) && Number.isInteger(selection.sample_count) && selection.sample_count > 0 && !state.adjustingGeometry && !state.splitMode);
   el("start-scene-review").disabled = !valid;
-  el("start-cv-coverage-queue").disabled = !state.capture || !state.waterfall || state.liveView || state.capture.sample_rate / 2 < state.cvReviewMaxFrequencyHz;
+  const fullReviewWindowSamples = state.capture ? state.capture.sample_rate * state.cvReviewWindowSeconds : Infinity;
+  const canReviewCoverage = Boolean(state.capture && state.waterfall && !state.liveView
+    && state.capture.sample_count >= fullReviewWindowSamples
+    && state.capture.sample_rate / 2 >= state.cvReviewMaxFrequencyHz);
+  el("start-cv-coverage-queue").disabled = !canReviewCoverage;
 }
 
 function cvReviewWindows(capture) {
   const windowSamples = capture.sample_rate * state.cvReviewWindowSeconds;
   const windows = [];
-  for (let start = 0; start < capture.sample_count; start += windowSamples) {
-    const count = Math.min(windowSamples, capture.sample_count - start);
-    if (count >= state.cvReviewMinSamples) windows.push({ sample_start: start, sample_count: count });
+  for (let start = 0; start + windowSamples <= capture.sample_count; start += windowSamples) {
+    windows.push({ sample_start: start, sample_count: windowSamples });
   }
   return windows;
 }
@@ -1811,11 +3609,12 @@ function nextCvReviewWindow() {
       : `Review queue finished · all ${queue.totalWindows} CV windows have fresh complete detection coverage.`;
     state.cvCoverageQueue = null;
     exitSceneCoverageReview();
-    el("cv-coverage-queue-status").textContent = message;
+    setCvCoverageQueueStatus(message);
+    el("coverage-status").textContent = message;
     return;
   }
   const progress = `${queue.alreadyComplete + queue.visited.size + 1}/${queue.totalWindows} accounted for · ${queue.completeCount} complete, ${queue.partialCount} partial/uncertain this pass`;
-  el("cv-coverage-queue-status").textContent = progress;
+  setCvCoverageQueueStatus(progress);
   showCvReviewWindow(next, progress);
 }
 
@@ -1825,7 +3624,7 @@ async function startCvCoverageQueue() {
   const records = await refreshSceneCoverage(capture.id);
   if (state.capture !== capture) return;
   if (!records) {
-    el("cv-coverage-queue-status").textContent = "Could not load scene reviews; retry after checking the workbench connection.";
+    setCvCoverageQueueStatus("Could not load window reviews; retry after checking the workbench connection.");
     return;
   }
   state.coverageRecords = records;
@@ -1833,7 +3632,7 @@ async function startCvCoverageQueue() {
   const pending = windows.filter((window) => !hasCompleteCvCoverage(window));
   if (!pending.length) {
     state.cvCoverageQueue = null;
-    el("cv-coverage-queue-status").textContent = `All ${windows.length} CV windows have fresh complete detection coverage.`;
+    setCvCoverageQueueStatus(`All ${windows.length} CV windows have fresh complete detection coverage.`);
     return;
   }
   state.cvCoverageQueue = {
@@ -1910,6 +3709,7 @@ function cancelCoverageMask() {
 
 function startSceneCoverageReview() {
   if (el("start-scene-review").disabled) return;
+  if (!state.cvCoverageQueue) el("cv-coverage-queue-label-status").hidden = true;
   state.coverageEdit = null;
   state.coverageOnly = true;
   updateSceneReviewAvailability();
@@ -1921,20 +3721,19 @@ function startSceneCoverageReview() {
   el("coverage-panel").hidden = false;
   el("coverage-notes").value = "";
   el("save-coverage").textContent = "Record reviewed window";
-  el("save-region").disabled = true;
+  setRegionSaveDisabled(true);
   const selection = state.selection;
   const start = selection.sample_start / state.capture.sample_rate;
   const end = (selection.sample_start + selection.sample_count) / state.capture.sample_rate;
   const low = selection.frequency_low_hz;
   const high = selection.frequency_high_hz;
-  el("selection-summary").textContent = "Scene coverage review";
+  el("selection-summary").textContent = "Window coverage review";
   el("selection-details").textContent = `Review this exact window · ${start.toFixed(2)}–${end.toFixed(2)} s · ${Number.isFinite(low) && Number.isFinite(high) ? `${low.toFixed(0)}–${high.toFixed(0)} Hz` : "frequency scope unknown"}`;
   el("coverage-status").textContent = "Check for all in-scope signals; choose Partial / uncertain when the window does not support a complete claim.";
-  openInspector("label");
+  openInspector("signals");
 }
 
 function exitSceneCoverageReview() {
-  const wasEditing = Boolean(state.coverageEdit);
   state.coverageEdit = null;
   state.coverageOnly = false;
   state.coverageWindow = null;
@@ -1942,14 +3741,12 @@ function exitSceneCoverageReview() {
   state.coverageMaskMode = null;
   el("coverage-panel").hidden = true;
   el("save-coverage").textContent = "Record reviewed window";
-  if (wasEditing) {
-    state.selection = null;
-    beginNewRegion();
-    el("selection-summary").textContent = "No region selected";
-    el("selection-details").textContent = "Drag over the waterfall to mark a signal.";
-    drawOverlays();
-  }
-  el("save-region").disabled = !state.selection || !state.capture || state.liveView || Boolean(state.editRegion?.lineage_state === "superseded");
+  state.selection = null;
+  beginNewRegion();
+  el("selection-summary").textContent = "No region selected";
+  el("selection-details").textContent = "Drag over the waterfall to mark a signal.";
+  drawOverlays();
+  setRegionSaveDisabled(!state.selection || !state.capture || state.liveView || Boolean(state.editRegion?.lineage_state === "superseded"));
   updateSceneReviewAvailability();
   renderSceneCoverageMasks();
   updateCoverageMaskControls();
@@ -1975,7 +3772,7 @@ function renderSceneCoverage() {
     item.append(label, edit);
     list.append(item);
   }
-  if (!state.coverageRecords.length) list.textContent = "No scene reviews for this capture yet.";
+  if (!state.coverageRecords.length) list.textContent = "No window reviews for this capture yet.";
 }
 
 function selectSceneCoverage(record) {
@@ -2008,16 +3805,16 @@ function selectSceneCoverage(record) {
   el("coverage-notes").value = record.notes || "";
   el("save-coverage").textContent = `Save review revision ${record.revision + 1}`;
   el("coverage-status").textContent = record.is_stale
-    ? "This scene review is stale because overlapping annotations changed. Review this window again before saving."
+    ? "This window review is stale because overlapping annotations changed. Review this window again before saving."
     : `Reviewing ${record.state} scene window · annotation digest ${record.annotation_set_digest.slice(0, 12)}…`;
-  el("save-region").disabled = true;
+  setRegionSaveDisabled(true);
   el("save-region").textContent = "Review window selected";
   updateCarrierFromSelection(state.selection);
   reprojectSelection();
   state.coverageWindow = { ...state.selection };
-  el("selection-summary").textContent = "Scene review window";
+  el("selection-summary").textContent = "Window review";
   el("selection-details").textContent = `Samples ${record.sample_start.toLocaleString()}–${(record.sample_start + record.sample_count).toLocaleString()} · ${record.task} review`;
-  openInspector("label");
+  openInspector("signals");
   drawOverlays();
 }
 
@@ -2219,32 +4016,56 @@ function drawOverlays() {
       height: Math.max(2, bottom - top),
     };
   };
-  for (const track of state.tracks) {
+  for (const track of visibleTracks()) {
     const bounds = overlayBounds(track.sample_start, track.sample_count, track.frequency_low_hz, track.frequency_high_hz);
     if (!bounds) continue;
-    ctx.strokeStyle = track.track_state === "persistent" ? "#52d6d0" : "#f1be69";
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([5, 3]);
+    const candidate = state.selectionMergeRegions.some((item) => item.kind === "track" && item.track === track);
+    const excluded = candidate && state.excludedMergeCandidates.has(`track:${heuristicCandidateId(track)}`);
+    const pending = pendingWindowMergeSources().tracks.has(heuristicCandidateId(track));
+    ctx.strokeStyle = candidate ? excluded ? "#727784" : "#ffe27a"
+      : track.track_state === "persistent" ? "#52d6d0" : "#f1be69";
+    ctx.globalAlpha = excluded || pending ? 0.45 : 1;
+    ctx.lineWidth = candidate ? 3 : 1.5;
+    ctx.setLineDash(pending ? [1, 4] : [5, 3]);
     ctx.strokeRect(bounds.left, bounds.top, bounds.width, bounds.height);
+    ctx.globalAlpha = 1;
   }
-  for (const detection of state.cvDetections) {
+  for (const detection of visibleCvDetections()) {
     const bounds = overlayBounds(detection.sample_start, detection.sample_count,
       detection.frequency_low_hz, detection.frequency_high_hz);
     if (!bounds) continue;
-    ctx.strokeStyle = "#bd8cff";
-    ctx.lineWidth = 2;
-    ctx.setLineDash([2, 3]);
+    const pendingMerge = pendingWindowMergeSources().proposals.has(detection.cv_proposal_id || detection.proposal_id);
+    const candidate = state.selectionMergeRegions.some((item) => item.kind === "cv" && item.detection === detection);
+    const excluded = candidate && state.excludedMergeCandidates.has(`cv:${detection.cv_proposal_id || detection.proposal_id}`);
+    ctx.strokeStyle = pendingMerge ? "#a18cb7" : "#bd8cff";
+    if (candidate) ctx.strokeStyle = excluded ? "#727784" : "#ffe27a";
+    ctx.lineWidth = candidate ? 3 : 2;
+    ctx.globalAlpha = pendingMerge || excluded ? 0.45 : 1;
+    ctx.setLineDash(pendingMerge ? [1, 4] : [2, 3]);
     ctx.strokeRect(bounds.left, bounds.top, bounds.width, bounds.height);
+    ctx.globalAlpha = 1;
   }
   ctx.setLineDash([]);
   for (const region of state.regions) {
-    const low = region.frequency_low_hz ?? 0;
-    const high = region.frequency_high_hz ?? data.sample_rate / 2;
-    const bounds = overlayBounds(region.sample_start, region.sample_count, low, high);
+    if (region.lineage_state === "superseded" && !state.showSupersededRegions) continue;
+    const editDraft = state.windowRegionEdits.get(region.id);
+    const geometry = editDraft?.geometry || region;
+    const low = geometry.frequency_low_hz ?? 0;
+    const high = geometry.frequency_high_hz ?? data.sample_rate / 2;
+    const bounds = overlayBounds(geometry.sample_start, geometry.sample_count, low, high);
     if (!bounds) continue;
-    ctx.strokeStyle = "#ffffff";
-    ctx.lineWidth = 2;
+    const removalDraft = state.windowRegionDeletes.has(region.id);
+    const pendingMerge = pendingWindowMergeSources().regions.has(region.id);
+    const candidate = state.selectionMergeRegions.some((item) => item.kind === "region" && item.region.id === region.id);
+    const excluded = candidate && state.excludedMergeCandidates.has(`region:${region.id}`);
+    ctx.strokeStyle = removalDraft ? "#f1be69" : editDraft ? "#6be3c8" : pendingMerge ? "#aeb7c2" : "#ffffff";
+    if (candidate) ctx.strokeStyle = excluded ? "#727784" : "#ffe27a";
+    ctx.globalAlpha = removalDraft || pendingMerge || excluded ? 0.45 : 1;
+    ctx.lineWidth = editDraft || removalDraft || candidate ? 2.5 : 2;
+    ctx.setLineDash(removalDraft ? [4, 4] : pendingMerge ? [1, 4] : []);
     ctx.strokeRect(bounds.left, bounds.top, bounds.width, bounds.height);
+    ctx.globalAlpha = 1;
+    ctx.setLineDash([]);
   }
   if (state.coverageOnly && state.coverageWindow) {
     for (const [field, color] of [["uncertain_regions", "#f1be69"], ["ignore_regions", "#ee796f"]]) {
@@ -2263,6 +4084,19 @@ function drawOverlays() {
       }
     }
   }
+  state.batchBoxes.forEach((box) => {
+    const bounds = overlayBounds(box.sample_start, box.sample_count, box.frequency_low_hz, box.frequency_high_hz);
+    if (!bounds) return;
+    const candidate = state.selectionMergeRegions.some((item) => item.kind === "draft" && item.box === box);
+    const excluded = candidate && state.excludedMergeCandidates.has(`draft:${box.draftMergeId || box.client_id}`);
+    ctx.strokeStyle = candidate ? excluded ? "#727784" : "#ffe27a"
+      : state.batchReviewBox === box || (box.result && !box.error && (box.result.family || box.result.method)) ? "#6be3c8" : "#ff9f5a";
+    ctx.globalAlpha = excluded ? 0.45 : 1;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([]);
+    ctx.strokeRect(bounds.left, bounds.top, bounds.width, bounds.height);
+    ctx.globalAlpha = 1;
+  });
   if (state.selection) {
     const { x1, y1, x2, y2 } = state.selection;
     ctx.strokeStyle = "#72fff0";
@@ -2270,11 +4104,161 @@ function drawOverlays() {
     ctx.setLineDash([5, 3]);
     ctx.strokeRect(Math.min(x1, x2), Math.min(y1, y2), Math.max(2, Math.abs(x2 - x1)), Math.max(2, Math.abs(y2 - y1)));
     ctx.setLineDash([]);
+    if (!state.liveView && (state.editRegion || state.batchReviewBox || state.selectedTrack) && !state.coverageOnly) {
+      ctx.fillStyle = "#72fff0";
+      for (const [x, y] of [[x1, y1], [x2, y1], [x1, y2], [x2, y2]]) {
+        ctx.fillRect(x - 4, y - 4, 8, 8);
+        ctx.strokeStyle = "#07131c";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x - 4, y - 4, 8, 8);
+      }
+    }
   }
+  renderFrequencyNotches();
   renderSignalLabels();
 }
 
+function renderFrequencyNotches() {
+  const container = el("frequency-notches");
+  const strip = el("notch-place-strip");
+  const clearButton = el("clear-notches");
+  if (!container || !strip) return;
+  container.replaceChildren();
+  strip.classList.toggle("active", state.notchPlacement);
+  strip.classList.toggle("dragging", Boolean(state.notchDrag));
+  clearButton.hidden = !state.frequencyNotches.length;
+  const data = state.waterfall;
+  if (!data || !state.view) return;
+  const bounds = waterfallViewBounds();
+  const lowHz = data.frequency_hz[bounds.frequencyStart];
+  const highHz = data.frequency_hz[bounds.frequencyEnd - 1];
+  const width = container.clientWidth;
+  if (!width || highHz <= lowHz) return;
+  const xForFrequency = (frequency) => (frequency - lowHz) / (highHz - lowHz) * width;
+  state.frequencyNotches.forEach((notch, index) => {
+    if (notch.high_hz <= lowHz || notch.low_hz >= highHz) return;
+    const left = Math.max(0, xForFrequency(notch.low_hz));
+    const right = Math.min(width, xForFrequency(notch.high_hz));
+    const color = notch.color || NOTCH_COLORS[index % NOTCH_COLORS.length];
+    const band = document.createElement("div");
+    band.className = "frequency-notch-band";
+    band.style.left = `${left}px`;
+    band.style.width = `${Math.max(2, right - left)}px`;
+    band.style.setProperty("--notch-color", color);
+    container.append(band);
+    const marker = document.createElement("button");
+    marker.type = "button";
+    marker.className = "frequency-notch-marker";
+    marker.style.left = `${(left + right) / 2}px`;
+    marker.style.setProperty("--notch-color", color);
+    marker.title = `Detection notch ${notch.low_hz.toFixed(1)}–${notch.high_hz.toFixed(1)} Hz. Click to remove.`;
+    const triangle = document.createElement("span");
+    triangle.className = "triangle";
+    triangle.textContent = "▼";
+    const range = document.createElement("span");
+    range.textContent = `${Math.round(notch.low_hz)}–${Math.round(notch.high_hz)} Hz`;
+    const remove = document.createElement("span");
+    remove.className = "remove";
+    remove.textContent = "×";
+    marker.append(triangle, range, remove);
+    marker.addEventListener("click", () => {
+      state.frequencyNotches.splice(index, 1);
+      saveFrequencyNotches();
+    });
+    container.append(marker);
+  });
+  if (state.notchDrag) {
+    const preview = document.createElement("div");
+    preview.className = "frequency-notch-band frequency-notch-preview";
+    const start = Math.min(state.notchDrag.startX, state.notchDrag.currentX);
+    const end = Math.max(state.notchDrag.startX, state.notchDrag.currentX);
+    preview.style.left = `${start}px`;
+    preview.style.width = `${Math.max(2, end - start)}px`;
+    preview.style.setProperty("--notch-color", NOTCH_COLORS[state.frequencyNotches.length % NOTCH_COLORS.length]);
+    container.append(preview);
+  }
+}
+
+el("notch-mode").addEventListener("click", () => {
+  state.notchPlacement = !state.notchPlacement;
+  el("notch-mode").setAttribute("aria-pressed", String(state.notchPlacement));
+  el("notch-mode").textContent = state.notchPlacement ? "Cancel notch" : "Place notch";
+  renderFrequencyNotches();
+});
+el("clear-notches").addEventListener("click", () => {
+  state.frequencyNotches = [];
+  saveFrequencyNotches();
+});
+const notchPlaceStrip = el("notch-place-strip");
+function notchPointerX(event) {
+  const rect = notchPlaceStrip.getBoundingClientRect();
+  return Math.max(0, Math.min(rect.width, event.clientX - rect.left));
+}
+function notchFrequencyAt(x) {
+  const bounds = waterfallViewBounds();
+  const data = state.waterfall;
+  const lowHz = data.frequency_hz[bounds.frequencyStart];
+  const highHz = data.frequency_hz[bounds.frequencyEnd - 1];
+  return lowHz + x / Math.max(1, notchPlaceStrip.clientWidth) * (highHz - lowHz);
+}
+notchPlaceStrip.addEventListener("pointerdown", (event) => {
+  if (!state.notchPlacement || !state.waterfall) return;
+  event.preventDefault();
+  event.stopPropagation();
+  notchPlaceStrip.setPointerCapture(event.pointerId);
+  const x = notchPointerX(event);
+  state.notchDrag = {startX: x, currentX: x};
+  renderFrequencyNotches();
+});
+notchPlaceStrip.addEventListener("pointermove", (event) => {
+  if (!state.notchDrag) return;
+  state.notchDrag.currentX = notchPointerX(event);
+  renderFrequencyNotches();
+});
+notchPlaceStrip.addEventListener("pointerup", (event) => {
+  if (!state.notchDrag || !state.waterfall) return;
+  const drag = state.notchDrag;
+  drag.currentX = notchPointerX(event);
+  state.notchDrag = null;
+  const first = notchFrequencyAt(Math.min(drag.startX, drag.currentX));
+  const last = notchFrequencyAt(Math.max(drag.startX, drag.currentX));
+  const binWidth = (state.waterfall.frequency_hz.at(-1) - state.waterfall.frequency_hz[0])
+    / Math.max(1, state.waterfall.frequency_hz.length - 1);
+  const notchWidth = Math.max(8, 4 * binWidth);
+  const center = (first + last) / 2;
+  const lowHz = last - first < 3 ? Math.max(0, center - notchWidth / 2) : first;
+  const highHz = last - first < 3 ? lowHz + notchWidth : last;
+  state.frequencyNotches.push({
+    id: globalThis.crypto?.randomUUID?.() || `notch-${Date.now()}`,
+    low_hz: lowHz,
+    high_hz: highHz,
+    color: NOTCH_COLORS[state.frequencyNotches.length % NOTCH_COLORS.length],
+  });
+  saveFrequencyNotches();
+});
+notchPlaceStrip.addEventListener("pointercancel", () => {
+  state.notchDrag = null;
+  renderFrequencyNotches();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && state.notchPlacement) {
+    state.notchPlacement = false;
+    state.notchDrag = null;
+    el("notch-mode").setAttribute("aria-pressed", "false");
+    el("notch-mode").textContent = "Place notch";
+    renderFrequencyNotches();
+  }
+});
+
 function selectTrack(track) {
+  if (frequencyNotchMatches(track)) return;
+  const savedRegion = matchingSavedRegionForCandidate(track);
+  if (savedRegion) {
+    selectSavedRegionFromCandidate(savedRegion, track);
+    el("inspector-context").textContent = `Saved region · ${savedRegion.signal_id || "signal identity"} · revise its existing label or bounds.`;
+    return;
+  }
+  saveSelectedBatchLabelDraft();
   stopSelectedAudioPlayback(null);
   state.classifierProposal = null;
   clearDecoderRecommendations();
@@ -2297,6 +4281,8 @@ function selectTrack(track) {
   updateCarrierFromSelection(state.selection);
   beginNewRegion();
   state.selectedTrack = track;
+  state.selectionMergeRegions = boxesCrossedBySelection(state.selection);
+  updateSelectionMergeControls();
   const center = (track.frequency_low_hz + track.frequency_high_hz) / 2;
   const bandwidth = track.frequency_high_hz - track.frequency_low_hz;
   el("inspector-context").textContent = `${track.modulation_hypothesis} candidate · ${center.toFixed(0)} Hz center · ${bandwidth.toFixed(0)} Hz wide · peak SNR estimate ${track.peak_snr_db?.toFixed(1) ?? "unknown"} dB · ${track.tone_count_candidate ?? "unknown"} tone centers${Number.isFinite(track.drift_hz_per_second) ? ` · drift ${track.drift_hz_per_second.toFixed(1)} Hz/s` : ""}`;
@@ -2311,7 +4297,8 @@ function selectTrack(track) {
   const trackEvidence = track.track_id ? ` Track ${track.track_id} observed ${track.track_observations} times (${track.track_state}).` : "";
   const snrEvidence = Number.isFinite(track.peak_snr_db) ? ` SNR ${track.peak_snr_db.toFixed(1)} dB.` : "";
   el("notes").value = `Auto-detected candidate (${track.modulation_hypothesis}); review before labeling.${trackEvidence}${snrEvidence}`;
-  el("save-region").disabled = state.liveView || !state.capture;
+  setRegionSaveDisabled(state.liveView || !state.capture);
+  syncLiveAnnotationSaveButton();
   updateModelButton();
   el("hint").classList.add("hidden");
   drawOverlays();
@@ -2331,17 +4318,24 @@ function applyTrackToneEstimate(track) {
 
 function renderTracks() {
   const list = el("track-list");
-  el("track-count").textContent = String(state.tracks.length);
+  const tracks = visibleTracks();
+  el("track-count").textContent = String(tracks.length);
   list.replaceChildren();
-  if (!state.tracks.length) {
+  if (!tracks.length) {
     const empty = document.createElement("p");
     empty.className = "subhead";
-    empty.textContent = "No persistent narrow-tone candidates detected. This heuristic can miss signals; manual selection is always available.";
+    empty.textContent = state.tracks.length > 0
+      ? `All ${state.tracks.length} heuristic candidate${state.tracks.length === 1 ? " is" : "s are"} suppressed by frequency notches.`
+      : state.liveView && state.liveTrackModeMessage
+        ? state.liveTrackModeMessage
+        : "No persistent narrow-tone candidates detected. This heuristic can miss signals; manual selection is always available.";
     list.append(empty);
   } else {
-    for (const track of state.tracks) {
+    for (const track of tracks) {
       const row = document.createElement("div");
       row.className = "track-row";
+      const pendingMerge = pendingWindowMergeSources().tracks.has(heuristicCandidateId(track));
+      if (pendingMerge) row.classList.add("is-pending-merge");
       const summary = document.createElement("div");
       summary.className = "track-summary";
       const drift = Number.isFinite(track.drift_hz_per_second) ? track.drift_hz_per_second : 0;
@@ -2362,9 +4356,31 @@ function renderTracks() {
       detail.textContent = `${track.frequency_low_hz.toFixed(0)}–${track.frequency_high_hz.toFixed(0)} Hz · ${track.time_start_seconds.toFixed(2)}–${track.time_end_seconds.toFixed(2)} s · ${track.peak_snr_db.toFixed(1)} dB peak SNR · drift ${drift >= 0 ? "+" : ""}${drift.toFixed(1)} Hz/s`;
       const button = document.createElement("button");
       button.type = "button";
-      button.textContent = "Review region";
+      button.textContent = pendingMerge ? "Included in staged merge" : "Review region";
+      button.disabled = pendingMerge;
       button.addEventListener("click", () => selectTrack(track));
       row.append(summary, detail, button);
+      if (!state.liveView) {
+        const adjust = document.createElement("button");
+        adjust.type = "button";
+        adjust.textContent = "Redraw bounds";
+        adjust.title = "Draw a tighter time/frequency box on the waterfall.";
+        adjust.addEventListener("click", () => armCandidateRedraw(track));
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.textContent = "Remove box";
+        remove.title = "Remove this provisional candidate from the current analysis.";
+        remove.disabled = pendingMerge;
+        remove.addEventListener("click", () => {
+          state.tracks = state.tracks.filter((item) => item !== track);
+          if (state.selectedTrack === track) {
+            state.selectedTrack = null;
+            state.selection = null;
+          }
+          renderTracks();
+        });
+        row.append(adjust, remove);
+      }
       if (track.tone_grid_regular && track.tone_count_candidate >= 2 && track.tone_count_candidate <= 64) {
         const toneButton = document.createElement("button");
         toneButton.type = "button";
@@ -2377,6 +4393,7 @@ function renderTracks() {
         tryButton.className = "track-auto-button";
         tryButton.type = "button";
         tryButton.textContent = "Try tested modes";
+        tryButton.disabled = pendingMerge;
         tryButton.addEventListener("click", () => startDecoderTrial(track));
         row.append(tryButton);
       }
@@ -2394,18 +4411,136 @@ function canvasPoint(event) {
   };
 }
 
+function selectionFromCanvasCorners(x1, y1, x2, y2) {
+  const data = state.waterfall;
+  const view = waterfallViewBounds();
+  const left = Math.max(0, Math.min(overlayCanvas.width - 2, Math.min(x1, x2)));
+  const right = Math.max(left + 1, Math.min(overlayCanvas.width - 1, Math.max(x1, x2)));
+  const top = Math.max(0, Math.min(overlayCanvas.height - 2, Math.min(y1, y2)));
+  const bottom = Math.max(top + 1, Math.min(overlayCanvas.height - 1, Math.max(y1, y2)));
+  const firstSample = sampleAtCanvasRow(top);
+  const lastSample = sampleAtCanvasRow(bottom);
+  const sampleStart = Math.max(0, Math.floor(Math.min(firstSample, lastSample)));
+  const sampleEnd = Math.min(data.sample_count, Math.ceil(Math.max(firstSample, lastSample)) + data.fft_size);
+  const frequencyIndex = (x) => Math.min(view.frequencyEnd - 1, view.frequencyStart + Math.max(0, Math.round(x)));
+  const frequencyLow = data.frequency_hz[frequencyIndex(left)];
+  const frequencyHigh = data.frequency_hz[frequencyIndex(Math.max(left + 1, right))];
+  return {
+    sample_start: sampleStart,
+    sample_count: Math.max(1, sampleEnd - sampleStart),
+    frequency_low_hz: frequencyLow,
+    frequency_high_hz: Math.max(frequencyLow + 1, frequencyHigh),
+    x1: left, y1: top, x2: right, y2: bottom,
+  };
+}
+
+function resizeHandleAt(point) {
+  if (!state.selection || state.liveView || state.coverageOnly || state.batchBoxMode
+      || state.adjustingGeometry || (!state.editRegion && !state.batchReviewBox && !state.selectedTrack)) return null;
+  const {x1, y1, x2, y2} = state.selection;
+  const corners = [
+    {name: "top-left", x: x1, y: y1}, {name: "top-right", x: x2, y: y1},
+    {name: "bottom-left", x: x1, y: y2}, {name: "bottom-right", x: x2, y: y2},
+  ];
+  return corners.find((corner) => Math.hypot(point.x - corner.x, point.y - corner.y) <= 9) || null;
+}
+
 overlayCanvas.addEventListener("pointerdown", (event) => {
   if (!state.waterfall || (state.coverageOnly && !state.coverageMaskMode)) return;
   stopSelectedAudioPlayback(null);
   overlayCanvas.setPointerCapture(event.pointerId);
   const point = canvasPoint(event);
+  const handle = resizeHandleAt(point);
+  if (handle) {
+    state.resizeDrag = {
+      handle: handle.name,
+      originalSelection: {...state.selection},
+      originalBox: state.batchReviewBox ? {
+        sample_start: state.batchReviewBox.sample_start,
+        sample_count: state.batchReviewBox.sample_count,
+        frequency_low_hz: state.batchReviewBox.frequency_low_hz,
+        frequency_high_hz: state.batchReviewBox.frequency_high_hz,
+      } : null,
+    };
+    state.drag = null;
+    event.preventDefault();
+    return;
+  }
+  if (!state.liveView && !state.coverageOnly && !state.batchBoxMode && !state.adjustingGeometry
+      && !state.adjustingCandidate && !state.drawingSignalBox && !state.splitMode
+      && (state.batchReviewBox || state.editRegion || state.selectedTrack) && state.selection) {
+    const {x1, y1, x2, y2} = state.selection;
+    if (point.x > Math.min(x1, x2) && point.x < Math.max(x1, x2)
+        && point.y > Math.min(y1, y2) && point.y < Math.max(y1, y2)) {
+      state.moveDrag = {start: point, originalSelection: {...state.selection}, moved: false};
+      state.drag = null;
+      event.preventDefault();
+      return;
+    }
+  }
+  if (!state.adjustingGeometry && !state.adjustingCandidate && !state.batchBoxMode
+      && !state.drawingSignalBox && !state.splitMode && !state.coverageMaskMode) {
+    saveSelectedBatchLabelDraft();
+  }
   state.drag = { ...point, x2: point.x, y2: point.y };
   state.selection = { x1: point.x, y1: point.y, x2: point.x, y2: point.y };
+  state.selectionMergeRegions = [];
+  updateSelectionMergeControls();
   el("hint").classList.add("hidden");
   drawOverlays();
 });
 
 overlayCanvas.addEventListener("pointermove", (event) => {
+  if (state.moveDrag) {
+    const point = canvasPoint(event);
+    const move = state.moveDrag;
+    const dx = point.x - move.start.x;
+    const dy = point.y - move.start.y;
+    if (!move.moved && Math.hypot(dx, dy) < 5) return;
+    move.moved = true;
+    const original = move.originalSelection;
+    const left = Math.min(original.x1, original.x2);
+    const right = Math.max(original.x1, original.x2);
+    const top = Math.min(original.y1, original.y2);
+    const bottom = Math.max(original.y1, original.y2);
+    const shiftX = Math.max(-left, Math.min(overlayCanvas.width - 1 - right, dx));
+    const shiftY = Math.max(-top, Math.min(overlayCanvas.height - 1 - bottom, dy));
+    const movedSelection = selectionFromCanvasCorners(
+      original.x1 + shiftX, original.y1 + shiftY,
+      original.x2 + shiftX, original.y2 + shiftY,
+    );
+    if (state.capture) {
+      const window = annotationWindowBounds(state.capture);
+      movedSelection.sample_start = Math.max(window.startSample, Math.min(
+        window.endSample - movedSelection.sample_count, movedSelection.sample_start,
+      ));
+    }
+    const view = waterfallViewBounds();
+    const minHz = state.waterfall.frequency_hz[view.frequencyStart];
+    const maxHz = state.waterfall.frequency_hz[view.frequencyEnd - 1];
+    const widthHz = Math.min(maxHz - minHz, movedSelection.frequency_high_hz - movedSelection.frequency_low_hz);
+    movedSelection.frequency_low_hz = Math.max(minHz, Math.min(maxHz - widthHz, movedSelection.frequency_low_hz));
+    movedSelection.frequency_high_hz = movedSelection.frequency_low_hz + widthHz;
+    state.selection = movedSelection;
+    reprojectSelection();
+    drawOverlays();
+    return;
+  }
+  if (state.resizeDrag) {
+    const point = canvasPoint(event);
+    const {handle, originalSelection} = state.resizeDrag;
+    const fixedX = handle.endsWith("left") ? originalSelection.x2 : originalSelection.x1;
+    const fixedY = handle.startsWith("top") ? originalSelection.y2 : originalSelection.y1;
+    const movingIsLeft = handle.endsWith("left");
+    const movingIsTop = handle.startsWith("top");
+    const x1 = movingIsLeft ? point.x : fixedX;
+    const x2 = movingIsLeft ? fixedX : point.x;
+    const y1 = movingIsTop ? point.y : fixedY;
+    const y2 = movingIsTop ? fixedY : point.y;
+    state.selection = selectionFromCanvasCorners(x1, y1, x2, y2);
+    drawOverlays();
+    return;
+  }
   if (!state.drag) return;
   const point = canvasPoint(event);
   state.drag.x2 = point.x;
@@ -2415,16 +4550,160 @@ overlayCanvas.addEventListener("pointermove", (event) => {
 });
 
 overlayCanvas.addEventListener("pointerup", (event) => {
+  if (state.resizeDrag) {
+    const box = state.batchReviewBox;
+    state.resizeDrag = null;
+    if (box) {
+      saveSelectedBatchLabelDraft();
+      const previousGeometry = {
+        sample_start: box.sample_start,
+        sample_count: box.sample_count,
+        frequency_low_hz: box.frequency_low_hz,
+        frequency_high_hz: box.frequency_high_hz,
+      };
+      const {sample_start, sample_count, frequency_low_hz, frequency_high_hz} = state.selection;
+      Object.assign(box, {sample_start, sample_count, frequency_low_hz, frequency_high_hz});
+      state.batchBoxUndo.push({type: "restore-box-geometry", box, geometry: previousGeometry});
+      renderBatchBoxes();
+      el("geometry-status").textContent = "Draft bounds resized. Save annotations to apply the change with the rest of this window.";
+    } else if (state.editRegion) {
+      saveSelectedExistingRegionDraft();
+      state.geometryMergeRegions = boxesCrossedBySelection(state.selection, state.editRegion.id);
+      state.selectionMergeRegions = [...state.geometryMergeRegions];
+      el("geometry-status").textContent = "Bounds resized and staged in this window. Save annotations to apply the change.";
+      const crossed = state.geometryMergeRegions.length;
+      el("merge-redrawn-regions").hidden = crossed < 1 || crossed > 31;
+      el("merge-redrawn-regions").textContent = `Merge this signal and ${crossed} crossed box${crossed === 1 ? "" : "es"}`;
+      el("geometry-merge-status").hidden = crossed < 1;
+      el("geometry-merge-status").textContent = crossed
+        ? `Resize crosses ${crossed} saved or CV box${crossed === 1 ? "" : "es"}. You can merge them into the resized signal before saving.`
+        : "";
+    } else if (state.selectedTrack) {
+      const geometry = {
+        sample_start: state.selection.sample_start,
+        sample_count: state.selection.sample_count,
+        frequency_low_hz: state.selection.frequency_low_hz,
+        frequency_high_hz: state.selection.frequency_high_hz,
+      };
+      Object.assign(state.selectedTrack, geometry, {
+        time_start_seconds: geometry.sample_start / state.waterfall.sample_rate,
+        time_end_seconds: (geometry.sample_start + geometry.sample_count) / state.waterfall.sample_rate,
+      });
+      const proposalId = state.selectedTrack.cv_proposal_id;
+      const detection = proposalId && state.cvDetections.find((item) => (item.cv_proposal_id || item.proposal_id) === proposalId);
+      if (detection) {
+        detection._originalProposalBounds ||= {
+          sample_start: detection.sample_start, sample_count: detection.sample_count,
+          frequency_low_hz: detection.frequency_low_hz, frequency_high_hz: detection.frequency_high_hz,
+        };
+        Object.assign(detection, geometry);
+        renderCvDetections();
+      }
+      el("selection-details").textContent = `Candidate bounds resized · ${(geometry.sample_start / state.waterfall.sample_rate).toFixed(2)}–${((geometry.sample_start + geometry.sample_count) / state.waterfall.sample_rate).toFixed(2)} s · save as a signal to keep this correction.`;
+      state.selectionMergeRegions = boxesCrossedBySelection(state.selection);
+    }
+    updateAnnotationSaveAvailability();
+    updateSelectionMergeControls();
+    drawOverlays();
+    return;
+  }
+  if (state.moveDrag) {
+    const move = state.moveDrag;
+    state.moveDrag = null;
+    if (!move.moved) {
+      state.selection = move.originalSelection;
+      const sample = sampleAtCanvasRow(move.start.y);
+      const view = waterfallViewBounds();
+      const frequency = state.waterfall.frequency_hz[Math.min(view.frequencyEnd - 1, view.frequencyStart + move.start.x)];
+      const draftIndex = state.batchBoxes.findLastIndex((box) => sample >= box.sample_start
+        && sample <= box.sample_start + box.sample_count
+        && frequency >= box.frequency_low_hz && frequency <= box.frequency_high_hz);
+      if (draftIndex >= 0 && !state.batchBoxMode) reviewBatchBox(draftIndex);
+      else {
+        const saved = state.regions.find((region) => region.lineage_state !== "superseded"
+          && !state.windowRegionDeletes.has(region.id)
+          && sample >= region.sample_start && sample <= region.sample_start + region.sample_count
+          && frequency >= region.frequency_low_hz && frequency <= region.frequency_high_hz);
+        if (saved) selectSavedRegion(saved);
+        else {
+          const track = hitSignal(visibleTracks(), sample, frequency);
+          if (track) selectTrack(track);
+        }
+      }
+      return;
+    } else {
+      const box = state.batchReviewBox;
+      const geometry = {
+        sample_start: state.selection.sample_start,
+        sample_count: state.selection.sample_count,
+        frequency_low_hz: state.selection.frequency_low_hz,
+        frequency_high_hz: state.selection.frequency_high_hz,
+      };
+      if (box) {
+        saveSelectedBatchLabelDraft();
+        const previousGeometry = {
+          sample_start: box.sample_start, sample_count: box.sample_count,
+          frequency_low_hz: box.frequency_low_hz, frequency_high_hz: box.frequency_high_hz,
+        };
+        Object.assign(box, geometry);
+        state.batchBoxUndo.push({type: "restore-box-geometry", box, geometry: previousGeometry});
+        renderBatchBoxes();
+        el("geometry-status").textContent = "Draft moved. Save annotations to apply the change with the rest of this window.";
+      } else if (state.editRegion) {
+        saveSelectedExistingRegionDraft();
+        state.geometryMergeRegions = boxesCrossedBySelection(state.selection, state.editRegion.id);
+        state.selectionMergeRegions = [...state.geometryMergeRegions];
+        const crossed = state.geometryMergeRegions.length;
+        el("geometry-status").textContent = "Signal moved. Save annotations to apply the change with the rest of this window.";
+        el("merge-redrawn-regions").hidden = crossed < 1 || crossed > 31;
+        el("merge-redrawn-regions").textContent = `Merge this signal and ${crossed} crossed box${crossed === 1 ? "" : "es"}`;
+        el("geometry-merge-status").hidden = crossed < 1;
+        el("geometry-merge-status").textContent = crossed
+          ? `Move crosses ${crossed} saved or CV box${crossed === 1 ? "" : "es"}. You can merge them into the selected signal before saving.`
+          : "";
+      } else if (state.selectedTrack) {
+        Object.assign(state.selectedTrack, geometry, {
+          time_start_seconds: geometry.sample_start / state.waterfall.sample_rate,
+          time_end_seconds: (geometry.sample_start + geometry.sample_count) / state.waterfall.sample_rate,
+        });
+        const proposalId = state.selectedTrack.cv_proposal_id;
+        const detection = proposalId && state.cvDetections.find((item) => (item.cv_proposal_id || item.proposal_id) === proposalId);
+        if (detection) {
+          detection._originalProposalBounds ||= {
+            sample_start: detection.sample_start, sample_count: detection.sample_count,
+            frequency_low_hz: detection.frequency_low_hz, frequency_high_hz: detection.frequency_high_hz,
+          };
+          Object.assign(detection, geometry);
+          renderCvDetections();
+        }
+        state.selectionMergeRegions = boxesCrossedBySelection(state.selection);
+        el("selection-details").textContent = "Candidate moved · save as a signal to keep the corrected bounds.";
+      }
+      updateAnnotationSaveAvailability();
+      updateSelectionMergeControls();
+      drawOverlays();
+      return;
+    }
+  }
   if (!state.drag) return;
   const point = canvasPoint(event);
   const data = state.waterfall;
   const view = waterfallViewBounds();
   const rect = overlayCanvas.getBoundingClientRect();
   const moved = Math.hypot((state.drag.x - point.x) * rect.width / overlayCanvas.width, (state.drag.y - point.y) * rect.height / overlayCanvas.height);
-  if (moved < 5 && !state.splitMode && !state.coverageMaskMode) {
+  if (moved < 5 && !state.splitMode && !state.coverageMaskMode
+      && !state.adjustingCandidate && !state.drawingSignalBox) {
     const sample = sampleAtCanvasRow(point.y);
     const frequency = data.frequency_hz[Math.min(view.frequencyEnd - 1, view.frequencyStart + point.x)];
-    const track = hitSignal(state.tracks, sample, frequency);
+    const draftIndex = state.batchBoxes.findLastIndex((box) => sample >= box.sample_start
+      && sample <= box.sample_start + box.sample_count
+      && frequency >= box.frequency_low_hz && frequency <= box.frequency_high_hz);
+    if (draftIndex >= 0 && !state.batchBoxMode) {
+      state.drag = null;
+      reviewBatchBox(draftIndex);
+      return;
+    }
+    const track = hitSignal(visibleTracks(), sample, frequency);
     if (track) { state.drag = null; selectTrack(track); return; }
   }
   const rowStart = Math.min(state.drag.y, point.y);
@@ -2453,6 +4732,31 @@ overlayCanvas.addEventListener("pointerup", (event) => {
     frequency_high_hz: frequencyHigh,
     x1: state.drag.x, y1: state.drag.y, x2: point.x, y2: point.y,
   };
+  if (state.adjustingCandidate) {
+    const candidate = state.adjustingCandidate;
+    Object.assign(candidate, {
+      sample_start: sampleStart,
+      sample_count: Math.max(1, sampleEnd - sampleStart),
+      frequency_low_hz: frequencyLow,
+      frequency_high_hz: frequencyHigh,
+      time_start_seconds: sampleStart / data.sample_rate,
+      time_end_seconds: sampleEnd / data.sample_rate,
+    });
+    state.adjustingCandidate = null;
+    state.drawingSignalBox = false;
+    updateSingleBoxButton();
+    state.drag = null;
+    if (state.cvDetections.includes(candidate)) renderCvDetections();
+    else renderTracks();
+    if (state.cvDetections.includes(candidate)) selectCvDetection(candidate);
+    else selectTrack(candidate);
+    el("selection-details").textContent = `Adjusted provisional candidate bounds · ${(sampleStart / data.sample_rate).toFixed(2)}–${(sampleEnd / data.sample_rate).toFixed(2)} s · ${frequencyLow.toFixed(0)}–${frequencyHigh.toFixed(0)} Hz. Save as a region to keep this correction.`;
+    drawOverlays();
+    return;
+  }
+  const wasDrawingSignalBox = state.drawingSignalBox;
+  state.drawingSignalBox = false;
+  updateSingleBoxButton();
   if (state.coverageMaskMode && state.coverageWindow) {
     const mask = {
       sample_start: state.selection.sample_start,
@@ -2485,6 +4789,21 @@ overlayCanvas.addEventListener("pointerup", (event) => {
     drawOverlays();
     return;
   }
+  if (state.batchBoxMode) {
+    const { x1, y1, x2, y2, ...box } = state.selection;
+    const draftBox = {...box, client_id: crypto.randomUUID()};
+    state.batchBoxUndo.push({type: "add", box: draftBox});
+    state.batchBoxes.push(draftBox);
+    state.selection = null;
+    state.drag = null;
+    state.classifierProposal = null;
+    renderBatchBoxes();
+    setRegionSaveDisabled(true);
+    updateModelButton();
+    updateSceneReviewAvailability();
+    drawOverlays();
+    return;
+  }
   updateCarrierFromSelection(state.selection);
   state.drag = null;
 
@@ -2500,9 +4819,26 @@ overlayCanvas.addEventListener("pointerup", (event) => {
   if (state.adjustingGeometry && state.editRegion) {
     state.adjustingGeometry = false;
     state.geometryDraft = true;
+    state.geometryMergeRegions = boxesCrossedBySelection(state.selection, state.editRegion.id);
+    state.selectionMergeRegions = [...state.geometryMergeRegions];
     el("save-region-bounds").hidden = false;
     el("cancel-region-bounds").hidden = false;
     el("geometry-status").textContent = `Proposed bounds · samples ${sampleStart.toLocaleString()}–${sampleEnd.toLocaleString()} · ${frequencyLow.toFixed(0)}–${frequencyHigh.toFixed(0)} Hz. Save to append a geometry revision.`;
+    const mergeCount = state.geometryMergeRegions.length;
+    const unknownBandCount = state.geometryMergeRegions.filter((source) => {
+      const region = source.kind === "region" ? source.region : source.detection;
+      return !Number.isFinite(region.frequency_low_hz) || !Number.isFinite(region.frequency_high_hz);
+    }).length;
+    const mergeButton = el("merge-redrawn-regions");
+    mergeButton.hidden = mergeCount < 1 || mergeCount > 31;
+    mergeButton.textContent = `Merge this signal and ${mergeCount} crossed box${mergeCount === 1 ? "" : "es"}`;
+    const mergeStatus = el("geometry-merge-status");
+    mergeStatus.hidden = mergeCount < 1;
+    mergeStatus.textContent = mergeCount > 31
+      ? `This redraw crosses ${mergeCount} other saved or CV boxes. Merge includes this selected signal and up to 31 crossed boxes.`
+      : mergeCount > 0
+        ? `This redraw crosses ${mergeCount} other saved or CV boxes. Merge keeps your drawn bounds and includes the selected signal${unknownBandCount ? `; ${unknownBandCount} crossed boxes have unknown frequency bounds and are matched by time overlap` : ""}.`
+        : "";
     el("selection-summary").textContent = "Proposed corrected bounds";
     el("selection-details").textContent = "Original geometry remains in history until these bounds are saved.";
     drawOverlays();
@@ -2510,35 +4846,280 @@ overlayCanvas.addEventListener("pointerup", (event) => {
   }
   state.selectedTrack = null;
   beginNewRegion();
+  el("batch-unknown-row").hidden = false;
+  state.selectionMergeRegions = boxesCrossedBySelection(state.selection);
+  updateSelectionMergeControls();
   openInspector("label");
   el("selection-summary").textContent = `${state.selection.frequency_low_hz.toFixed(0)}–${state.selection.frequency_high_hz.toFixed(0)} Hz`;
   const t0 = sampleStart / data.sample_rate;
   const t1 = sampleEnd / data.sample_rate;
   el("selection-details").textContent = `Samples ${sampleStart.toLocaleString()}–${sampleEnd.toLocaleString()} · ${t0.toFixed(3)}–${t1.toFixed(3)} s`;
+  if (wasDrawingSignalBox) {
+    el("box-draw-status").textContent = `Box selected · ${t0.toFixed(2)}–${t1.toFixed(2)} s · ${frequencyLow.toFixed(0)}–${frequencyHigh.toFixed(0)} Hz. Save region to keep it.`;
+  }
   el("inspector-context").textContent = `Manual region · ${frequencyLow.toFixed(0)}–${frequencyHigh.toFixed(0)} Hz · ${t0.toFixed(2)}–${t1.toFixed(2)} s${state.liveView ? " · stop recording to save labels" : ""}`;
-  el("save-region").disabled = state.liveView || !state.capture;
+  setRegionSaveDisabled(state.liveView || !state.capture);
+  syncLiveAnnotationSaveButton();
   updateModelButton();
   drawOverlays();
 });
 
+overlayCanvas.addEventListener("pointercancel", () => {
+  if (state.moveDrag) {
+    state.selection = {...state.moveDrag.originalSelection};
+    state.moveDrag = null;
+    drawOverlays();
+  }
+  if (state.resizeDrag) {
+    state.selection = {...state.resizeDrag.originalSelection};
+    state.resizeDrag = null;
+    drawOverlays();
+  }
+  state.drag = null;
+});
+
+el("save-annotations-close").addEventListener("click", () => {
+  if (el("save-annotations-close").disabled) return;
+  saveSelectedBatchLabelDraft();
+  if (state.selection && !state.editRegion && !state.batchReviewBox && !state.batchBoxMode) stageCurrentSelectionAsWindowDraft();
+  if (state.liveView) { el("save-annotations").click(); return; }
+  saveWindowAnnotationDrafts().then(() => {
+    el("inspector").classList.add("hidden");
+  }).catch((error) => {
+    showError(error.message);
+    el("batch-box-status").textContent = `Could not save annotations · ${error.message}. Your drafts are still here.`;
+  });
+});
+
+el("save-annotations").addEventListener("click", () => {
+  if (el("save-annotations").disabled) return;
+  saveSelectedBatchLabelDraft();
+  if (!state.liveView) stageCurrentSelectionAsWindowDraft();
+  if (!state.liveView && (state.batchBoxes.length || state.windowRegionEdits.size || state.windowRegionDeletes.size || state.windowMerges.length || state.windowIdentityLinks.length)) {
+    saveWindowAnnotationDrafts().catch((error) => {
+      showError(error.message);
+      el("batch-box-status").textContent = `Could not save annotations · ${error.message}. Your drafts are still here.`;
+      el("label-state").textContent = `Save failed · ${error.message}. Your drafts are still here.`;
+    });
+    return;
+  }
+  if (state.liveView) {
+    const selection = state.selection;
+    const requestBody = {
+      session_id: state.liveSessionId,
+      sample_start: selection.sample_start,
+      sample_count: selection.sample_count,
+      frequency_low_hz: selection.frequency_low_hz,
+      frequency_high_hz: selection.frequency_high_hz,
+      mode_id: state.labelModeId || null,
+      family: el("family").value.trim() || null,
+      method: el("method").value.trim() || null,
+      protocol: el("protocol").value.trim() || null,
+      variant: el("variant").value.trim() || null,
+      notes: el("notes").value.trim(),
+    };
+    el("save-annotations").disabled = true;
+    el("label-state").textContent = "Saving the current 10-second live window as a training candidate…";
+    request("/api/live/training-examples", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestBody),
+    }).then((result) => {
+      el("label-state").textContent = result.message;
+      el("box-draw-status").textContent = `Training candidate saved · ${result.capture_id.slice(0, 8)} · review its 10-second window before export.`;
+      state.selection = null;
+      beginNewRegion();
+      el("selection-summary").textContent = "No region selected";
+      el("selection-details").textContent = "Drag over the waterfall to mark a signal.";
+      drawOverlays();
+      syncLiveAnnotationSaveButton();
+    }).catch((error) => {
+      showError(error.message);
+      el("label-state").textContent = `Could not save live training candidate · ${error.message}`;
+      syncLiveAnnotationSaveButton();
+    });
+    return;
+  }
+  state.closeInspectorAfterSave = false;
+  state.returnInspectorTabAfterSave = "label";
+  el("save-region").click();
+});
+
+el("save-annotations-complete").addEventListener("click", async () => {
+  if (el("save-annotations-complete").disabled || !state.capture?.source_metadata?.auto_review_queue) return;
+  saveSelectedBatchLabelDraft();
+  const hasUncommittedAnnotations = state.batchBoxes.length || state.windowRegionEdits.size
+    || state.windowRegionDeletes.size || state.windowMerges.length || state.windowIdentityLinks.length
+    || (state.selection && !state.editRegion && !state.batchReviewBox && !state.batchBoxMode);
+  if (state.pendingCaptureCompletion === state.capture.id && !hasUncommittedAnnotations) {
+    const capture = state.capture;
+    const button = el("save-annotations-complete");
+    button.disabled = true;
+    el("label-state").textContent = "Recording complete 10-second window coverage…";
+    try {
+      await recordCompleteReviewWindowCoverage(capture);
+      if (state.capture?.id !== capture.id) return;
+      state.pendingCaptureCompletion = null;
+      el("inspector").classList.add("hidden");
+      await refreshLiveReviewQueue();
+      el("review-queue-dialog").showModal();
+    } catch (error) {
+      el("label-state").textContent = `Annotations are saved, but review completion failed · ${error.message}`;
+    } finally {
+      button.disabled = state.liveView || !state.capture;
+    }
+    return;
+  }
+  if (state.pendingCaptureCompletion === state.capture.id) {
+    state.pendingCaptureCompletion = null;
+    el("save-annotations-complete").textContent = "Save and finish";
+  }
+  stageCurrentSelectionAsWindowDraft();
+  const completionWindow = annotationWindowBounds(state.capture);
+  const unresolvedSavedRegion = state.regions.find((region) => {
+    if (region.lineage_state === "superseded") return false;
+    if (pendingWindowMergeSources().regions.has(region.id)) return false;
+    if (state.windowRegionDeletes.has(region.id)) return false;
+    if (region.sample_start < completionWindow.startSample
+      || region.sample_start + region.sample_count > completionWindow.endSample) return false;
+    const draft = state.windowRegionEdits.get(region.id)?.labelDraft;
+    const hasIdentity = Boolean(draft
+      ? draft.mode_id || draft.family || draft.method || draft.protocol || draft.variant
+      : region.mode_id || region.family || region.method || region.protocol || region.variant);
+    const identityUnknown = draft?.identity_unknown_confirmed ?? Boolean(region.evidence?.identity_unknown_confirmed);
+    return !hasIdentity && !identityUnknown;
+  });
+  if (unresolvedSavedRegion) {
+    if (state.editRegion?.id !== unresolvedSavedRegion.id) selectSavedRegion(unresolvedSavedRegion);
+    el("label-state").textContent = "This saved signal still needs a label. Choose a mode or mark its identity unknown, then save the window changes before completion.";
+    return;
+  }
+  if (state.batchBoxes.length || state.windowRegionEdits.size || state.windowRegionDeletes.size || state.windowMerges.length || state.windowIdentityLinks.length || !state.selection) {
+    const capture = state.capture;
+    const unlabeled = state.batchBoxes.findIndex((box) => {
+      const label = box === state.batchReviewBox ? readBatchLabelDraft() : box.labelDraft || {};
+      return !label.identity_unknown_confirmed && ![label.mode_id, label.family, label.method, label.protocol, label.variant].some(Boolean);
+    });
+    if (unlabeled >= 0) {
+      el("label-state").textContent = "Label every draft signal or explicitly mark its identity unknown before completing this window.";
+      reviewBatchBox(unlabeled);
+      return;
+    }
+    const button = el("save-annotations-complete");
+    button.disabled = true;
+    try {
+      if (state.batchBoxes.length || state.windowRegionEdits.size || state.windowRegionDeletes.size || state.windowMerges.length || state.windowIdentityLinks.length) await saveWindowAnnotationDrafts();
+      await recordCompleteReviewWindowCoverage(capture);
+      if (state.capture?.id !== capture.id) return;
+      el("inspector").classList.add("hidden");
+      await refreshLiveReviewQueue();
+      el("review-queue-dialog").showModal();
+    } catch (error) {
+      showError(error.message);
+      el("label-state").textContent = `Could not complete this window · ${error.message}. Unsaved drafts remain here.`;
+    } finally {
+      updateAnnotationSaveAvailability();
+    }
+    return;
+  }
+  state.closeInspectorAfterSave = true;
+  state.markCaptureCompleteAfterSave = true;
+  el("save-region").click();
+});
+
 el("save-region").addEventListener("click", async () => {
   if (!state.selection || !state.capture) return;
+  const closeInspectorAfterSave = Boolean(state.closeInspectorAfterSave);
+  const markCaptureCompleteAfterSave = Boolean(state.markCaptureCompleteAfterSave);
+  state.closeInspectorAfterSave = false;
+  state.markCaptureCompleteAfterSave = false;
+  if (!state.liveView && (state.editRegion || state.batchReviewBox)) {
+    const capture = state.capture;
+    saveSelectedBatchLabelDraft();
+    setRegionSaveDisabled(true);
+    try {
+      await saveWindowAnnotationDrafts();
+      if (markCaptureCompleteAfterSave) {
+        await recordCompleteReviewWindowCoverage(capture);
+        state.pendingCaptureCompletion = null;
+      }
+      if (state.capture?.id !== capture.id) return;
+      if (closeInspectorAfterSave) {
+        el("inspector").classList.add("hidden");
+        if (markCaptureCompleteAfterSave) {
+          await refreshLiveReviewQueue();
+          el("review-queue-dialog").showModal();
+        }
+      }
+      return;
+    } catch (error) {
+      if (markCaptureCompleteAfterSave && !state.batchBoxes.length
+        && !state.windowRegionEdits.size && !state.windowRegionDeletes.size && !state.windowMerges.length && !state.windowIdentityLinks.length) {
+        state.pendingCaptureCompletion = capture.id;
+        el("save-annotations-complete").textContent = "Retry finish";
+        el("label-state").textContent = `Annotations are saved, but window completion failed · ${error.message}`;
+      } else {
+        showError(error.message);
+        el("label-state").textContent = `Could not save the window changes · ${error.message}. Your draft remains here.`;
+      }
+      setRegionSaveDisabled(false);
+      return;
+    }
+  }
   clearError();
-  const button = el("save-region");
-  const captureId = state.capture.id;
+  const capture = state.capture;
+  const captureId = capture.id;
+  let annotationSaved = false;
+  const cvProposalId = !state.editRegion ? state.selectedTrack?.cv_proposal_id : null;
   const edit = state.editRegion;
-  button.disabled = true;
+  const completedBatchBox = edit ? null : state.batchReviewBox;
+  setRegionSaveDisabled(true);
   try {
     const selection = state.selection;
+    let updatedExisting = false;
+    let duplicateToUpdate = null;
+    if (!edit) {
+      const overlapArea = (region) => {
+        const t0 = Math.max(selection.sample_start, region.sample_start);
+        const t1 = Math.min(selection.sample_start + selection.sample_count, region.sample_start + region.sample_count);
+        const f0 = Math.max(selection.frequency_low_hz, region.frequency_low_hz);
+        const f1 = Math.min(selection.frequency_high_hz, region.frequency_high_hz);
+        return Math.max(0, t1 - t0) * Math.max(0, f1 - f0);
+      };
+      const selectedArea = selection.sample_count * (selection.frequency_high_hz - selection.frequency_low_hz);
+      const pendingMergeRegions = pendingWindowMergeSources().regions;
+      const duplicate = state.regions.find((region) => {
+        if (region.lineage_related || region.lineage_state === "superseded"
+          || state.windowRegionDeletes.has(region.id) || pendingMergeRegions.has(region.id)) return false;
+        const geometry = state.windowRegionEdits.get(region.id)?.geometry || region;
+        const regionArea = geometry.sample_count * (geometry.frequency_high_hz - geometry.frequency_low_hz);
+        const smallerArea = Math.min(selectedArea, regionArea);
+        return smallerArea > 0 && overlapArea(geometry) / smallerArea >= 0.65;
+      });
+      if (duplicate && window.confirm(`This box substantially overlaps the saved “${duplicate.method || duplicate.family || "Unknown signal"}” region. Update its bounds instead of creating a duplicate? Choose Cancel to create a separate region.`)) {
+        await request(`/api/captures/${captureId}/regions/${duplicate.id}/geometry`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ expected_revision: duplicate.geometry_revision, sample_start: selection.sample_start, sample_count: selection.sample_count, frequency_low_hz: selection.frequency_low_hz, frequency_high_hz: selection.frequency_high_hz }),
+        });
+        updatedExisting = true;
+        duplicateToUpdate = duplicate;
+      }
+    }
     const classifierProposal = state.classifierProposal?.capture_id === captureId
       && state.classifierProposal.selection === selection
       ? state.classifierProposal.result : null;
-    const destination = edit ? `/api/captures/${captureId}/regions/${edit.id}/labels` : `/api/captures/${captureId}/regions`;
-    await request(destination, {
+    const taxonomyDraft = Boolean(state.labelModeId
+      || ["family", "method", "protocol", "variant"].some((field) => el(field).value.trim()));
+    const notesDraft = el("notes").value.trim();
+    const hasAnnotationDraft = taxonomyDraft || Boolean(notesDraft) || Boolean(classifierProposal);
+    const destination = edit
+      ? `/api/captures/${captureId}/regions/${edit.id}/labels`
+      : updatedExisting
+        ? `/api/captures/${captureId}/regions/${duplicateToUpdate.id}/labels`
+        : `/api/captures/${captureId}/regions`;
+    if (!updatedExisting || hasAnnotationDraft) await request(destination, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        ...(edit ? {expected_revision:edit.revision} : {}),
+        ...(edit || updatedExisting ? {expected_revision: edit?.revision ?? duplicateToUpdate.revision} : {}),
         sample_start: selection.sample_start,
         sample_count: selection.sample_count,
         frequency_low_hz: selection.frequency_low_hz,
@@ -2547,29 +5128,45 @@ el("save-region").addEventListener("click", async () => {
         origin: !edit && state.selectedTrack ? "detector_proposal" : el("missed-signal").checked && !edit ? "user_added_missed_detection" : "manual",
         detector_evidence: !edit ? state.selectedTrack?.detector_evidence || null : null,
         signal_presence_confirmed: !edit && Boolean(state.selectedTrack?.detector_evidence) && el("cv-presence-confirmed").checked,
+        identity_unknown_confirmed: el("batch-unknown-confirmed").checked,
         classifier_proposal: classifierProposal ? {
           sample_start: classifierProposal.sample_start,
           sample_count: classifierProposal.sample_count,
           selection_sample_count: classifierProposal.selection_sample_count,
           frequency_low_hz: classifierProposal.selection_frequency_range_hz?.[0],
           frequency_high_hz: classifierProposal.selection_frequency_range_hz?.[1],
+          crop_count: classifierProposal.requested_crop_count || 1,
         } : null,
-        family: el("family").value.trim() || null,
-        method: el("method").value.trim() || null,
-        protocol: el("protocol").value.trim() || null,
-        variant: el("variant").value.trim() || null,
-        notes: el("notes").value.trim(),
+        family: el("family").value.trim() || (updatedExisting && !taxonomyDraft ? duplicateToUpdate.family : null),
+        method: el("method").value.trim() || (updatedExisting && !taxonomyDraft ? duplicateToUpdate.method : null),
+        protocol: el("protocol").value.trim() || (updatedExisting && !taxonomyDraft ? duplicateToUpdate.protocol : null),
+        variant: el("variant").value.trim() || (updatedExisting && !taxonomyDraft ? duplicateToUpdate.variant : null),
+        notes: notesDraft || (updatedExisting ? duplicateToUpdate.notes : ""),
       }),
     });
+    annotationSaved = true;
+    if (markCaptureCompleteAfterSave) {
+      await recordCompleteReviewWindowCoverage(capture);
+      state.pendingCaptureCompletion = null;
+    }
     const regions = await request(`/api/captures/${captureId}/regions`);
     if (state.capture?.id !== captureId) return;
     state.regions = regions;
+    if (cvProposalId && state.regions.some((region) => region.evidence?.detector_proposal?.proposal_id === cvProposalId)) {
+      removeSavedCvProposal(cvProposalId);
+      el("cv-status").textContent = "Saved signal added · its CV proposal is now attached as detector evidence.";
+    }
+    if (completedBatchBox) {
+      state.batchBoxes = state.batchBoxes.filter((box) => box !== completedBatchBox);
+      state.batchBoxUndo = [];
+      renderBatchBoxes();
+    }
     state.classifierProposal = null;
     clearDecoderRecommendations();
+    state.selection = null;
     beginNewRegion();
     renderRegions();
     await refreshSceneCoverage(captureId);
-    state.selection = null;
     el("coverage-panel").hidden = true;
     updateModelButton();
     el("selection-summary").textContent = "No region selected";
@@ -2577,16 +5174,43 @@ el("save-region").addEventListener("click", async () => {
     for (const field of ["family", "method", "protocol", "variant", "notes"]) el(field).value = "";
     el("missed-signal").checked = false;
     drawOverlays();
+    if (closeInspectorAfterSave) {
+      el("inspector").classList.add("hidden");
+      if (markCaptureCompleteAfterSave) {
+        await refreshLiveReviewQueue();
+        el("review-queue-dialog").showModal();
+      }
+    } else if (completedBatchBox && state.batchBoxes.length) {
+      reviewBatchBox(0);
+    } else {
+      if (completedBatchBox) {
+        el("batch-box-status").textContent = "All drawn selections are saved. Review the saved signals above to accept or correct their labels.";
+      }
+      el("box-draw-status").textContent = updatedExisting
+        ? "Updated the existing signal bounds. The saved signals list is current."
+        : edit
+          ? "Label revision saved. The saved signals list is current."
+          : "Region saved. Review it in Saved signals above.";
+      const returnTab = state.returnInspectorTabAfterSave || "signals";
+      state.returnInspectorTabAfterSave = null;
+      openInspector(returnTab);
+    }
   } catch (error) {
     if (state.capture?.id !== captureId) return;
     showError(error.message);
+    if (markCaptureCompleteAfterSave && annotationSaved) {
+      state.pendingCaptureCompletion = captureId;
+      el("save-annotations-complete").textContent = "Retry finish";
+      el("label-state").textContent = "Annotations were saved, but window completion failed. Retry to record complete 10-second coverage.";
+    }
     if (error.status === 409) {
       state.regions = await request(`/api/captures/${captureId}/regions`);
       renderRegions();
       await refreshSceneCoverage(captureId);
       el("label-state").textContent = "A newer label exists. Reopen its marker to review it; your draft is retained here.";
     }
-    button.disabled = false;
+    state.closeInspectorAfterSave = false;
+    setRegionSaveDisabled(false);
   }
 });
 
@@ -2638,6 +5262,10 @@ el("edit-region-bounds").addEventListener("click", () => {
   if (!state.editRegion || !state.selection) return;
   state.adjustingGeometry = true;
   state.geometryDraft = false;
+  state.geometryMergeRegions = [];
+  el("merge-redrawn-regions").hidden = true;
+  el("geometry-merge-status").hidden = true;
+  el("geometry-merge-status").textContent = "";
   el("save-region-bounds").hidden = true;
   el("cancel-region-bounds").hidden = false;
   el("geometry-status").textContent = "Drag across the waterfall to propose corrected time/frequency bounds. The saved geometry remains unchanged until you save.";
@@ -2651,28 +5279,17 @@ el("save-region-bounds").addEventListener("click", async () => {
   const button = el("save-region-bounds");
   button.disabled = true;
   try {
-    const result = await request(`/api/captures/${captureId}/regions/${edit.id}/geometry`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        expected_revision: edit.geometry_revision,
-        sample_start: selection.sample_start,
-        sample_count: selection.sample_count,
-        frequency_low_hz: selection.frequency_low_hz,
-        frequency_high_hz: selection.frequency_high_hz,
-      }),
-    });
-    if (state.capture?.id !== captureId) return;
-    state.regions = await request(`/api/captures/${captureId}/regions`);
+    saveSelectedExistingRegionDraft();
+    state.adjustingGeometry = false;
+    state.geometryDraft = false;
+    button.hidden = true;
+    el("cancel-region-bounds").hidden = true;
+    el("geometry-status").textContent = "Bounds staged in this window draft. Save annotations to apply them with the other changes.";
+    updateAnnotationSaveAvailability();
     renderRegions();
-    await refreshSceneCoverage(captureId);
-    const updated = state.regions.find((region) => region.id === edit.id);
-    if (updated) selectSavedRegion(updated);
-    el("geometry-status").textContent = `Bounds saved as geometry revision ${result.geometry_revision}; previous bounds remain in history.`;
+    drawOverlays();
   } catch (error) {
-    el("geometry-status").textContent = error.status === 409
-      ? "Bounds changed since this annotation was opened. Reopen it before saving."
-      : `Could not save corrected bounds: ${error.message}`;
+    el("geometry-status").textContent = `Could not stage corrected bounds: ${error.message}`;
     button.hidden = false;
     el("cancel-region-bounds").hidden = false;
   } finally {
@@ -2680,10 +5297,38 @@ el("save-region-bounds").addEventListener("click", async () => {
   }
 });
 
+el("merge-redrawn-regions").addEventListener("click", async () => {
+  const pending = pendingWindowMergeSources();
+  const crossed = state.geometryMergeRegions.filter((source) => source.kind === "cv"
+    ? state.cvDetections.includes(source.detection)
+      && !pending.proposals.has(source.detection.cv_proposal_id || source.detection.proposal_id)
+      && !state.excludedMergeCandidates.has(mergeCandidateKey(source))
+    : source.kind === "draft"
+      ? state.batchBoxes.includes(source.box) && !state.excludedMergeCandidates.has(mergeCandidateKey(source))
+      : state.regions.some((current) => current.id === source.region.id
+      && current.geometry_revision === source.region.geometry_revision
+      && current.lineage_state !== "superseded")
+      && !pending.regions.has(source.region.id)
+      && !state.excludedMergeCandidates.has(mergeCandidateKey(source)));
+  const selected = state.regions.find((region) => region.id === state.editRegion?.id && region.lineage_state === "active");
+  const sources = [...(selected ? [{kind: "region", region: selected}] : []), ...crossed];
+  const selection = state.selection;
+  if (sources.length < 2 || sources.length > 32 || !selection) return;
+  await mergeRegionGroup(sources, {
+    sample_start: selection.sample_start,
+    sample_count: selection.sample_count,
+    frequency_low_hz: selection.frequency_low_hz,
+    frequency_high_hz: selection.frequency_high_hz,
+  }, el("merge-redrawn-regions"));
+});
+
 el("cancel-region-bounds").addEventListener("click", () => {
   if (!state.capture || !state.editRegion) return;
   const current = state.regions.find((region) => region.id === state.editRegion.id);
-  if (current) selectSavedRegion(current);
+  if (current) {
+    selectSavedRegion(current);
+    openInspector("signals");
+  }
 });
 
 el("start-split").addEventListener("click", () => {
@@ -2733,56 +5378,188 @@ el("save-split").addEventListener("click", async () => {
   }
 });
 
-el("merge-regions").addEventListener("click", async () => {
+async function mergeRegionGroup(sources, resultBounds = null, triggerButton = el("merge-regions")) {
   const captureId = state.capture?.id;
-  const sources = state.regions.filter((region) => state.mergeRegionIds.has(region.id) && region.lineage_state !== "superseded");
-  if (!captureId || sources.length < 2) return;
-  const button = el("merge-regions");
-  button.disabled = true;
-  el("merge-status").textContent = "Recording the merge relation…";
-  try {
-    const operation = await request(`/api/captures/${captureId}/regions/merge`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        source_region_ids: sources.map((region) => region.id),
-        expected_geometry_revisions: Object.fromEntries(sources.map((region) => [region.id, region.geometry_revision])),
-      }),
-    });
-    if (state.capture?.id !== captureId) return;
-    state.mergeRegionIds.clear();
-    state.regions = await request(`/api/captures/${captureId}/regions`);
-    renderRegions();
-    await refreshSceneCoverage(captureId);
-    const merged = state.regions.find((region) => region.id === operation.result_region_id);
-    if (merged) selectSavedRegion(merged);
-    el("merge-status").textContent = "Merge recorded. Source labels remain unchanged; review the new unknown region separately.";
-  } catch (error) {
-    el("merge-status").textContent = error.status === 409
-      ? "A selected region changed or was already superseded. Refresh the list and try again."
-      : `Merge failed: ${error.message}`;
-  } finally {
-    updateMergeControls();
+  if (!captureId || sources.length > 32) return;
+  saveSelectedBatchLabelDraft();
+  const regions = sources.filter((source) => source.kind === "region" || (!source.kind && source.id)).map((source) => source.region || source);
+  let proposals = sources.filter((source) => source.kind === "cv").map(({ detection }) => {
+    const bounds = detection._originalProposalBounds || detection;
+    return {
+      proposal_id: detection.cv_proposal_id || detection.proposal_id,
+      decision: "dismissed",
+      sample_start: bounds.sample_start,
+      sample_count: bounds.sample_count,
+      frequency_low_hz: bounds.frequency_low_hz,
+      frequency_high_hz: bounds.frequency_high_hz,
+      confidence: detection.confidence,
+      detector_evidence: detection.detector_evidence || detectorEvidenceFor(detection),
+      note: "Merged into the user-drawn signal selection; review feedback only, not a negative label.",
+    };
+  });
+  let heuristicProposals = sources.filter((source) => source.kind === "track").map(({track}) => ({
+    candidate_id: heuristicCandidateId(track),
+    sample_start: track.sample_start,
+    sample_count: track.sample_count,
+    frequency_low_hz: track.frequency_low_hz,
+    frequency_high_hz: track.frequency_high_hz,
+    modulation_hypothesis: track.modulation_hypothesis || "unknown",
+    tone_count_candidate: track.tone_count_candidate || 1,
+    tone_centers_hz: track.tone_centers_hz || [],
+    peak_snr_db: Number.isFinite(track.peak_snr_db) ? track.peak_snr_db : null,
+  }));
+  if (!sources.length && !resultBounds) return;
+  const capture = state.capture;
+  const window = annotationWindowBounds(capture);
+  const explicitDraftSources = sources.filter((source) => source.kind === "draft").map((source) => source.box);
+  const sourceBounds = [...regions, ...proposals, ...heuristicProposals, ...explicitDraftSources];
+  const bounds = resultBounds || {
+    sample_start: Math.min(...sourceBounds.map((item) => item.sample_start)),
+    sample_count: Math.max(...sourceBounds.map((item) => item.sample_start + item.sample_count))
+      - Math.min(...sourceBounds.map((item) => item.sample_start)),
+    frequency_low_hz: Math.min(...sourceBounds.map((item) => item.frequency_low_hz)),
+    frequency_high_hz: Math.max(...sourceBounds.map((item) => item.frequency_high_hz)),
+  };
+  if (bounds.sample_start < window.startSample || bounds.sample_start + bounds.sample_count > window.startSample + window.sampleCount) {
+    el("merge-status").textContent = "The merged signal must fit inside the current 10-second window.";
+    return;
   }
+  const timeEnd = bounds.sample_start + bounds.sample_count;
+  const intersects = (box) => {
+    const boxEnd = box.sample_start + box.sample_count;
+    return box.sample_start <= timeEnd && boxEnd >= bounds.sample_start
+      && box.frequency_low_hz <= bounds.frequency_high_hz && box.frequency_high_hz >= bounds.frequency_low_hz;
+  };
+  const previousBoxes = [...state.batchBoxes];
+  const previousMerges = [...state.windowMerges];
+  const explicitlySelectedDrafts = explicitDraftSources;
+  const affectedDrafts = resultBounds
+    ? state.batchBoxes.filter((box) => intersects(box)
+      && (box === state.batchReviewBox || !state.excludedMergeCandidates.has(`draft:${box.draftMergeId || box.client_id}`)))
+    : explicitlySelectedDrafts;
+  const selectedDraft = affectedDrafts.includes(state.batchReviewBox) ? state.batchReviewBox : null;
+  for (const box of affectedDrafts) {
+    if (!box.mergeClientId) continue;
+    const priorMerge = state.windowMerges.find((merge) => merge.client_id === box.mergeClientId);
+    if (priorMerge) {
+      regions.push(...priorMerge.source_region_ids.map((id) => state.regions.find((region) => region.id === id)).filter(Boolean));
+      proposals.push(...priorMerge.cv_proposals);
+      heuristicProposals.push(...(priorMerge.heuristic_proposals || []));
+    }
+  }
+  const uniqueRegions = [...new Map(regions.map((region) => [region.id, region])).values()];
+  proposals = [...new Map(proposals.map((proposal) => [proposal.proposal_id, proposal])).values()];
+  heuristicProposals = [...new Map(heuristicProposals.map((proposal) => [proposal.candidate_id, proposal])).values()];
+  if (uniqueRegions.length + proposals.length + heuristicProposals.length < 2 && !resultBounds && affectedDrafts.length < 2) return;
+  if (uniqueRegions.length + proposals.length + heuristicProposals.length > 32) {
+    el("merge-status").textContent = "A merge can contain up to 32 saved or provisional boxes at a time.";
+    return;
+  }
+  const selectedRegionId = state.editRegion?.id || null;
+  const targetRegionId = uniqueRegions.some((region) => region.id === selectedRegionId) ? selectedRegionId : null;
+  const labelDraft = selectedDraft?.labelDraft ? {...selectedDraft.labelDraft} : resultBounds ? readBatchLabelDraft() : {
+    mode_id: null, mode_name: "", family: "", method: "", protocol: "", variant: "", notes: "",
+    identity_unknown_confirmed: false,
+  };
+  if (targetRegionId && !labelDraft.mode_id && !labelDraft.family && !labelDraft.method && !labelDraft.protocol && !labelDraft.variant && !labelDraft.identity_unknown_confirmed) {
+    const target = regions.find((region) => region.id === targetRegionId);
+    if (target) Object.assign(labelDraft, {
+      mode_id: target.mode_id || null, mode_name: target.mode_id || "",
+      family: target.family || "", method: target.method || "", protocol: target.protocol || "",
+      variant: target.variant || "", notes: target.notes || "",
+      identity_unknown_confirmed: Boolean(target.evidence?.identity_unknown_confirmed),
+    });
+  }
+  const clientId = crypto.randomUUID();
+  const priorSourceEdits = uniqueRegions.map((region) => state.windowRegionEdits.get(region.id)).filter(Boolean);
+  for (const region of uniqueRegions) state.windowRegionEdits.delete(region.id);
+  const mergeDraft = uniqueRegions.length + proposals.length + heuristicProposals.length ? {
+    client_id: clientId,
+    source_region_ids: uniqueRegions.map((region) => region.id),
+    expected_revisions: Object.fromEntries(uniqueRegions.map((region) => [region.id, region.revision])),
+    expected_geometry_revisions: Object.fromEntries(uniqueRegions.map((region) => [region.id, region.geometry_revision])),
+    cv_proposals: proposals,
+    heuristic_proposals: heuristicProposals,
+    target_region_id: targetRegionId,
+    ...bounds,
+    labelDraft,
+  } : null;
+  const resultBox = {
+    client_id: `merge-${clientId}`,
+    draftMergeId: clientId,
+    mergeClientId: mergeDraft ? clientId : null,
+    ...bounds,
+    labelDraft,
+    sourceCount: uniqueRegions.length + proposals.length + heuristicProposals.length + affectedDrafts.length,
+  };
+  const previousSelection = state.batchReviewBox;
+  const previousEditRegion = state.editRegion;
+  const previousGeometrySelection = state.selection ? {...state.selection} : null;
+  if (mergeDraft) state.windowMerges.push(mergeDraft);
+  state.windowMerges = state.windowMerges.filter((merge) => !affectedDrafts.some((box) => box.mergeClientId === merge.client_id));
+  state.batchBoxes = state.batchBoxes.filter((box) => !affectedDrafts.includes(box));
+  state.batchBoxes.push(resultBox);
+  state.batchBoxUndo.push({type: "undo-merge", merge: mergeDraft, box: resultBox, previousSelection, previousEditRegion, previousGeometrySelection, previousBoxes, previousMerges, priorSourceEdits});
+  state.batchReviewBox = resultBox;
+  state.editRegion = null;
+  state.selection = {...bounds};
+  reprojectSelection();
+  state.classifierProposal = null;
+  restoreBatchLabelDraft(resultBox);
+  state.geometryMergeRegions = [];
+  state.selectionMergeRegions = [];
+  state.mergeRegionIds.clear();
+  updateAnnotationSaveAvailability();
+  renderBatchBoxes();
+  renderRegions();
+  updateSelectionMergeControls();
+  drawOverlays();
+  triggerButton.disabled = false;
+  el("merge-status").textContent = `${resultBox.sourceCount} boxes staged as one signal. Label it, then save annotations to apply the merge.`;
+  el("geometry-status").textContent = "Merge staged in this 10-second window. Save annotations to apply it.";
+}
+
+el("merge-regions").addEventListener("click", async () => {
+  const sources = state.regions.filter((region) => state.mergeRegionIds.has(region.id) && region.lineage_state !== "superseded");
+  await mergeRegionGroup(sources);
+});
+
+el("show-superseded-regions").addEventListener("change", (event) => {
+  state.showSupersededRegions = event.currentTarget.checked;
+  renderRegions();
 });
 
 el("start-scene-review").addEventListener("click", startSceneCoverageReview);
 el("start-cv-coverage-queue").addEventListener("click", startCvCoverageQueue);
 el("cancel-coverage").addEventListener("click", () => {
+  const queueWasActive = Boolean(state.cvCoverageQueue);
   state.cvCoverageQueue = null;
   exitSceneCoverageReview();
+  if (queueWasActive) {
+    setCvCoverageQueueStatus("Window review stopped. The current window was not saved.");
+    el("coverage-status").textContent = "Review stopped. The current window was not saved.";
+  }
 });
 el("mark-coverage-uncertain").addEventListener("click", () => beginCoverageMask("uncertain_regions"));
 el("mark-coverage-ignore").addEventListener("click", () => beginCoverageMask("ignore_regions"));
 el("cancel-coverage-mask").addEventListener("click", cancelCoverageMask);
 el("refresh-coverage").addEventListener("click", () => refreshSceneCoverage());
+for (const [id, value] of [["mark-coverage-complete", "complete"], ["mark-coverage-partial", "partial"]]) {
+  el(id).addEventListener("click", () => {
+    if (el(id).disabled || !state.selection || !state.coverageOnly) return;
+    el("coverage-state").value = value;
+    el("save-coverage").click();
+  });
+}
 el("save-coverage").addEventListener("click", async () => {
   const captureId = state.capture?.id;
   const selection = state.selection;
   if (!captureId || !selection || state.liveView) return;
   const button = el("save-coverage");
   button.disabled = true;
-  el("coverage-status").textContent = "Saving scene review…";
+  el("mark-coverage-complete").disabled = true;
+  el("mark-coverage-partial").disabled = true;
+  el("coverage-status").textContent = "Saving window review…";
   const payload = {
     sample_start: selection.sample_start,
     sample_count: selection.sample_count,
@@ -2818,6 +5595,7 @@ el("save-coverage").addEventListener("click", async () => {
     renderSceneCoverageMasks();
     state.coverageRecords = await request(`/api/captures/${captureId}/coverage`);
     renderSceneCoverage();
+    await refreshLiveReviewQueue();
     const queue = state.cvCoverageQueue;
     if (queue && queue.captureId === captureId) {
       queue.visited.add(selection.sample_start);
@@ -2831,10 +5609,12 @@ el("save-coverage").addEventListener("click", async () => {
   } catch (error) {
     if (state.capture?.id !== captureId) return;
     el("coverage-status").textContent = error.status === 409
-      ? "This review changed elsewhere. Refresh scene reviews before editing it."
-      : `Scene review failed: ${error.message}`;
+      ? "This review changed elsewhere. Refresh window reviews before editing it."
+      : `Window review failed: ${error.message}`;
   } finally {
     button.disabled = !state.capture || state.liveView || !state.selection;
+    el("mark-coverage-complete").disabled = !state.capture || state.liveView || !state.selection || !state.coverageOnly;
+    el("mark-coverage-partial").disabled = !state.capture || state.liveView || !state.selection || !state.coverageOnly;
   }
 });
 
@@ -3066,23 +5846,69 @@ el("qpsk-form").addEventListener("submit", async (event) => {
   }
 });
 
+async function deleteSavedRegion(region) {
+  if (!state.capture || state.liveView || region.lineage_state === "superseded" || pendingWindowMergeSources().regions.has(region.id)) return;
+  saveSelectedBatchLabelDraft();
+  const label = region.method || region.family || region.protocol || "Unknown signal";
+  if (state.windowRegionDeletes.has(region.id)) {
+    state.windowRegionDeletes.delete(region.id);
+    state.batchBoxUndo = state.batchBoxUndo.filter((change) => change.type !== "delete-region" || change.regionId !== region.id);
+    renderRegions();
+    updateAnnotationSaveAvailability();
+    el("label-state").textContent = "Signal removal cancelled; the saved region is back in this window draft.";
+    return;
+  }
+  if (!window.confirm(`Remove “${label}” from the active annotations in this 10-second window? Saving keeps its split/merge history when it has lineage.`)) return;
+  const previousEdit = state.windowRegionEdits.get(region.id) || null;
+  state.batchBoxUndo.push({type: "delete-region", regionId: region.id, previousEdit});
+  state.windowRegionEdits.delete(region.id);
+  state.windowRegionDeletes.set(region.id, region);
+  state.mergeRegionIds.delete(region.id);
+  if (state.editRegion?.id === region.id) {
+    state.selection = null;
+    beginNewRegion();
+    el("selection-summary").textContent = "No signal selected";
+    el("selection-details").textContent = "Draw boxes for this window, then select one to label and save it.";
+  }
+  renderRegions();
+  updateAnnotationSaveAvailability();
+  el("label-state").textContent = "Signal removal staged. Save annotations to apply it, or undo to restore the region.";
+}
+
+el("delete-selected-region").addEventListener("click", () => {
+  const region = state.regions.find((item) => item.id === state.editRegion?.id);
+  if (region) deleteSavedRegion(region);
+});
+
 function renderRegions() {
   const list = el("region-list");
-  el("region-count").textContent = String(state.regions.length);
+  const visibleRegions = state.regions.filter((region) => state.showSupersededRegions || region.lineage_state !== "superseded");
+  el("region-count").textContent = String(state.regions.filter((region) => region.lineage_state !== "superseded").length);
   list.replaceChildren();
-  if (!state.regions.length) {
+  if (!visibleRegions.length) {
     const empty = document.createElement("p");
     empty.className = "subhead";
-    empty.textContent = "No labeled regions in this recording yet.";
+    empty.textContent = state.regions.length
+      ? "No active signals. Turn on Show replaced signal history to inspect earlier boxes."
+      : "No labeled regions in this recording yet.";
     list.append(empty);
   } else {
-    for (const region of state.regions) {
+    for (const region of visibleRegions) {
+      const pendingDelete = state.windowRegionDeletes.has(region.id);
+      const pendingEdit = state.windowRegionEdits.get(region.id);
+      const pendingMerge = pendingWindowMergeSources().regions.has(region.id);
       const row = document.createElement("div");
-      row.className = region.lineage_state === "superseded" ? "region-row superseded" : "region-row";
+      row.className = `${region.lineage_state === "superseded" ? "region-row superseded" : "region-row"}${pendingDelete ? " pending-delete" : pendingEdit ? " pending-edit" : pendingMerge ? " pending-merge" : ""}${state.identityLinkSelection.has(region.id) ? " identity-link-selected" : ""}`;
       row.dataset.regionId = region.id;
       const main = document.createElement("div");
       main.className = "region-main";
-      main.textContent = [region.family, region.method].filter(Boolean).join(" · ") || "Unknown signal";
+      const identityCaption = regionIdentityCaption(region, pendingEdit?.labelDraft || region, pendingEdit?.labelDraft);
+      if (identityCaption === "Needs label" && region.lineage_state !== "superseded") row.classList.add("needs-label");
+      main.textContent = pendingDelete
+        ? `${region.signal_id ? `${region.signal_id} · ` : ""}${identityCaption} · will be removed`
+        : pendingMerge
+          ? `${region.signal_id ? `${region.signal_id} · ` : ""}${identityCaption} · will merge`
+          : `${region.signal_id ? `${region.signal_id} · ` : ""}${identityCaption}`;
       const detail = document.createElement("div");
       detail.className = "region-detail";
       const classifierSummary = classifierEvidenceSummary(region.evidence?.classifier_proposal);
@@ -3090,7 +5916,8 @@ function renderRegions() {
       const detectorSummary = detectorEvidence
         ? `CV ${Math.round(100 * detectorEvidence.confidence)}% · model ${detectorEvidence.model_sha256.slice(0, 8)}${detectorEvidence.supporting_windows?.length > 1 ? ` · seen in ${detectorEvidence.supporting_windows.length} windows` : ""}`
         : null;
-      detail.textContent = `${(region.sample_start / state.capture.sample_rate).toFixed(2)} s · ${(region.sample_count / state.capture.sample_rate).toFixed(2)} s duration${region.lineage_state === "superseded" ? " · superseded by split/merge" : ""}${detectorSummary ? ` · ${detectorSummary}` : ""}${classifierSummary ? ` · ${classifierSummary}` : ""}`;
+      const displayGeometry = pendingEdit?.geometry || region;
+      detail.textContent = `${(displayGeometry.sample_start / state.capture.sample_rate).toFixed(2)} s · ${(displayGeometry.sample_count / state.capture.sample_rate).toFixed(2)} s duration${pendingDelete ? " · removal staged; not yet saved" : pendingMerge ? " · merge staged; save annotations to apply" : pendingEdit ? " · unsaved window edit" : ""}${region.lineage_state === "superseded" ? " · superseded by split/merge" : ""}${detectorSummary ? ` · ${detectorSummary}` : ""}${classifierSummary ? ` · ${classifierSummary}` : ""}`;
       const left = document.createElement("div");
       left.append(main, detail);
       const protocol = document.createElement("div");
@@ -3106,43 +5933,294 @@ function renderRegions() {
           ? `CV · ${region.review_state !== "accepted" ? "PENDING REVIEW" : identityKnown ? "HUMAN LABEL" : "PRESENCE REVIEW"}`
           : region.review_state === "accepted" ? (badgeLabels[region.source] || "ACCEPTED") : "PENDING REVIEW";
       row.append(left, protocol, badge);
-      const mergeLabel = document.createElement("label");
-      mergeLabel.className = "demod-check region-merge-select";
-      const mergeCheckbox = document.createElement("input");
-      mergeCheckbox.type = "checkbox";
-      mergeCheckbox.dataset.regionMergeId = region.id;
-      mergeCheckbox.checked = state.mergeRegionIds.has(region.id);
-      mergeCheckbox.disabled = state.liveView || region.lineage_state === "superseded";
-      mergeCheckbox.setAttribute("aria-label", `Select ${region.variant || region.protocol || region.method || region.family || "unknown region"} for merge`);
-      mergeCheckbox.addEventListener("change", () => {
-        if (mergeCheckbox.checked) state.mergeRegionIds.add(region.id);
-        else state.mergeRegionIds.delete(region.id);
-        updateMergeControls();
-      });
-      mergeLabel.append(mergeCheckbox, document.createTextNode("Merge"));
-      row.append(mergeLabel);
       const review = document.createElement("button");
       review.type = "button";
-      review.textContent = region.lineage_state === "superseded" ? "History" : "Review";
-      review.addEventListener("click", () => selectSavedRegion(region));
+      review.textContent = pendingDelete ? "Removal staged" : region.lineage_state === "superseded" ? "History" : "Review";
+      review.disabled = pendingDelete || pendingMerge;
+      review.addEventListener("click", (event) => {
+        if (event.shiftKey && region.lineage_state !== "superseded") {
+          if (state.identityLinkSelection.has(region.id)) state.identityLinkSelection.delete(region.id);
+          else state.identityLinkSelection.add(region.id);
+          refreshIdentityLinkControls();
+          renderRegions();
+          return;
+        }
+        selectSavedRegion(region);
+      });
       row.append(review);
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "danger-button";
+      remove.textContent = pendingDelete ? "Undo delete" : "Delete";
+      remove.disabled = state.liveView || region.lineage_state === "superseded" || pendingMerge;
+      if (region.lineage_state === "superseded") remove.title = "This signal was replaced; remove its active replacement to retain the lineage.";
+      else if (region.lineage_related) remove.title = "Remove this active result while retaining its split/merge lineage and label history.";
+      remove.setAttribute("aria-label", `Delete ${region.method || region.family || "unknown signal"} region`);
+      remove.addEventListener("click", () => deleteSavedRegion(region));
+      row.append(remove);
       list.append(row);
     }
   }
   renderRegionShortcuts();
   updateMergeControls();
+  refreshIdentityLinkControls();
   drawOverlays();
 }
 
 function updateMergeControls() {
+  const pendingSources = pendingWindowMergeSources();
   const selected = [...state.mergeRegionIds].filter((regionId) =>
-    state.regions.some((region) => region.id === regionId && region.lineage_state !== "superseded"),
+    state.regions.some((region) => region.id === regionId && region.lineage_state !== "superseded")
+      && !state.windowRegionDeletes.has(regionId) && !pendingSources.regions.has(regionId),
   );
   state.mergeRegionIds = new Set(selected);
   const button = el("merge-regions");
-  button.disabled = selected.length < 2 || state.liveView;
-  button.textContent = selected.length >= 2 ? `Merge ${selected.length} selected regions` : "Merge selected regions";
+  el("merge-panel").querySelector("summary").textContent = selected.length
+    ? `Select pieces manually · ${selected.length} selected`
+    : "Select pieces manually (optional)";
+  const maximumReached = selected.length >= 32;
+  for (const checkbox of document.querySelectorAll("[data-region-merge-id]")) {
+    const region = state.regions.find((item) => item.id === checkbox.dataset.regionMergeId);
+    const checked = state.mergeRegionIds.has(checkbox.dataset.regionMergeId);
+    checkbox.checked = checked;
+    checkbox.disabled = state.liveView || !region || region.lineage_state === "superseded" || state.windowRegionDeletes.has(region?.id) || pendingSources.regions.has(region?.id) || (maximumReached && !checked);
+  }
+  button.disabled = selected.length < 2 || selected.length > 32 || state.liveView;
+  button.textContent = selected.length ? `Merge ${selected.length} selected piece${selected.length === 1 ? "" : "s"}` : "Merge selected pieces";
+  el("merge-selection-status").textContent = selected.length === 0
+    ? "Select 2–32 saved signal boxes below, regardless of detection source."
+    : selected.length === 1
+      ? "Select at least one more saved box. CV, classifier, and manual boxes can be combined."
+      : `${selected.length} boxes selected · the new signal spans their combined bounds.`;
 }
+
+function regionsCrossedByRedraw(bounds, primaryRegionId) {
+  const pendingSources = pendingWindowMergeSources();
+  const timeEnd = bounds.sample_start + bounds.sample_count;
+  return state.regions.filter((region) => {
+    if (region.lineage_state === "superseded") return false;
+    if (state.windowRegionDeletes.has(region.id)) return false;
+    if (pendingSources.regions.has(region.id)) return false;
+    if (region.id === primaryRegionId) return true;
+    const geometry = state.windowRegionEdits.get(region.id)?.geometry || region;
+    const regionEnd = geometry.sample_start + geometry.sample_count;
+    const overlapsTime = geometry.sample_start <= timeEnd && regionEnd >= bounds.sample_start;
+    if (!overlapsTime) return false;
+    // A source with no frequency bounds may still be a duplicate; time overlap
+    // is the only reliable intersection available for that source.
+    if (!Number.isFinite(geometry.frequency_low_hz) || !Number.isFinite(geometry.frequency_high_hz)) return true;
+    return geometry.frequency_low_hz <= bounds.frequency_high_hz
+      && geometry.frequency_high_hz >= bounds.frequency_low_hz;
+  }).sort((a, b) => a.sample_start - b.sample_start || a.frequency_low_hz - b.frequency_low_hz);
+}
+
+function boxesCrossedBySelection(bounds, primaryRegionId = null) {
+  const saved = regionsCrossedByRedraw(bounds, primaryRegionId).map((region) => ({ kind: "region", region }));
+  const pendingSources = pendingWindowMergeSources();
+  const timeEnd = bounds.sample_start + bounds.sample_count;
+  const proposals = visibleCvDetections().filter((detection) => {
+    const proposalId = detection.cv_proposal_id || detection.proposal_id;
+    if (state.selectedTrack?.cv_proposal_id && proposalId === state.selectedTrack.cv_proposal_id) return false;
+    if (pendingSources.proposals.has(detection.cv_proposal_id || detection.proposal_id)) return false;
+    const source = detection._originalProposalBounds || detection;
+    const sourceEnd = source.sample_start + source.sample_count;
+    if (source.sample_start > timeEnd || sourceEnd < bounds.sample_start) return false;
+    if (!Number.isFinite(source.frequency_low_hz) || !Number.isFinite(source.frequency_high_hz)) return true;
+    return source.frequency_low_hz <= bounds.frequency_high_hz
+      && source.frequency_high_hz >= bounds.frequency_low_hz;
+  }).map((detection) => ({ kind: "cv", detection }));
+  const tracks = visibleTracks().filter((track) => {
+    if (track === state.selectedTrack) return false;
+    if (pendingSources.tracks.has(heuristicCandidateId(track))) return false;
+    const trackEnd = track.sample_start + track.sample_count;
+    if (track.sample_start > timeEnd || trackEnd < bounds.sample_start) return false;
+    if (!Number.isFinite(track.frequency_low_hz) || !Number.isFinite(track.frequency_high_hz)) return true;
+    return track.frequency_low_hz <= bounds.frequency_high_hz
+      && track.frequency_high_hz >= bounds.frequency_low_hz;
+  }).map((track) => ({kind: "track", track}));
+  const drafts = state.batchBoxes.filter((box) => {
+    const boxEnd = box.sample_start + box.sample_count;
+    return box.sample_start <= timeEnd && boxEnd >= bounds.sample_start
+      && box.frequency_low_hz <= bounds.frequency_high_hz
+      && box.frequency_high_hz >= bounds.frequency_low_hz;
+  }).map((box) => ({kind: "draft", box}));
+  return [...saved, ...proposals, ...tracks, ...drafts];
+}
+
+function heuristicCandidateId(track) {
+  return String(track.id || `${track.sample_start}-${track.sample_count}-${track.frequency_low_hz}-${track.frequency_high_hz}`);
+}
+
+function mergeCandidateKey(candidate) {
+  if (candidate.kind === "cv") return `cv:${candidate.detection.cv_proposal_id || candidate.detection.proposal_id}`;
+  if (candidate.kind === "draft") return `draft:${candidate.box.draftMergeId || candidate.box.client_id}`;
+  if (candidate.kind === "track") return `track:${heuristicCandidateId(candidate.track)}`;
+  return `region:${candidate.region.id}`;
+}
+
+function humanMergeIdentity(candidate, labelOverride = null) {
+  const item = candidate.kind === "draft" ? candidate.box : candidate.kind === "region" ? candidate.region : null;
+  const label = labelOverride || (candidate.kind === "draft"
+    ? item?.labelDraft
+    : item ? state.windowRegionEdits.get(item.id)?.labelDraft || item : null);
+  if (!label) return null;
+  const isHuman = candidate.kind === "draft"
+    || Boolean(item && (label.source === "human" || state.windowRegionEdits.has(item.id)));
+  if (!isHuman) return null;
+  const fields = ["mode_id", "family", "method", "protocol", "variant"]
+    .map((field) => String(label[field] || "").trim().toLocaleLowerCase())
+    .filter(Boolean);
+  if (!fields.length) return null;
+  const caption = [label.mode_name, label.mode_id, label.variant, label.protocol, label.method, label.family]
+    .map((value) => String(value || "").trim())
+    .find(Boolean);
+  return {key: fields.join("|").replace(/\s+/g, " "), caption};
+}
+
+function updateSelectionMergeControls() {
+  const actions = el("selection-merge-actions");
+  const button = el("merge-selection-boxes");
+  const status = el("selection-merge-status");
+  const candidateList = el("selection-merge-candidates");
+  if (!actions || !button || !status || !candidateList) return;
+  const pending = pendingWindowMergeSources();
+  const mergeTarget = state.editRegion
+    ? state.regions.find((region) => region.id === state.editRegion.id && region.lineage_state === "active")
+    : null;
+  const current = state.selectionMergeRegions.filter((candidate) => candidate.kind === "cv"
+    ? state.cvDetections.includes(candidate.detection) && !pending.proposals.has(candidate.detection.cv_proposal_id || candidate.detection.proposal_id)
+    : candidate.kind === "track"
+      ? state.tracks.includes(candidate.track) && !pending.tracks.has(heuristicCandidateId(candidate.track))
+    : candidate.kind === "draft"
+      ? state.batchBoxes.includes(candidate.box) && candidate.box !== state.batchReviewBox
+      : state.regions.some((region) => region.id === candidate.region.id
+      && region.geometry_revision === candidate.region.geometry_revision
+      && region.lineage_state !== "superseded") && !state.windowRegionDeletes.has(candidate.region.id)
+      && !pending.regions.has(candidate.region.id) && candidate.region.id !== mergeTarget?.id);
+  state.selectionMergeRegions = current;
+  actions.hidden = !state.selection || state.liveView || (state.editRegion && !mergeTarget);
+  candidateList.replaceChildren();
+  for (const candidate of current) {
+    const key = mergeCandidateKey(candidate);
+    const item = candidate.kind === "cv" ? candidate.detection
+      : candidate.kind === "track" ? candidate.track
+        : candidate.kind === "draft" ? candidate.box : candidate.region;
+    const rate = state.capture?.sample_rate || 1;
+    const timeRange = `${(item.sample_start / rate).toFixed(2)}–${((item.sample_start + item.sample_count) / rate).toFixed(2)} s`;
+    const title = candidate.kind === "cv"
+      ? `CV · ${Math.round((item.confidence || 0) * 100)}% · ${timeRange} · ${(item.frequency_low_hz ?? 0).toFixed(0)}–${(item.frequency_high_hz ?? 0).toFixed(0)} Hz`
+      : candidate.kind === "track"
+        ? `Heuristic · ${item.modulation_hypothesis || "signal candidate"} · ${timeRange} · ${(item.frequency_low_hz ?? 0).toFixed(0)}–${(item.frequency_high_hz ?? 0).toFixed(0)} Hz`
+      : candidate.kind === "draft"
+        ? `Draft · ${[item.labelDraft?.mode_name, item.labelDraft?.variant, item.labelDraft?.protocol, item.labelDraft?.method, item.labelDraft?.family].filter(Boolean).join(" · ") || "Unlabeled"} · ${timeRange}`
+        : `Saved · ${regionIdentityCaption(item, state.windowRegionEdits.get(item.id)?.labelDraft || item, state.windowRegionEdits.get(item.id)?.labelDraft)} · ${timeRange}`;
+    const label = document.createElement("label");
+    label.className = "merge-candidate-option";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = !state.excludedMergeCandidates.has(key);
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) state.excludedMergeCandidates.delete(key);
+      else state.excludedMergeCandidates.add(key);
+      updateSelectionMergeControls();
+      drawOverlays();
+    });
+    const text = document.createElement("span");
+    text.textContent = title;
+    label.append(checkbox, text);
+    candidateList.append(label);
+  }
+  const included = current.filter((candidate) => !state.excludedMergeCandidates.has(mergeCandidateKey(candidate)));
+  const candidateLimit = mergeTarget || state.selectedTrack ? 31 : 32;
+  button.disabled = included.length < 1 || included.length > candidateLimit;
+  const humanIdentities = [];
+  let targetResultLabel;
+  let targetUnknownConfirmed = false;
+  if (mergeTarget) {
+    const target = state.regions.find((region) => region.id === mergeTarget.id);
+    targetResultLabel = target && (state.windowRegionEdits.get(target.id)?.labelDraft || target);
+    targetUnknownConfirmed = Boolean(targetResultLabel?.identity_unknown_confirmed
+      ?? target?.evidence?.identity_unknown_confirmed);
+    const identity = target && humanMergeIdentity({kind: "region", region: target}, targetResultLabel);
+    if (identity) humanIdentities.push(identity);
+  } else {
+    targetResultLabel = readBatchLabelDraft();
+    targetUnknownConfirmed = Boolean(targetResultLabel.identity_unknown_confirmed);
+    const targetDraft = state.batchReviewBox || {labelDraft: targetResultLabel};
+    const identity = humanMergeIdentity({kind: "draft", box: targetDraft}, targetResultLabel);
+    if (identity) humanIdentities.push(identity);
+  }
+  for (const candidate of included) {
+    const identity = humanMergeIdentity(candidate);
+    if (identity) humanIdentities.push(identity);
+  }
+  const distinctIdentities = [...new Map(humanIdentities.map((identity) => [identity.key, identity])).values()];
+  const targetLabel = mergeTarget || state.batchReviewBox || state.selectedTrack
+    ? "into this signal"
+    : "into this selection";
+  const targetLabelFields = ["mode_name", "mode_id", "family", "method", "protocol", "variant"]
+    .map((field) => String(targetResultLabel?.[field] || "").trim())
+    .filter(Boolean);
+  const targetLabelCaption = targetLabelFields[0];
+  const mergeResolution = targetLabelCaption
+    ? `The selected label ${targetLabelCaption} will stay on the result.`
+    : targetUnknownConfirmed
+      ? "The result will keep its explicitly confirmed Unknown identity."
+      : "No source label will be chosen automatically; label the merged signal before saving.";
+  button.textContent = included.length > candidateLimit
+    ? `Selection includes ${included.length} boxes`
+    : !current.length
+      ? "Merge intersecting boxes (0)"
+      : `Merge ${included.length} intersecting ${included.length === 1 ? "box" : "boxes"} ${targetLabel}`;
+  status.textContent = distinctIdentities.length > 1
+    ? `Conflicting human labels: ${distinctIdentities.map((identity) => identity.caption).join(" vs ")}. ${mergeResolution} Exclude boxes that belong to another signal.`
+    : included.length > candidateLimit
+    ? "Merge up to 32 boxes at a time. Exclude some boxes to continue."
+    : !current.length
+      ? "No other boxes intersect this selection. Adjust its bounds or select another signal."
+      : `${included.length} included · ${current.length - included.length} excluded. Review which boxes belong to this signal.`;
+}
+
+el("merge-selection-boxes").addEventListener("click", async () => {
+  const pending = pendingWindowMergeSources();
+  const crossed = state.selectionMergeRegions.filter((candidate) => candidate.kind === "cv"
+    ? state.cvDetections.includes(candidate.detection)
+      && !pending.proposals.has(candidate.detection.cv_proposal_id || candidate.detection.proposal_id)
+      && !state.excludedMergeCandidates.has(mergeCandidateKey(candidate))
+    : candidate.kind === "track"
+      ? state.tracks.includes(candidate.track)
+        && !pending.tracks.has(heuristicCandidateId(candidate.track))
+        && !state.excludedMergeCandidates.has(mergeCandidateKey(candidate))
+    : candidate.kind === "draft"
+      ? state.batchBoxes.includes(candidate.box)
+        && !state.excludedMergeCandidates.has(mergeCandidateKey(candidate))
+      : state.regions.some((region) => region.id === candidate.region.id
+      && region.geometry_revision === candidate.region.geometry_revision
+      && region.lineage_state !== "superseded")
+      && !pending.regions.has(candidate.region.id)
+      && !state.excludedMergeCandidates.has(mergeCandidateKey(candidate)));
+  const selected = state.regions.find((region) => region.id === state.editRegion?.id && region.lineage_state === "active");
+  const selectedCvId = state.selectedTrack?.cv_proposal_id || state.selectedTrack?.proposal_id;
+  const selectedCvDetection = selectedCvId && state.cvDetections.find((detection) =>
+    (detection.cv_proposal_id || detection.proposal_id) === selectedCvId);
+  const selectedTrackSource = selectedCvDetection
+    ? {kind: "cv", detection: selectedCvDetection}
+    : state.selectedTrack && state.tracks.includes(state.selectedTrack)
+      ? {kind: "track", track: state.selectedTrack}
+      : null;
+  const selectedSources = selected
+    ? [{kind: "region", region: selected}]
+    : selectedTrackSource ? [selectedTrackSource] : [];
+  const sources = [...selectedSources, ...crossed];
+  const selection = state.selection;
+  if (sources.length < (selectedSources.length ? 2 : 1) || sources.length > 32 || !selection) return;
+  await mergeRegionGroup(sources, {
+    sample_start: selection.sample_start,
+    sample_count: selection.sample_count,
+    frequency_low_hz: selection.frequency_low_hz,
+    frequency_high_hz: selection.frequency_high_hz,
+  }, el("merge-selection-boxes"));
+});
 
 el("wav-file").addEventListener("change", (event) => {
   const file = event.target.files[0];
@@ -3159,10 +6237,56 @@ for (const [inputId, labelText] of [["synthetic-wav", "Choose fixture WAV"], ["s
 
 // Workspace navigation keeps capture and selection state in one place.
 function openInspector(tab = "label") {
+  if (tab !== "signals" && state.coverageOnly) exitSceneCoverageReview();
+  if (tab === "decode" || tab === "raw") setInspectorMode("classify");
+  if (state.inspectorMode === "classify") {
+    state.inspectorTab = tab;
+    try { localStorage.setItem("sig-id-inspector-tab", tab); } catch {}
+  }
   el("inspector").classList.remove("hidden");
-  for (const node of document.querySelectorAll("[data-inspector-view]")) node.hidden = node.dataset.inspectorView !== tab;
-  for (const button of document.querySelectorAll("[data-inspector-tab]")) button.setAttribute("aria-pressed", String(button.dataset.inspectorTab === tab));
+  syncInspectorModeUI();
   updateDecoderSelectionControls();
+}
+function syncInspectorModeUI() {
+  const annotate = state.inspectorMode === "annotate";
+  el("inspector").dataset.workflowMode = state.inspectorMode;
+  el("output-dock").dataset.workflowMode = state.inspectorMode;
+  el("inspector-tabs").hidden = annotate;
+  for (const node of document.querySelectorAll("[data-inspector-view]")) {
+    node.hidden = annotate
+      ? !["label", "signals"].includes(node.dataset.inspectorView)
+      : node.dataset.inspectorView !== state.inspectorTab;
+  }
+  for (const button of document.querySelectorAll("[data-inspector-tab]")) button.setAttribute("aria-pressed", String(!annotate && button.dataset.inspectorTab === state.inspectorTab));
+  for (const button of document.querySelectorAll("[data-inspector-mode]")) button.setAttribute("aria-pressed", String(button.dataset.inspectorMode === state.inspectorMode));
+  el("save-annotations").hidden = annotate;
+  el("save-annotations-close").hidden = !annotate;
+  updateAnnotationSaveAvailability();
+}
+function setInspectorMode(mode) {
+  if (mode !== "classify" && mode !== "annotate") return;
+  saveSelectedBatchLabelDraft();
+  state.inspectorMode = mode;
+  el("inspector").dataset.workflowMode = mode;
+  try { localStorage.setItem("sig-id-inspector-mode", mode); } catch {}
+  if (mode === "annotate") {
+    state.inspectorTab = "label";
+    state.batchBoxMode = true;
+    beginNewRegion();
+  } else state.batchBoxMode = false;
+  syncInspectorModeUI();
+  openInspector(mode === "annotate" ? "label" : state.inspectorTab);
+}
+function setInspectorDetailLevel(level) {
+  if (level !== "simple" && level !== "advanced") return;
+  // Keep an in-progress coverage form and its exit controls reachable.
+  if (level === "simple" && state.coverageOnly) level = "advanced";
+  state.inspectorDetailLevel = level;
+  el("inspector").dataset.detailLevel = level;
+  try { localStorage.setItem("sig-id-inspector-detail", level); } catch {}
+  for (const button of document.querySelectorAll("[data-detail-level]")) {
+    button.setAttribute("aria-pressed", String(button.dataset.detailLevel === level));
+  }
 }
 function updateCarrierFromSelection(selection) {
   const input = el("fldigi-carrier-hz");
@@ -3180,11 +6304,19 @@ function updateDecoderSelectionControls() {
     el("decode-selection").disabled = !(validSavedSelection || validLiveSelection) || !validMode;
     el("decode-selection").textContent = validLiveSelection ? "Decode live track window" : "Decode selected region";
   }
+  if (el("auto-identify-selection")) {
+    el("auto-identify-selection").disabled = !(validSavedSelection || validLiveSelection)
+      || !(state.fldigiModes?.length);
+  }
   if (el("play-selection")) {
     el("play-selection").disabled = !selectedAudioPlayback && !validSavedSelection;
     if (!selectedAudioPlayback) el("play-selection").textContent = "Replay selected region";
   }
   if (el("tag-as-mode")) el("tag-as-mode").disabled = !validSavedSelection || !validMode;
+  if (el("native-decode-selection")) {
+    const selectedNativeMode = nativeDecoderBindings.some((mode) => `${mode.backend_id}|${mode.mode_id}` === el("native-decoder-mode")?.value);
+    el("native-decode-selection").disabled = !validSavedSelection || !selectedNativeMode;
+  }
 }
 function showOutput(tab) {
   state.outputTab = tab;
@@ -3246,25 +6378,73 @@ function renderSignalLabels() {
   const low = data.frequency_hz[bounds.frequencyStart];
   const high = data.frequency_hz[bounds.frequencyEnd - 1];
   const items = [];
-  for (const [index, track] of state.tracks.entries()) {
+  for (const [index, track] of visibleTracks().entries()) {
     const start = Math.min(sampleToRow(track.sample_start), sampleToRow(track.sample_start + track.sample_count));
     const end = Math.max(sampleToRow(track.sample_start), sampleToRow(track.sample_start + track.sample_count));
     if (end < 0 || start >= overlayCanvas.height || track.frequency_high_hz < low || track.frequency_low_hz > high) continue;
     const trial = state.decoderTrial?.track_id === track.track_id ? state.decoderTrial : null;
     const activity = trial?.status === "running" ? ` · trying ${trial.mode}` : trial?.status === "tentative_output" ? ` · tentative ${trial.mode} output` : "";
+    const trackDetail = [
+      Number.isFinite(track.peak_snr_db) ? `${track.peak_snr_db.toFixed(1)} dB SNR` : null,
+      track.tone_count_candidate ? `${track.tone_count_candidate} tones` : null,
+      Number.isFinite(track.tone_spacing_hz_candidate) ? `${track.tone_spacing_hz_candidate.toFixed(1)} Hz spacing` : null,
+    ].filter(Boolean).join(" · ");
     items.push({
-      track, text: signalCaption(track, index) + activity,
+      track, text: `${signalCaption(track, index)}${activity}${trackDetail ? `\n${trackDetail}` : ""}`,
       selected: state.selectedTrack === track || Boolean(track.track_id && state.selectedTrack?.track_id === track.track_id),
       x: (track.frequency_low_hz - low) / Math.max(1, high - low) * width,
+      boxRight: (track.frequency_high_hz - low) / Math.max(1, high - low) * width,
+      boxCenterY: (start + end) / 2 / overlayCanvas.height * height,
+      y: Math.max(0, start / overlayCanvas.height * height),
+    });
+  }
+  for (const [index, detection] of visibleCvDetections().entries()) {
+    const start = Math.min(sampleToRow(detection.sample_start), sampleToRow(detection.sample_start + detection.sample_count));
+    const end = Math.max(sampleToRow(detection.sample_start), sampleToRow(detection.sample_start + detection.sample_count));
+    if (end < 0 || start >= overlayCanvas.height || detection.frequency_high_hz < low || detection.frequency_low_hz > high) continue;
+    items.push({
+      cvDetection: detection,
+      text: `CV${index + 1} · ${(100 * (detection.confidence || 0)).toFixed(0)}% detector\n${state.liveView ? cvClassifierCaption(detection) : `Needs label${detection.classifier_proposal ? ` · ${cvClassifierCaption(detection)}` : ""}`}`,
+      needsLabel: !state.liveView,
+      selected: Boolean(detection.cv_proposal_id && state.selectedTrack?.cv_proposal_id === detection.cv_proposal_id),
+      x: (detection.frequency_low_hz - low) / Math.max(1, high - low) * width,
+      boxRight: (detection.frequency_high_hz - low) / Math.max(1, high - low) * width,
+      boxCenterY: (start + end) / 2 / overlayCanvas.height * height,
       y: Math.max(0, start / overlayCanvas.height * height),
     });
   }
   for (const region of state.regions) {
-    const start = Math.min(sampleToRow(region.sample_start), sampleToRow(region.sample_start + region.sample_count));
-    const end = Math.max(sampleToRow(region.sample_start), sampleToRow(region.sample_start + region.sample_count));
-    if (end < 0 || start >= overlayCanvas.height || (region.frequency_high_hz ?? high) < low || (region.frequency_low_hz ?? low) > high) continue;
-    items.push({region, text: `${region.lineage_state === "superseded" ? "Superseded · " : "Saved · "}${region.variant || region.protocol || region.method || region.family || "Unknown"}`,
-      x: ((region.frequency_low_hz ?? low) - low) / Math.max(1, high - low) * width,
+    // Superseded pieces remain in lineage history but must not leave duplicate labels on the waterfall.
+    if (region.lineage_state === "superseded") continue;
+    if (state.windowRegionDeletes.has(region.id)) continue;
+    const draft = state.windowRegionEdits.get(region.id);
+    const geometry = draft?.geometry || region;
+    const label = draft?.labelDraft || region;
+    const start = Math.min(sampleToRow(geometry.sample_start), sampleToRow(geometry.sample_start + geometry.sample_count));
+    const end = Math.max(sampleToRow(geometry.sample_start), sampleToRow(geometry.sample_start + geometry.sample_count));
+    if (end < 0 || start >= overlayCanvas.height || (geometry.frequency_high_hz ?? high) < low || (geometry.frequency_low_hz ?? low) > high) continue;
+    const identityCaption = regionIdentityCaption(region, label, draft?.labelDraft);
+    items.push({region, text: `${region.signal_id ? `${region.signal_id} · ` : ""}${draft ? "Draft · " : region.lineage_state === "superseded" ? "Superseded · " : "Saved · "}${identityCaption}`,
+      needsLabel: identityCaption === "Needs label",
+      superseded: region.lineage_state === "superseded",
+      selected: state.identityLinkSelection.has(region.id),
+      x: ((geometry.frequency_low_hz ?? low) - low) / Math.max(1, high - low) * width,
+      boxRight: ((geometry.frequency_high_hz ?? high) - low) / Math.max(1, high - low) * width,
+      boxCenterY: (start + end) / 2 / overlayCanvas.height * height,
+      y: Math.max(0, start / overlayCanvas.height * height)});
+  }
+  for (const [index, box] of state.batchBoxes.entries()) {
+    const start = Math.min(sampleToRow(box.sample_start), sampleToRow(box.sample_start + box.sample_count));
+    const end = Math.max(sampleToRow(box.sample_start), sampleToRow(box.sample_start + box.sample_count));
+    if (end < 0 || start >= overlayCanvas.height || box.frequency_high_hz < low || box.frequency_low_hz > high) continue;
+    const draftLabel = box.labelDraft || {};
+    const needsLabel = !draftLabel.identity_unknown_confirmed
+      && ![draftLabel.mode_id, draftLabel.family, draftLabel.method, draftLabel.protocol, draftLabel.variant].some(Boolean);
+    items.push({draftBox: box, draftIndex: index, text: batchBoxLabelText(box, index), needsLabel,
+      selected: state.batchReviewBox === box,
+      x: (box.frequency_low_hz - low) / Math.max(1, high - low) * width,
+      boxRight: (box.frequency_high_hz - low) / Math.max(1, high - low) * width,
+      boxCenterY: (start + end) / 2 / overlayCanvas.height * height,
       y: Math.max(0, start / overlayCanvas.height * height)});
   }
   const layout = layoutSignalLabels(items, width, height);
@@ -3281,19 +6461,24 @@ function renderSignalLabels() {
       const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
       line.setAttribute("x1", String(Math.max(0, Math.min(width,item.anchorX))));
       line.setAttribute("y1", String(item.anchorY));
-      line.setAttribute("x2", String(item.x+6));
-      line.setAttribute("y2", String(item.y+12));
+      line.setAttribute("x2", String(item.leaderToX));
+      line.setAttribute("y2", String(item.leaderToY));
       leaders.append(line);
     }
     const button = document.createElement("button");
     button.type = "button";
-    button.className = `signal-tag ${item.region ? "saved" : "candidate"}${item.selected ? " selected" : ""}`;
+    button.className = `signal-tag ${item.region ? "saved" : item.cvDetection ? "cv" : "candidate"}${item.needsLabel ? " needs-label" : ""}${item.superseded ? " superseded" : ""}${item.selected ? " selected" : ""}`;
     button.textContent = item.text;
     button.style.left = `${item.x}px`;
     button.style.top = `${item.y}px`;
     button.style.width = `${item.width}px`;
-    button.dataset.signalKey = item.track?.track_id || item.region?.id || item.text;
-    button.title = item.track
+    button.style.height = `${item.height}px`;
+    button.dataset.signalKey = item.track?.track_id || item.region?.id || item.cvDetection?.cv_proposal_id || item.draftBox?.client_id || item.text;
+    button.title = item.cvDetection
+      ? `${item.text} · ${(item.cvDetection.confidence * 100).toFixed(1)}% detector score\n${item.cvDetection.frequency_low_hz.toFixed(0)}–${item.cvDetection.frequency_high_hz.toFixed(0)} Hz · ${(item.cvDetection.sample_start / data.sample_rate).toFixed(2)}–${((item.cvDetection.sample_start + item.cvDetection.sample_count) / data.sample_rate).toFixed(2)} s\nClick to select this provisional CV box and review its identity.`
+      : item.draftBox
+      ? `Draft signal · ${item.text}\n${item.draftBox.frequency_low_hz.toFixed(0)}–${item.draftBox.frequency_high_hz.toFixed(0)} Hz · ${(item.draftBox.sample_start / data.sample_rate).toFixed(2)}–${((item.draftBox.sample_start + item.draftBox.sample_count) / data.sample_rate).toFixed(2)} s\nClick to select this annotation draft.`
+      : item.track
       ? `${item.text}\n${item.track.frequency_low_hz.toFixed(0)}–${item.track.frequency_high_hz.toFixed(0)} Hz · peak SNR estimate ${item.track.peak_snr_db?.toFixed(1) ?? "unknown"} dB\n${item.track.tone_count_candidate ?? "Unknown"} tone centers${Number.isFinite(item.track.tone_spacing_hz_candidate) ? ` · spacing ${item.track.tone_spacing_hz_candidate.toFixed(1)} Hz` : ""}${Number.isFinite(item.track.drift_hz_per_second) ? `\nDrift ${item.track.drift_hz_per_second.toFixed(1)} Hz/s` : ""}\nClick to inspect; identification remains provisional.`
       : `${item.text} · ${item.region.source} / ${item.region.review_state}`;
     const showDetail = () => {
@@ -3311,7 +6496,20 @@ function renderSignalLabels() {
     button.addEventListener("mouseenter", showDetail);
     button.addEventListener("focus", showDetail);
     for (const event of ["mouseleave", "blur"]) button.addEventListener(event, () => el("signal-hover-detail")?.remove());
-    button.addEventListener("click", () => item.track ? selectTrack(item.track) : selectSavedRegion(item.region));
+    button.addEventListener("click", (event) => {
+      if (item.region && event.shiftKey) {
+        if (state.identityLinkSelection.has(item.region.id)) state.identityLinkSelection.delete(item.region.id);
+        else state.identityLinkSelection.add(item.region.id);
+        refreshIdentityLinkControls();
+        renderRegions();
+        return;
+      }
+      item.draftBox
+      ? reviewBatchBox(item.draftIndex)
+      : item.cvDetection
+      ? selectCvDetection(item.cvDetection)
+      : item.track ? selectTrack(item.track) : selectSavedRegion(item.region);
+    });
     container.append(button);
     if (button.dataset.signalKey === focused) button.focus({preventScroll:true});
   }
@@ -3324,8 +6522,12 @@ function renderSignalLabels() {
     container.append(button);
   }
 }
-function selectSavedRegion(region) {
+function selectSavedRegion(region, inspectorView = "label") {
+  if (state.windowRegionDeletes.has(region.id)) return;
   stopSelectedAudioPlayback(null);
+  saveSelectedBatchLabelDraft();
+  if (state.editRegion?.id !== region.id) saveSelectedExistingRegionDraft();
+  const pendingDraft = state.windowRegionEdits.get(region.id) || null;
   const data = state.waterfall;
   if (!data) return;
   state.coverageEdit = null;
@@ -3337,8 +6539,9 @@ function selectSavedRegion(region) {
   el("save-coverage").textContent = "Record reviewed window";
   el("coverage-status").textContent = "";
   clearError();
-  state.selection = {sample_start:region.sample_start, sample_count:region.sample_count,
-    frequency_low_hz:region.frequency_low_hz ?? 0, frequency_high_hz:region.frequency_high_hz ?? Math.min(3000,data.sample_rate/2)};
+  const visibleGeometry = pendingDraft?.geometry || region;
+  state.selection = {sample_start:visibleGeometry.sample_start, sample_count:visibleGeometry.sample_count,
+    frequency_low_hz:visibleGeometry.frequency_low_hz ?? 0, frequency_high_hz:visibleGeometry.frequency_high_hz ?? Math.min(3000,data.sample_rate/2)};
   state.coverageEdit = null;
   state.coverageOnly = false;
   el("coverage-panel").hidden = true;
@@ -3346,16 +6549,40 @@ function selectSavedRegion(region) {
   updateSceneReviewAvailability();
   updateCarrierFromSelection(state.selection);
   state.selectedTrack = null;
+  state.batchReviewBox = null;
+  el("batch-unknown-row").hidden = true;
+  el("batch-unknown-confirmed").checked = false;
   state.editRegion = {id:region.id, revision:region.revision, geometry_revision:region.geometry_revision};
+  state.selectionMergeRegions = boxesCrossedBySelection(state.selection, region.id);
+  updateSelectionMergeControls();
+  state.geometryMergeRegions = [];
+  el("merge-redrawn-regions").hidden = true;
+  el("geometry-merge-status").hidden = true;
+  el("geometry-merge-status").textContent = "";
+  renderRegionShortcuts();
   setModeProposalSource(region);
-  state.labelModeId = region.mode_id || null;
-  el("mode-search").value = region.mode_id || "";
+  state.labelModeId = pendingDraft?.labelDraft.mode_id ?? region.mode_id ?? null;
+  el("mode-search").value = pendingDraft?.labelDraft.mode_name ?? region.mode_id ?? "";
+  el("batch-unknown-row").hidden = false;
+  el("batch-unknown-confirmed").checked = pendingDraft?.labelDraft.identity_unknown_confirmed ?? Boolean(region.evidence?.identity_unknown_confirmed);
+  state.modeSearchRequest += 1;
+  el("mode-results").replaceChildren();
   el("mode-resolution").textContent = region.mode_id ? `Canonical mode ${region.mode_id} · taxonomy retained with registry version in label evidence` : "Partial labels are welcome; unknown attributes stay blank.";
   el("missed-signal").checked = region.origin === "user_added_missed_detection";
   el("feedback-panel").hidden = region.origin !== "detector_proposal" || region.lineage_state === "superseded";
   el("feedback-status").textContent = "";
   el("bounds-panel").hidden = false;
+  const signalName = [region.family, region.method, region.protocol, region.variant].filter(Boolean).join(" · ") || "Unknown signal";
+  const startSeconds = region.sample_start / data.sample_rate;
+  const endSeconds = (region.sample_start + region.sample_count) / data.sample_rate;
+  el("signal-extent-title").textContent = `${signalName} · ${startSeconds.toFixed(2)}–${endSeconds.toFixed(2)} s`;
   el("edit-region-bounds").disabled = region.lineage_state === "superseded";
+  el("delete-selected-region").disabled = state.liveView || region.lineage_state === "superseded";
+  el("delete-selected-region").title = region.lineage_state === "superseded"
+    ? "This signal was replaced; remove its active replacement to retain the lineage."
+    : region.lineage_related
+      ? "Remove this active result while retaining its split/merge lineage and label history."
+    : "Stage removal in this 10-second window; Save annotations to apply it or Undo delete to restore it.";
   el("save-region-bounds").hidden = true;
   el("cancel-region-bounds").hidden = true;
   state.adjustingGeometry = false;
@@ -3370,19 +6597,19 @@ function selectSavedRegion(region) {
   el("split-status").textContent = "";
   el("geometry-status").textContent = `Geometry revision ${region.geometry_revision} · original bounds retained when corrected.`;
   reprojectSelection();
-  for (const field of ["family","method","protocol","variant","notes"]) el(field).value = region[field] || "";
+  for (const field of ["family","method","protocol","variant","notes"]) el(field).value = pendingDraft?.labelDraft[field] ?? region[field] ?? "";
   el("selection-summary").textContent = region.variant || region.protocol || region.method || region.family || "Saved unknown region";
-  el("selection-details").textContent = `${region.source} · ${region.review_state} · ${(region.sample_start/data.sample_rate).toFixed(2)}–${((region.sample_start+region.sample_count)/data.sample_rate).toFixed(2)} s`;
+  el("selection-details").textContent = `${region.source} · ${region.review_state} · ${(region.sample_start/data.sample_rate).toFixed(2)}–${((region.sample_start+region.sample_count)/data.sample_rate).toFixed(2)} s · drag inside to move or a corner to resize`;
   el("label-state").textContent = `Editing label revision ${region.revision} · original history retained`;
   el("save-region").textContent = "Save revision";
   el("inspector-context").textContent = `Saved annotation · ${state.selection.frequency_low_hz.toFixed(0)}–${state.selection.frequency_high_hz.toFixed(0)} Hz · revision ${region.revision}`;
   loadLabelHistory(region, state.capture.id);
   loadGeometryHistory(region, state.capture.id);
   loadLineageHistory(region, state.capture.id);
-  el("save-region").disabled = state.liveView || region.lineage_state === "superseded";
+  setRegionSaveDisabled(state.liveView || region.lineage_state === "superseded");
   updateModelButton();
   for (const dialog of document.querySelectorAll("dialog[open]")) dialog.close();
-  openInspector("label");
+  openInspector(inspectorView);
   drawOverlays();
 }
 async function refreshLibrary() {
@@ -3407,6 +6634,265 @@ async function refreshLibrary() {
     if (!captures.length) target.textContent = "No saved recordings yet.";
   } catch (error) { target.textContent = error.message; }
 }
+async function reviewQueuedCapture(capture) {
+  el("review-queue-dialog").close();
+  state.capture = capture;
+  try {
+    const loaded = await loadCapture();
+    if (!loaded) {
+      el("review-queue-dialog").showModal();
+      return;
+    }
+    openInspector("signals");
+    if (state.cvAvailable && !restoreCachedCvDetection(capture)) {
+      try {
+        const result = await request(`/api/captures/${encodeURIComponent(capture.id)}/cv-detections`, { method: "POST" });
+        if (state.capture !== capture) return;
+        applyCvDetectionResult(capture, result);
+      } catch (error) {
+        el("cv-status").textContent = `Could not scan queued sample · ${error.message}`;
+      }
+    }
+    el("box-draw-status").textContent = "Sample ready · draw a box around each signal, or use multiple selections. Use Advanced → Window coverage when you need to review a specific time/frequency window.";
+  } catch (error) {
+    showError(`Could not open queued sample · ${error.message}`);
+  }
+}
+
+async function reviewRandomDatasetWindow() {
+  if (state.liveView) {
+    showError("Stop the live capture before opening a random saved window.");
+    return;
+  }
+  const button = el("review-random-dataset");
+  button.disabled = true;
+  const label = button.textContent;
+  button.textContent = "Choosing a window…";
+  try {
+    const captures = await request("/api/captures");
+    const eligible = captures.filter((capture) => capture.source_kind !== "synthetic"
+      && capture.source_metadata?.auto_review_queue === true
+      && Number(capture.source_metadata?.window_seconds) === ANNOTATION_WINDOW_SECONDS
+      && capture.sample_rate > 0
+      && capture.sample_count === Math.round(capture.sample_rate * ANNOTATION_WINDOW_SECONDS)
+      && capture.source_metadata?.exclude_training !== true);
+    const windows = eligible.map((capture) => ({capture, index: 0}));
+    if (!windows.length) {
+      showError("There are no saved 10-second review samples available yet.");
+      return;
+    }
+    const currentCapture = state.loadedCapture;
+    let choices = windows;
+    if (windows.length > 1 && currentCapture) {
+      const alternatives = windows.filter((item) => item.capture.id !== currentCapture.id
+        || item.index !== state.annotationWindowIndex);
+      if (alternatives.length) choices = alternatives;
+    }
+    const picked = choices[Math.floor(Math.random() * choices.length)];
+    if (picked.capture.id === currentCapture?.id
+        && !await resolveWindowDraftsBeforeSwitch("opening a random dataset window")) return;
+    state.capture = picked.capture;
+    const loaded = await loadCapture({windowIndex: picked.index, focusedWindow: true});
+    if (!loaded) return;
+    updateAnnotationWindowView();
+    setInspectorMode("annotate");
+    openInspector("label");
+    el("inspector-context").textContent = `Random dataset review · window ${picked.index + 1} of ${Math.ceil(picked.capture.sample_count / (picked.capture.sample_rate * ANNOTATION_WINDOW_SECONDS))}`;
+  } catch (error) {
+    showError(`Could not open a random dataset window · ${error.message}`);
+  } finally {
+    button.textContent = label;
+    button.disabled = false;
+  }
+}
+
+async function refreshLiveReviewQueue() {
+  try {
+    const result = await request("/api/live/review-queue");
+    const badge = el("review-queue-badge");
+    badge.textContent = String(result.pending_count);
+    badge.hidden = result.pending_count === 0;
+    el("review-queue-title-count").textContent = `${result.pending_count} waiting · ${result.reviewed_count} reviewed · ${result.re_review_due_count || 0} due again`;
+    const list = el("review-queue-list");
+    list.replaceChildren();
+    for (const capture of result.pending) {
+      const row = document.createElement("div");
+      row.className = "review-queue-row";
+      const info = document.createElement("div");
+      const title = document.createElement("strong");
+      const trigger = capture.source_metadata.review_trigger === "cv_signal"
+        ? "CV signal candidate"
+        : capture.source_metadata.review_trigger === "periodic_noise"
+          ? "Periodic noise candidate"
+          : capture.source_metadata.created_from_live_annotation ? "Classify sample" : "Live sample";
+      title.textContent = `${capture.source_metadata.device_name || "Live input"} · ${trigger} · ${(capture.source_metadata.window_start_sample / capture.sample_rate).toFixed(1)} s${capture.source_metadata.re_review_due ? " · re-review due" : ""}`;
+      const detail = document.createElement("div");
+      detail.className = "muted";
+      const detection = capture.source_metadata.detection_summary || {};
+      const detectorDetail = capture.source_metadata.unattended_capture
+        ? ` · ${detection.cv_detection_count || 0} CV boxes${detection.classifier_methods?.length ? ` · ${[...new Set(detection.classifier_methods)].join(", ")}` : ""}`
+        : "";
+      detail.textContent = `${capture.sample_rate.toLocaleString()} samples/s · ${capture.sample_count.toLocaleString()} samples${detectorDetail} · ${capture.id.slice(0, 8)}${capture.source_metadata.re_review_due ? ` · last reviewed ${new Date(capture.source_metadata.last_reviewed_utc).toLocaleDateString()}` : ""}`;
+      info.append(title, detail);
+      const open = document.createElement("button");
+      open.type = "button";
+      open.textContent = "Review";
+      open.disabled = state.liveView;
+      open.title = state.liveView ? "Stop live capture before opening a queued sample" : "Open sample to annotate signals";
+      open.addEventListener("click", () => reviewQueuedCapture(capture));
+      const markReviewed = document.createElement("button");
+      markReviewed.type = "button";
+      markReviewed.textContent = "Mark reviewed";
+      markReviewed.title = "Remove this 10-second window from the live review queue without recording coverage";
+      markReviewed.addEventListener("click", async () => {
+        markReviewed.disabled = true;
+        try {
+          await request(`/api/live/review-queue/${encodeURIComponent(capture.id)}/mark-reviewed`, { method: "POST" });
+          await refreshLiveReviewQueue();
+        } catch (error) {
+          showError(`Could not mark sample reviewed · ${error.message}`);
+          markReviewed.disabled = false;
+        }
+      });
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.textContent = "Delete recording";
+      remove.className = "danger-button";
+      remove.title = "Permanently remove this queued sample and its audio";
+      remove.addEventListener("click", async () => {
+        const name = capture.source_metadata.device_name || "Live sample";
+        if (!window.confirm(`Permanently delete this ${name} review recording and its audio? This cannot be undone.`)) return;
+        remove.disabled = true;
+        try {
+          await request(`/api/captures/${encodeURIComponent(capture.id)}`, { method: "DELETE" });
+          await refreshLiveReviewQueue();
+        } catch (error) {
+          showError(`Could not delete review recording · ${error.message}`);
+          remove.disabled = false;
+        }
+      });
+      const actions = document.createElement("div");
+      actions.className = "review-queue-actions";
+      actions.append(open, markReviewed, remove);
+      row.append(info, actions);
+      list.append(row);
+    }
+    if (!result.pending.length) list.textContent = "No live samples are waiting for review.";
+    const reviewedList = el("reviewed-queue-list");
+    reviewedList.replaceChildren();
+    const manuallyReviewed = result.manually_reviewed || [];
+    el("reviewed-queue-details").hidden = !manuallyReviewed.length;
+    el("reviewed-queue-summary").textContent = `Manually reviewed · ${manuallyReviewed.length} · return to queue`;
+    for (const capture of manuallyReviewed) {
+      const row = document.createElement("div");
+      row.className = "review-queue-row";
+      const info = document.createElement("div");
+      const title = document.createElement("strong");
+      title.textContent = `${capture.source_metadata.device_name || "Live sample"} · ${(capture.source_metadata.window_start_sample / capture.sample_rate).toFixed(1)} s`;
+      const detail = document.createElement("div");
+      detail.className = "muted";
+      detail.textContent = `Marked reviewed ${new Date(capture.source_metadata.auto_review_queue_reviewed_utc).toLocaleString()} · ${capture.id.slice(0, 8)}`;
+      info.append(title, detail);
+      const reopen = document.createElement("button");
+      reopen.type = "button";
+      reopen.textContent = "Return to queue";
+      reopen.addEventListener("click", async () => {
+        reopen.disabled = true;
+        try {
+          await request(`/api/live/review-queue/${encodeURIComponent(capture.id)}/reopen`, { method: "POST" });
+          await refreshLiveReviewQueue();
+        } catch (error) {
+          showError(`Could not return sample to review queue · ${error.message}`);
+          reopen.disabled = false;
+        }
+      });
+      const actions = document.createElement("div");
+      actions.className = "review-queue-actions";
+      actions.append(reopen);
+      row.append(info, actions);
+      reviewedList.append(row);
+    }
+  } catch (error) {
+    el("review-queue-list").textContent = `Could not load review queue · ${error.message}`;
+  }
+}
+
+async function refreshHubReviewQueue() {
+  const list = el("hub-review-queue-list");
+  const status = el("hub-review-status");
+  list.replaceChildren();
+  status.textContent = "Loading Hub review queue…";
+  try {
+    const items = await request("/api/hub/review-queue");
+    status.textContent = `${items.length} Hub annotation${items.length === 1 ? "" : "s"} · Hub reviews assess signal extent; they are not local training approval.`;
+    for (const item of items) {
+      const row = document.createElement("article");
+      row.className = "hub-review-row";
+      const title = document.createElement("strong");
+      title.textContent = `Hub contribution · ${item.submission_id.slice(0, 8)} · ${item.consensus.replaceAll("_", " ")}`;
+      const annotation = item.annotation;
+      const bounds = document.createElement("p");
+      const sampleRate = item.manifest.sample_rate;
+      const seconds = `${(annotation.sample_start / sampleRate).toFixed(2)}–${((annotation.sample_start + annotation.sample_count) / sampleRate).toFixed(2)} s`;
+      const label = [annotation.mode_id, annotation.variant, annotation.protocol, annotation.method, annotation.family].find(Boolean) || "Identity unknown";
+      bounds.textContent = `${label} · ${seconds} · ${annotation.frequency_low_hz ?? "?"}–${annotation.frequency_high_hz ?? "?"} Hz · ${annotation.completeness.replaceAll("_", " ")}`;
+      const audio = document.createElement("audio");
+      audio.controls = true;
+      audio.preload = "none";
+      audio.src = `/api/hub/submissions/${encodeURIComponent(item.submission_id)}/audio`;
+      const controls = document.createElement("div");
+      controls.className = "hub-review-controls";
+      const decision = document.createElement("select");
+      for (const value of ["looks_right", "adjust_bounds", "multiple_signals", "not_signal", "unsure"]) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = value.replaceAll("_", " ");
+        decision.append(option);
+      }
+      const note = document.createElement("input");
+      note.type = "text";
+      note.maxLength = 2000;
+      note.placeholder = "Optional review note";
+      const submit = document.createElement("button");
+      submit.type = "button";
+      submit.textContent = "Submit Hub review";
+      submit.addEventListener("click", async () => {
+        submit.disabled = true;
+        try {
+          const result = await request(`/api/hub/submissions/${encodeURIComponent(item.submission_id)}/annotations/${encodeURIComponent(annotation.annotation_id)}/reviews`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ revision: annotation.revision, decision: decision.value, note: note.value.trim() }),
+          });
+          status.textContent = `Hub review recorded · ${result.consensus.replaceAll("_", " ")}`;
+          await refreshHubReviewQueue();
+        } catch (error) {
+          showError(`Could not submit Hub review · ${error.message}`);
+          submit.disabled = false;
+        }
+      });
+      controls.append(decision, note, submit);
+      row.append(title, bounds, audio, controls);
+      list.append(row);
+    }
+    if (!items.length) list.textContent = "The Hub review queue is empty.";
+  } catch (error) {
+    status.textContent = `Hub queue unavailable · ${error.message}`;
+  }
+}
+
+for (const button of document.querySelectorAll("[data-review-source]")) {
+  button.addEventListener("click", () => {
+    const hub = button.dataset.reviewSource === "hub";
+    el("local-review-source").hidden = hub;
+    el("hub-review-source").hidden = !hub;
+    for (const sourceButton of document.querySelectorAll("[data-review-source]")) {
+      sourceButton.setAttribute("aria-pressed", String(sourceButton === button));
+    }
+    if (hub) refreshHubReviewQueue();
+  });
+}
+for (const button of document.querySelectorAll("[data-inspector-mode]")) button.addEventListener("click", () => setInspectorMode(button.dataset.inspectorMode));
+for (const button of document.querySelectorAll("[data-detail-level]")) button.addEventListener("click", () => setInspectorDetailLevel(button.dataset.detailLevel));
 for (const button of document.querySelectorAll("[data-inspector-tab]")) button.addEventListener("click", () => openInspector(button.dataset.inspectorTab));
 for (const button of document.querySelectorAll("[data-output-tab]")) button.addEventListener("click", () => showOutput(button.dataset.outputTab));
 for (const button of document.querySelectorAll("[data-close-dialog]")) button.addEventListener("click", () => button.closest("dialog").close());
@@ -3414,6 +6900,15 @@ el("show-signals").addEventListener("click", () => openInspector("signals"));
 el("close-inspector").addEventListener("click", () => el("inspector").classList.add("hidden"));
 el("show-settings").addEventListener("click", () => el("settings-dialog").showModal());
 for (const id of ["show-library", "open-recording"]) el(id).addEventListener("click", () => { refreshLibrary(); el("library-dialog").showModal(); });
+el("show-review-queue").addEventListener("click", () => { refreshLiveReviewQueue(); el("review-queue-dialog").showModal(); });
+el("review-random-dataset").addEventListener("click", reviewRandomDatasetWindow);
+if (state.inspectorMode === "annotate") state.batchBoxMode = true;
+syncInspectorModeUI();
+setInspectorDetailLevel(state.inspectorDetailLevel);
+refreshLiveReviewQueue();
+setInterval(refreshLiveReviewQueue, 15000);
+refreshNativeDecoderStatus();
+setInterval(refreshNativeDecoderStatus, 3000);
 el("raw-tool").addEventListener("change", () => showRawTool(el("raw-tool").value));
 el("toggle-output").addEventListener("click", () => {
   const collapsed = el("output-dock").classList.toggle("collapsed");
@@ -3468,7 +6963,167 @@ el("freeze-view").addEventListener("click", () => {
   el("live-status").textContent = state.frozen ? "Recording · view frozen" : "Recording · following live audio";
   if (!state.frozen) applyLiveDisplay();
 });
-document.addEventListener("keydown", event => { if (event.key === "Escape") el("inspector").classList.add("hidden"); });
+function clearCurrentSelection(message = "Selection cleared.") {
+  saveSelectedBatchLabelDraft();
+  state.selection = null;
+  state.classifierProposal = null;
+  state.selectedTrack = null;
+  state.batchReviewBox = null;
+  beginNewRegion();
+  el("selection-summary").textContent = "No selection";
+  el("selection-details").textContent = "Drag over the waterfall to mark a signal.";
+  el("inspector-context").textContent = message;
+  el("label-state").textContent = message;
+  drawOverlays();
+  updateModelButton();
+}
+
+async function deleteCurrentSelection() {
+  if (state.liveView) return;
+  saveSelectedBatchLabelDraft();
+  if (state.editRegion) {
+    const region = state.regions.find((item) => item.id === state.editRegion.id);
+    if (region?.lineage_state === "superseded") {
+      el("label-state").textContent = "This signal was replaced. Remove its active replacement to keep the lineage history.";
+    } else if (region) await deleteSavedRegion(region);
+    return;
+  }
+  if (state.selectedTrack?.cv_proposal_id) {
+    if (pendingWindowMergeSources().proposals.has(state.selectedTrack.cv_proposal_id)) {
+      el("label-state").textContent = "This proposal is staged in a merge. Undo the merge draft before rejecting the detector box.";
+      return;
+    }
+    const detection = state.cvDetections.find((item) =>
+      (item.cv_proposal_id || item.proposal_id) === state.selectedTrack.cv_proposal_id);
+    if (detection) await rejectCvDetection(detection);
+    return;
+  }
+  if (state.batchReviewBox) {
+    const box = state.batchReviewBox;
+    const index = state.batchBoxes.indexOf(box);
+    if (box.draftMergeId) {
+      const undoIndex = state.batchBoxUndo.findLastIndex((change) => change.type === "undo-merge" && change.box === box);
+      const stagedUndo = undoIndex >= 0 ? state.batchBoxUndo.splice(undoIndex, 1)[0] : null;
+      state.batchBoxUndo = state.batchBoxUndo.filter((change) => change.box !== box);
+      if (stagedUndo) {
+        state.batchBoxes = stagedUndo.previousBoxes;
+        state.windowMerges = stagedUndo.previousMerges;
+        for (const edit of stagedUndo.priorSourceEdits || []) state.windowRegionEdits.set(edit.region_id, edit);
+        state.editRegion = stagedUndo.previousEditRegion || null;
+        state.selection = stagedUndo.previousGeometrySelection ? {...stagedUndo.previousGeometrySelection} : null;
+      } else state.batchBoxes.splice(index, 1);
+    } else {
+      state.batchBoxUndo.push({type: "remove", box, index});
+      state.batchBoxes.splice(index, 1);
+    }
+    clearCurrentSelection("Selection removed from the batch list.");
+    renderBatchBoxes();
+    renderRegions();
+    updateAnnotationSaveAvailability();
+    return;
+  }
+  if (state.selectedTrack && state.tracks.includes(state.selectedTrack)) {
+    state.tracks = state.tracks.filter((track) => track !== state.selectedTrack);
+    clearCurrentSelection("Provisional detection removed from this analysis.");
+    renderTracks();
+    return;
+  }
+  if (state.selection) clearCurrentSelection("Selection cleared; no saved region was deleted.");
+}
+
+document.addEventListener("keydown", event => {
+  const key = event.key.toLowerCase();
+  const editing = event.target instanceof Element
+    && Boolean(event.target.closest("input, textarea, select, [contenteditable='true']"));
+  if (event.key === "Escape") {
+    if (document.querySelector("dialog[open]")) return;
+    if (editing) return;
+    let cancelledMode = false;
+    if (state.resizeDrag) {
+      state.selection = {...state.resizeDrag.originalSelection};
+      state.resizeDrag = null;
+      drawOverlays();
+      return;
+    }
+    if (state.moveDrag) {
+      state.selection = {...state.moveDrag.originalSelection};
+      state.moveDrag = null;
+      drawOverlays();
+      return;
+    }
+    if (state.adjustingCandidate) {
+      state.adjustingCandidate = null;
+      el("cv-status").textContent = "Candidate redraw cancelled; the original bounds remain.";
+      cancelledMode = true;
+    }
+    if (state.drawingSignalBox) {
+      cancelSingleBoxDrawing();
+      cancelledMode = true;
+    }
+    if (state.batchBoxMode) {
+      state.batchBoxMode = false;
+      updateSingleBoxButton();
+      renderBatchBoxes();
+      drawOverlays();
+      return;
+    }
+    if (state.adjustingGeometry || state.geometryDraft) {
+      el("cancel-region-bounds").click();
+      cancelledMode = true;
+    }
+    if (state.splitMode) {
+      el("cancel-split").click();
+      cancelledMode = true;
+    }
+    if (cancelledMode) return;
+    if (state.selection) {
+      clearCurrentSelection("Selection cleared.");
+      return;
+    }
+    el("inspector").classList.add("hidden");
+    return;
+  }
+  if ((event.ctrlKey || event.metaKey) && key === "z" && !editing && state.batchBoxUndo.length) {
+    event.preventDefault();
+    undoBatchBoxChange();
+    return;
+  }
+  if (event.key === "Tab" && !editing && !event.ctrlKey && !event.metaKey && !event.altKey
+    && state.inspectorMode === "annotate" && state.batchBoxes.length > 1) {
+    const currentIndex = state.batchBoxes.indexOf(state.batchReviewBox);
+    const direction = event.shiftKey ? -1 : 1;
+    const nextIndex = currentIndex < 0
+      ? (direction > 0 ? 0 : state.batchBoxes.length - 1)
+      : (currentIndex + direction + state.batchBoxes.length) % state.batchBoxes.length;
+    event.preventDefault();
+    reviewBatchBox(nextIndex);
+    return;
+  }
+  if ((event.ctrlKey || event.metaKey) && event.key === "Enter" && !editing) {
+    if (!el("save-annotations").disabled) {
+      event.preventDefault();
+      el("save-annotations").click();
+    }
+    return;
+  }
+  if (editing || event.ctrlKey || event.metaKey || event.altKey || event.repeat || document.querySelector("dialog[open]")) return;
+  if (key === "b") {
+    if (!state.waterfall || state.liveView || state.coverageOnly) return;
+    event.preventDefault();
+    el("batch-box-toggle").click();
+    openInspector("label");
+  } else if (event.key === "Delete" || event.key === "Backspace") {
+    if (!state.selection && !state.editRegion && !state.selectedTrack && !state.batchReviewBox) return;
+    event.preventDefault();
+    deleteCurrentSelection();
+  } else if (key === "m") {
+    const mergeButton = [el("merge-selection-boxes"), el("merge-redrawn-regions")]
+      .find((button) => button && !button.hidden && !button.disabled);
+    if (!mergeButton) return;
+    event.preventDefault();
+    mergeButton.click();
+  }
+});
 overlayCanvas.addEventListener("pointermove", event => {
   if (!state.waterfall) return;
   const point = canvasPoint(event), bounds = waterfallViewBounds(), data = state.waterfall;
@@ -3493,7 +7148,7 @@ for (const mode of Object.keys(DEMOD_EXPORT_BUTTONS)) {
 el("raw-results").querySelector(":scope > p")?.remove();
 showRawTool("2fsk");
 showOutput("text");
-new ResizeObserver(() => { if (state.waterfall) renderSignalLabels(); }).observe(overlayCanvas.parentElement);
+new ResizeObserver(() => { if (state.waterfall) { renderFrequencyNotches(); renderSignalLabels(); } }).observe(overlayCanvas.parentElement);
 
 function sampleAtCanvasRow(y) {
   if (state.liveView) return state.view.timeEndSample - y / Math.max(1,overlayCanvas.height) * (state.view.timeEndSample-state.view.timeStartSample);
@@ -3535,10 +7190,15 @@ function startSpectrumStream(generation,sessionId) {
 }
 
 function beginNewRegion() {
+  if (!state.cvCoverageQueue) el("cv-coverage-queue-label-status").hidden = true;
   state.selectedTrack = null;
+  state.batchReviewBox = null;
   el("cv-presence-row").hidden = true;
   el("cv-presence-confirmed").checked = false;
   state.editRegion = null;
+  state.selectionMergeRegions = [];
+  updateSelectionMergeControls();
+  if (state.capture) renderRegionShortcuts();
   state.coverageEdit = null;
   state.coverageOnly = false;
   state.coverageWindow = null;
@@ -3552,14 +7212,20 @@ function beginNewRegion() {
   el("save-coverage").textContent = "Record reviewed window";
   el("coverage-status").textContent = "";
   el("coverage-mask-reason").value = "";
-  el("coverage-mask-status").textContent = "Start a scene review to mark bounded subregions.";
+  el("coverage-mask-status").textContent = "Start a window review to mark bounded subregions.";
   renderSceneCoverageMasks();
   updateCoverageMaskControls();
-  el("save-region").disabled = state.liveView || !state.capture;
+  setRegionSaveDisabled(!state.selection || state.liveView || !state.capture);
+  syncLiveAnnotationSaveButton();
   el("save-region").textContent = "Save region label";
   setModeProposalSource(null);
   state.labelModeId = null;
+  state.modeSearchRequest += 1;
+  el("batch-unknown-row").hidden = true;
+  el("batch-unknown-confirmed").checked = false;
   el("mode-search").value = "";
+  el("mode-results").replaceChildren();
+  for (const field of ["family", "method", "protocol", "variant", "notes"]) el(field).value = "";
   el("mode-resolution").textContent = "Choose a known mode to fill its family and protocol, or leave blank for an unknown/partial label.";
   el("missed-signal").checked = false;
   el("feedback-panel").hidden = true;
@@ -3582,6 +7248,7 @@ function beginNewRegion() {
   el("label-history-list").replaceChildren();
   el("label-state").textContent = "Partial labels are welcome.";
   for(const id of ["family","method","protocol","variant","notes"]) el(id).value = "";
+  updateAnnotationSaveAvailability();
   updateSceneReviewAvailability();
 }
 async function loadLabelHistory(region,captureId) {
@@ -3630,8 +7297,10 @@ async function loadLineageHistory(region,captureId) {
     target.replaceChildren();
     for(const operation of history) {
       const item=document.createElement("p");
-      const sources=operation.source_region_ids.map((id)=>id===region.id?"this region":id.slice(0,8)).join(", ");
-      const results=operation.result_region_ids.map((id)=>id===region.id?"this region":id.slice(0,8)).join(", ");
+      const removedSources=new Set(operation.removed_source_region_ids||[]);
+      const removedResults=new Set(operation.removed_result_region_ids||[]);
+      const sources=operation.source_region_ids.map((id)=>`${id===region.id?"this region":id.slice(0,8)}${removedSources.has(id)?" (removed; history kept)":""}`).join(", ");
+      const results=operation.result_region_ids.map((id)=>`${id===region.id?"this region":id.slice(0,8)}${removedResults.has(id)?" (removed; history kept)":""}`).join(", ");
       item.textContent=`${operation.relation} · ${sources} → ${results}`;
       target.append(item);
     }
@@ -3653,12 +7322,77 @@ function updateOutputContext() {
 }
 
 function renderRegionShortcuts() {
-  const list=el("signal-region-shortcuts");list.replaceChildren();
-  for(const region of state.regions) {
-    const button=document.createElement("button");button.type="button";
-    button.className="region-shortcut";
-    button.textContent=`${region.variant || region.protocol || region.method || region.family || "Unknown"} · ${(region.sample_start/state.capture.sample_rate).toFixed(2)} s`;
-    button.addEventListener("click",()=>selectSavedRegion(region));list.append(button);
+  const list = el("signal-region-shortcuts");
+  list.replaceChildren();
+  const visibleRegions = state.regions.filter((region) => state.showSupersededRegions || region.lineage_state !== "superseded");
+  el("signal-saved-count").textContent = String(state.regions.filter((region) => region.lineage_state !== "superseded").length);
+  for (const region of visibleRegions) {
+    const card = document.createElement("div");
+    card.className = "saved-signal-card";
+    if (state.editRegion?.id === region.id) card.classList.add("is-selected");
+    const title = document.createElement("strong");
+    const pendingEdit = state.windowRegionEdits.get(region.id);
+    title.textContent = `${region.signal_id ? `${region.signal_id} · ` : ""}${[pendingEdit?.labelDraft.family, pendingEdit?.labelDraft.method, pendingEdit?.labelDraft.variant].filter(Boolean).join(" · ")
+      || pendingEdit?.labelDraft.protocol || [region.family, region.method, region.variant].filter(Boolean).join(" · ")
+      || region.protocol || regionIdentityCaption(region, pendingEdit?.labelDraft || region, pendingEdit?.labelDraft)}`;
+    const detail = document.createElement("span");
+    const rate = state.capture.sample_rate;
+    const band = Number.isFinite(region.frequency_low_hz) && Number.isFinite(region.frequency_high_hz)
+      ? `${region.frequency_low_hz.toFixed(0)}–${region.frequency_high_hz.toFixed(0)} Hz` : "band unknown";
+    const review = region.lineage_state === "superseded" ? "superseded"
+    : region.source === "prediction" ? "classifier suggestion · pending review"
+      : region.source === "unknown" && region.review_state === "pending" ? "unknown · pending review"
+      : region.review_state;
+    const evidenceSources = [];
+    if (region.evidence?.detector_proposal) evidenceSources.push("CV");
+    if (region.evidence?.classifier_proposal) evidenceSources.push("classifier");
+    const sourceSummary = evidenceSources.length ? `${evidenceSources.join(" + ")} · ` : "";
+    detail.textContent = `${sourceSummary}${(region.sample_start / rate).toFixed(2)}–${((region.sample_start + region.sample_count) / rate).toFixed(2)} s · ${band} · ${review}`;
+    const mergeSelect = document.createElement("label");
+    mergeSelect.className = "saved-signal-merge";
+    const mergeCheckbox = document.createElement("input");
+    mergeCheckbox.type = "checkbox";
+    mergeCheckbox.dataset.regionMergeId = region.id;
+    mergeCheckbox.checked = state.mergeRegionIds.has(region.id);
+    mergeCheckbox.disabled = state.liveView || region.lineage_state === "superseded";
+    mergeCheckbox.setAttribute("aria-label", `Select ${title.textContent} from ${evidenceSources.join(" and ") || "saved annotations"} at ${(region.sample_start / rate).toFixed(2)} seconds for merge`);
+    mergeCheckbox.addEventListener("change", () => {
+      if (mergeCheckbox.checked) state.mergeRegionIds.add(region.id);
+      else state.mergeRegionIds.delete(region.id);
+      updateMergeControls();
+    });
+    mergeSelect.append(mergeCheckbox, document.createTextNode("Merge this piece"));
+    const identitySelect = document.createElement("label");
+    identitySelect.className = "saved-signal-identity";
+    const identityCheckbox = document.createElement("input");
+    identityCheckbox.type = "checkbox";
+    identityCheckbox.checked = state.identityLinkSelection.has(region.id);
+    identityCheckbox.disabled = state.liveView || region.lineage_state === "superseded";
+    identityCheckbox.setAttribute("aria-label", `Select ${title.textContent} for same signal identity linking`);
+    identityCheckbox.addEventListener("change", () => {
+      if (identityCheckbox.checked) state.identityLinkSelection.add(region.id);
+      else state.identityLinkSelection.delete(region.id);
+      refreshIdentityLinkControls();
+    });
+    identitySelect.append(identityCheckbox, document.createTextNode("Same signal"));
+    const actions = document.createElement("div");
+    actions.className = "saved-signal-actions";
+    const reviewButton = document.createElement("button");
+    reviewButton.type = "button";
+    reviewButton.textContent = "Edit identity";
+    reviewButton.title = "Open the mode, modulation, and notes editor.";
+    reviewButton.addEventListener("click", (event) => {
+      selectSavedRegion(region);
+    });
+    const manage = document.createElement("button");
+    manage.type = "button";
+    manage.textContent = "Bounds";
+    manage.title = "Open this signal's bounds, merge, delete, and history controls.";
+    manage.addEventListener("click", () => selectSavedRegion(region, "signals"));
+    actions.append(reviewButton, manage);
+    card.append(title, detail, identitySelect, mergeSelect, actions);
+    list.append(card);
   }
-  if(!state.regions.length) list.textContent="No saved annotations in this recording.";
+  updateMergeControls();
+  if (!state.regions.length) list.textContent = "No saved signals yet. Draw a box or review a provisional candidate below.";
 }

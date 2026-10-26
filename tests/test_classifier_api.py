@@ -132,6 +132,65 @@ def test_classifier_api_returns_proposals_without_saving_labels(tmp_path):
     asyncio.run(exercise())
 
 
+def test_classifier_prediction_creates_one_pending_region_until_reviewed(tmp_path):
+    model_path = tmp_path / "method.npz"
+    make_model(model_path)
+    wav_path = tmp_path / "signal.wav"
+    generate_bpsk_wav(wav_path, "00110101" * 64)
+    app = create_app(tmp_path / "data", classifier_model_path=model_path)
+
+    async def exercise():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            uploaded = await client.post(
+                "/api/captures", files={"file": ("signal.wav", wav_path.read_bytes(), "audio/wav")}
+            )
+            capture_id = uploaded.json()["id"]
+            detector_hash = "a" * 64
+            payload = {
+                "sample_start": 100, "sample_count": 6000,
+                "frequency_low_hz": 600, "frequency_high_hz": 1500,
+                "family": "Voice", "origin": "detector_proposal", "prediction_only": True,
+                "detector_evidence": {
+                    "detector": "yolo", "proposal_id": f"{detector_hash}:{'b' * 32}",
+                    "model_sha256": detector_hash, "model_version": f"sha256:{detector_hash}",
+                    "confidence": 0.8, "box_xyxy_normalized": [0.2, 0.2, 0.8, 0.8],
+                    "image_width": 1024, "image_height": 256,
+                    "preprocessing_version": "test", "window_sample_start": 0,
+                    "window_sample_count": uploaded.json()["sample_count"],
+                    "sample_rate": uploaded.json()["sample_rate"],
+                },
+                "classifier_proposal": {
+                    "sample_start": 100, "sample_count": 6000,
+                    "selection_sample_count": 6000,
+                    "frequency_low_hz": 600, "frequency_high_hz": 1500,
+                },
+            }
+            first = await client.post(f"/api/captures/{capture_id}/regions", json=payload)
+            assert first.status_code == 201, first.text
+            region = first.json()
+            assert region["source"] == "prediction"
+            assert region["review_state"] == "pending"
+            assert region["family"] == "FSK"
+            assert region["evidence"]["classifier_proposal"]["capture_id"] == capture_id
+            assert region["evidence"]["detector_proposal"]["proposal_id"] == payload["detector_evidence"]["proposal_id"]
+
+            repeated = await client.post(f"/api/captures/{capture_id}/regions", json=payload)
+            assert repeated.status_code == 201, repeated.text
+            assert repeated.json()["id"] == region["id"]
+            assert len((await client.get(f"/api/captures/{capture_id}/regions")).json()) == 1
+
+            accepted = await client.post(
+                f"/api/captures/{capture_id}/regions/{region['id']}/labels",
+                json={"expected_revision": repeated.json()["revision"],
+                      "family": region["family"], "method": region["method"]},
+            )
+            assert accepted.status_code == 201, accepted.text
+            assert accepted.json()["source"] == "human"
+            assert accepted.json()["review_state"] == "accepted"
+
+    asyncio.run(exercise())
+
+
 def test_classifier_api_returns_novelty_abstention_for_out_of_support_audio(tmp_path):
     model_path = tmp_path / "method.npz"
     make_model(model_path, novelty_threshold=0.01)
@@ -155,6 +214,16 @@ def test_classifier_api_returns_novelty_abstention_for_out_of_support_audio(tmp_
             assert proposal["novelty_distance"] > proposal["novelty_threshold"]
             assert proposal["method"] is None
             assert proposal["abstained"] is True
+            saved = await client.post(
+                f"/api/captures/{uploaded.json()['id']}/regions",
+                json={"sample_start": 0, "sample_count": 3840, "prediction_only": True,
+                      "classifier_proposal": {"sample_start": 0, "sample_count": 3840,
+                                              "selection_sample_count": 3840}},
+            )
+            assert saved.status_code == 201, saved.text
+            assert saved.json()["source"] == "unknown"
+            assert saved.json()["review_state"] == "pending"
+            assert saved.json()["evidence"]["classifier_proposal"]["abstained"] is True
 
     asyncio.run(exercise())
 

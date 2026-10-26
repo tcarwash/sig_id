@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import re
+import json
+from importlib.resources import files
 from typing import Any
 
-MODE_REGISTRY_VERSION = "1"
+MODE_REGISTRY_VERSION = "2"
 
 
 def _entry(mode_id: str, display_name: str, family: str, method: str, protocol: str, variant: str, aliases: tuple[str, ...] = ()) -> dict[str, Any]:
@@ -37,8 +39,37 @@ _MODE_LIST = [
 MODE_REGISTRY = {item["id"]: item for item in _MODE_LIST}
 
 
+def _load_collection_catalog() -> None:
+    """Add broad decoder and collection labels without claiming identification support."""
+    catalog = json.loads(files(__package__).joinpath("mode_catalog.json").read_text(encoding="utf-8"))
+    def key(value: str) -> str:
+        return _normalize(value)
+
+    for definition in catalog:
+        names = {key(value) for value in (definition["id"], definition["display_name"], *definition["aliases"])}
+        existing = next(
+            (item for item in _MODE_LIST
+             if names & {key(value) for value in (item["id"], item["display_name"], *item["aliases"])}),
+            None,
+        )
+        if existing is not None:
+            existing.update({field: definition[field] for field in (
+                "status", "detector_status", "decoder_status", "backend_name",
+                "backend_selectable", "catalog_source",
+                "native_backend_id", "native_application", "native_application_url",
+                "backend_mode", "source_bandwidth", "source_frequencies",
+                "source_modulation", "source_mode", "source_categories",
+            ) if field in definition})
+            continue
+        _MODE_LIST.append(definition)
+
+
 def _normalize(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", value.casefold())
+
+
+_load_collection_catalog()
+MODE_REGISTRY = {item["id"]: item for item in _MODE_LIST}
 
 
 def mode_name_conflicts(value: str, *, additional_modes: list[dict[str, Any]] | None = None) -> bool:
@@ -74,7 +105,13 @@ def find_modes(
         else:
             continue
         ranked.append((rank, order, item))
-    fields = ("id", "display_name", "family", "method", "protocol", "variant", "aliases", "registry_version", "status")
+    fields = (
+        "id", "display_name", "family", "method", "protocol", "variant", "aliases",
+        "registry_version", "status", "detector_status", "decoder_status", "backend_name",
+        "backend_selectable", "catalog_source", "native_backend_id", "native_application",
+        "native_application_url", "backend_mode", "source_bandwidth", "source_frequencies",
+        "source_modulation", "source_mode", "source_categories",
+    )
     return [{key: item[key] for key in fields if key in item} for _, _, item in sorted(ranked, key=lambda row: (row[0], row[1]))[:limit]]
 
 

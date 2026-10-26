@@ -245,6 +245,7 @@ def load_ood_corpus(index_path: str | Path) -> list[dict[str, Any]]:
         seen_hashes.add(waveform_digest)
         manifest = json.loads(sidecar.read_text(encoding="utf-8"))
         _validate_manifest(manifest, waveform)
+        occupied_band = synthetic_frequency_bounds(manifest)
         expected_family = "PPM" if record["modulation_method"] == "binary pulse-position modulation" else "ASK"
         if (
             manifest.get("generator") not in {"sig-id-ook", "sig-id-ask"}

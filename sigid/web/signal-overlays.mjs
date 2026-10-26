@@ -1,14 +1,20 @@
-/** Place readable labels without covering each other; omitted items stay in Signals. */
+/** Place readable labels without covering each other; omitted items stay in Boxes. */
 export function layoutSignalLabels(items, width, height) {
   const placed = [];
   const overflow = [];
   for (const item of [...items].sort(
     (a, b) => Number(b.selected) - Number(a.selected),
   )) {
-    const w = Math.min(210, Math.max(100, item.text.length * 6.2 + 16), width);
-    const h = 24;
-    const x = Math.max(0, Math.min(width - w, item.x));
-    let y = Math.max(0, item.y);
+    const w = Math.min(280, Math.max(150, item.labelWidth || 230), width);
+    const h = item.labelHeight || (item.text.includes("\n") ? 38 : 24);
+    const boxRight = item.boxRight ?? item.x;
+    const boxLeft = item.boxLeft ?? item.x;
+    const rightX = boxRight + 8;
+    const leftX = boxLeft - w - 8;
+    // Keep labels beside their boxes, preferring the right and flipping at the edge.
+    const preferredX = rightX + w <= width ? rightX : leftX >= 0 ? leftX : rightX;
+    const x = Math.max(0, Math.min(width - w, preferredX));
+    let y = Math.max(0, Math.min(height - h, item.y));
     while (
       placed.some(
         (p) =>
@@ -25,8 +31,10 @@ export function layoutSignalLabels(items, width, height) {
     }
     placed.push({
       ...item,
-      anchorX: item.x,
-      anchorY: item.y,
+      anchorX: preferredX === leftX ? boxLeft : boxRight,
+      anchorY: item.boxCenterY ?? item.y + h / 2,
+      leaderToX: preferredX === leftX ? x + w : x,
+      leaderToY: y + h / 2,
       x,
       y,
       width: w,
@@ -41,11 +49,11 @@ export function signalCaption(track, index) {
   const identity =
     proposal?.available && !proposal.abstained
       ? `${proposal.method_id || proposal.family} proposal`
-      : `${track.modulation_hypothesis || "Unknown"} candidate`;
-  const shortId = track.track_id
-    ? `S${Number(track.track_id.split(":").at(-1)) || index + 1}`
-    : `S${index + 1}`;
-  return `${shortId} · ${identity}`;
+      : track.modulation_hypothesis || "Unknown signal";
+  const candidateNumber = track.track_id
+    ? Number(track.track_id.split(":").at(-1)) || index + 1
+    : index + 1;
+  return `Candidate ${candidateNumber} · ${identity}`;
 }
 
 export function hitSignal(tracks, sample, frequency) {
