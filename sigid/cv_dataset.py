@@ -113,6 +113,7 @@ def _lineage_groups(captures: list[dict[str, Any]]) -> dict[str, str]:
 
 def _splits(
     groups: set[str], seed: int, group_strata: dict[str, set[str]] | None = None,
+    group_sizes: dict[str, int] | None = None,
 ) -> dict[str, str]:
     if len(groups) < 7:
         raise ValueError("CV export needs at least seven independent groups to reserve three each for validation and test")
@@ -129,6 +130,7 @@ def _splits(
         buckets.setdefault(tuple(sorted(group_strata.get(group, set()))), []).append(group)
 
     assignment: dict[str, str] = {}
+    group_sizes = group_sizes or {}
     for stratum, members in sorted(buckets.items(), key=lambda item: (item[0], len(item[1]))):
         remaining_counts = {name: int(len(members) * weight) for name, weight in split_weights.items()}
         remainder_order = sorted(
@@ -140,15 +142,40 @@ def _splits(
         )
         for name in remainder_order[:len(members) - sum(remaining_counts.values())]:
             remaining_counts[name] += 1
+        size_by_group = {group: max(1, int(group_sizes.get(group, 1))) for group in members}
+        total_size = sum(size_by_group.values())
+        target_sizes = {
+            name: total_size * remaining_counts[name] / len(members)
+            for name in split_weights
+        }
+        assigned_sizes = {name: 0 for name in split_weights}
         ordered = sorted(
             members,
-            key=lambda value: hashlib.sha256(f"{seed}:{stratum}:{value}".encode()).hexdigest(),
+            key=lambda value: (
+                -size_by_group[value],
+                hashlib.sha256(f"{seed}:{stratum}:{value}".encode()).hexdigest(),
+            ),
         )
-        offset = 0
-        for name in ("test", "validation", "train"):
-            next_offset = offset + remaining_counts[name]
-            assignment.update({group: name for group in ordered[offset:next_offset]})
-            offset = next_offset
+        average_size = total_size / len(members)
+        for group in ordered:
+            group_size = size_by_group[group]
+            candidates = [name for name in split_weights if remaining_counts[name] > 0]
+
+            def cost(candidate: str) -> tuple[float, str]:
+                score = 0.0
+                for name in split_weights:
+                    projected = assigned_sizes[name] + (group_size if name == candidate else 0)
+                    scale = max(target_sizes[name], average_size, 1.0)
+                    score += ((projected - target_sizes[name]) / scale) ** 2
+                tie_breaker = hashlib.sha256(
+                    f"{seed}:{stratum}:{group}:{candidate}".encode()
+                ).hexdigest()
+                return score, tie_breaker
+
+            selected = min(candidates, key=cost)
+            assignment[group] = selected
+            assigned_sizes[selected] += group_size
+            remaining_counts[selected] -= 1
     return assignment
 
 
@@ -406,6 +433,7 @@ def export_cv_dataset(
     regions_by_capture: dict[str, list[dict[str, Any]]] = {}
     reviews_by_capture: dict[str, list[dict[str, Any]]] = {}
     group_strata: dict[str, set[str]] = {}
+    group_sizes: dict[str, int] = {}
     for capture_index, capture in enumerate(captures, start=1):
         if capture_index == 1 or capture_index % 25 == 0 or capture_index == len(captures):
             _export_progress(f"review scan: capture {capture_index}/{len(captures)}")
@@ -426,21 +454,29 @@ def export_cv_dataset(
         if capture["source_metadata"].get("exclude_training") is True:
             continue
         group = groups[capture_id]
-        for review in reviews:
-            if not _review_covers_window(review, review["sample_start"], review["sample_count"]):
+        # Split by the lineages and class strata that will actually export.
+        # Counting full windows (rather than review records) prevents unused or
+        # partial reviews from skewing both the split quotas and the weights.
+        sample_rate = int(capture["sample_rate"])
+        sample_count = int(capture["sample_count"])
+        window_count = sample_rate * WINDOW_SECONDS
+        for start in range(0, sample_count - window_count + 1, window_count):
+            covering = [
+                review for review in reviews
+                if _review_covers_window(review, start, window_count)
+            ]
+            if not covering:
                 continue
-            boxes, _, error = _window_boxes(regions, review["sample_start"], review["sample_count"])
-            if error:
-                continue
-            if not boxes and capture["source_kind"] != "synthetic" and not _is_human_verified_noise_sample(
-                capture, reviews, regions,
+            boxes, _, error = _window_boxes(regions, start, window_count)
+            if error or (
+                not boxes and capture["source_kind"] != "synthetic"
+                and not _is_human_verified_noise_sample(capture, reviews, regions)
             ):
                 continue
             group_strata.setdefault(group, set()).add("positive" if boxes else "negative")
-    # Split only lineages that have reviewed annotation coverage. Including
-    # unreviewed captures here assigns validation/test quota to sources that
-    # can never yield exported windows, shrinking the effective held-out sets.
-    split_by_group = _splits(set(group_strata), seed, group_strata)
+            group_sizes[group] = group_sizes.get(group, 0) + 1
+    # Unreviewed and partial captures cannot receive validation/test quota.
+    split_by_group = _splits(set(group_strata), seed, group_strata, group_sizes)
     split_by_group = _ensure_reviewed_groups_in_each_split(
         split_by_group, set(group_strata), seed,
     )

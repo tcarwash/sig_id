@@ -56,7 +56,7 @@ class CaptureStore:
     def _initialize(self) -> None:
         with self._connect() as db:
             version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21):
+            if version not in (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22):
                 raise RuntimeError(f"unsupported dataset schema version: {version}")
             db.executescript(
                 """
@@ -219,6 +219,7 @@ class CaptureStore:
                     sample_count INTEGER,
                     sample_rate INTEGER,
                     carrier_hz REAL,
+                    auto_identify INTEGER,
                     modulation_hypothesis TEXT NOT NULL,
                     backend TEXT NOT NULL,
                     modes_json TEXT NOT NULL,
@@ -255,6 +256,17 @@ class CaptureStore:
                     UNIQUE(capture_id, stream_sha256)
                 );
                 CREATE INDEX IF NOT EXISTS bitstreams_by_capture ON demod_bitstreams(capture_id, created_utc);
+                CREATE TABLE IF NOT EXISTS raw_demod_attempts (
+                    id TEXT PRIMARY KEY,
+                    capture_id TEXT NOT NULL REFERENCES captures(id) ON DELETE CASCADE,
+                    mode TEXT NOT NULL,
+                    sample_start INTEGER NOT NULL CHECK(sample_start >= 0),
+                    sample_count INTEGER NOT NULL CHECK(sample_count > 0),
+                    settings_json TEXT NOT NULL,
+                    result_json TEXT NOT NULL,
+                    created_utc TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS raw_attempts_by_capture ON raw_demod_attempts(capture_id, created_utc DESC);
                 CREATE TABLE IF NOT EXISTS bit_annotations (
                     id TEXT PRIMARY KEY,
                     bitstream_id TEXT NOT NULL REFERENCES demod_bitstreams(id) ON DELETE CASCADE,
@@ -309,6 +321,8 @@ class CaptureStore:
                 db.execute("ALTER TABLE decoder_runs ADD COLUMN association TEXT NOT NULL DEFAULT 'track_window_tentative'")
             if "carrier_hz" not in columns:
                 db.execute("ALTER TABLE decoder_runs ADD COLUMN carrier_hz REAL")
+            if "auto_identify" not in columns:
+                db.execute("ALTER TABLE decoder_runs ADD COLUMN auto_identify INTEGER")
             if "region_id" not in columns:
                 db.execute("ALTER TABLE decoder_runs ADD COLUMN region_id TEXT REFERENCES regions(id) ON DELETE SET NULL")
             if "classifier_evidence_json" not in columns:
@@ -345,7 +359,7 @@ class CaptureStore:
                 ) WHERE geometry_revision IS NULL""")
             if "resulting_revision" not in feedback_columns:
                 db.execute("ALTER TABLE annotation_feedback ADD COLUMN resulting_revision INTEGER")
-            db.execute("PRAGMA user_version = 21")
+            db.execute("PRAGMA user_version = 22")
 
     @staticmethod
     def _create_signal_identity(db: sqlite3.Connection) -> str:
@@ -2029,6 +2043,45 @@ class CaptureStore:
                 stream.write(json.dumps(record, sort_keys=True) + "\n")
         return len(rows)
 
+    def add_raw_demod_attempt(
+        self, capture_id: str, *, mode: str, sample_start: int, sample_count: int,
+        settings: dict[str, Any], result: dict[str, Any],
+    ) -> dict[str, Any]:
+        if mode not in {"2fsk", "ook", "mfsk", "bpsk", "qpsk"}:
+            raise ValueError("unsupported raw demodulator")
+        if sample_start < 0 or sample_count <= 0:
+            raise ValueError("sample range must be positive")
+        attempt_id = str(uuid4())
+        created = datetime.now(timezone.utc).isoformat()
+        with self._connect() as db:
+            capture = db.execute("SELECT sample_count FROM captures WHERE id=?", (capture_id,)).fetchone()
+            if capture is None:
+                raise KeyError(f"unknown capture: {capture_id}")
+            if sample_start + sample_count > capture["sample_count"]:
+                raise ValueError("demodulation sample range exceeds the parent capture")
+            db.execute(
+                """INSERT INTO raw_demod_attempts
+                   (id,capture_id,mode,sample_start,sample_count,settings_json,result_json,created_utc)
+                   VALUES (?,?,?,?,?,?,?,?)""",
+                (attempt_id, capture_id, mode, sample_start, sample_count,
+                 json.dumps(settings, sort_keys=True, separators=(",", ":")),
+                 json.dumps(result, sort_keys=True, separators=(",", ":")), created),
+            )
+        return {"id": attempt_id, "capture_id": capture_id, "mode": mode,
+                "sample_start": sample_start, "sample_count": sample_count,
+                "settings": settings, "result": result, "created_utc": created}
+
+    def raw_demod_attempts(self, capture_id: str) -> list[dict[str, Any]]:
+        with self._connect() as db:
+            if db.execute("SELECT 1 FROM captures WHERE id=?", (capture_id,)).fetchone() is None:
+                raise KeyError(f"unknown capture: {capture_id}")
+            rows = db.execute(
+                "SELECT * FROM raw_demod_attempts WHERE capture_id=? ORDER BY created_utc DESC,id DESC",
+                (capture_id,),
+            ).fetchall()
+        return [{**dict(row), "settings": json.loads(row["settings_json"]),
+                 "result": json.loads(row["result_json"])} for row in rows]
+
     def add_bit_annotation(
         self, capture_id: str, *, mode: str, sample_start: int, sample_count: int,
         settings: dict[str, Any], hypothesis: str, bits: str, bit_start: int,
@@ -2219,6 +2272,49 @@ class CaptureStore:
             result.append(item)
         return result
 
+    def list_library_signals(self) -> list[dict[str, Any]]:
+        """List active, labeled signal regions with their source recording metadata."""
+        with self._connect() as db:
+            rows = db.execute(
+                """SELECT c.id AS capture_id,c.created_utc,c.source_kind,c.sha256,
+                          c.sample_rate,c.channels,c.sample_count,c.source_metadata_json,
+                          r.id AS region_id,r.origin,r.signal_id,
+                          g.revision AS geometry_revision,g.sample_start,g.sample_count AS region_sample_count,
+                          g.frequency_low_hz,g.frequency_high_hz,
+                          l.revision,l.family,l.method,l.protocol,l.variant,l.mode_id,l.source,l.review_state
+                   FROM captures c
+                   JOIN regions r ON r.capture_id=c.id
+                   JOIN region_geometry_revisions g ON g.region_id=r.id AND g.revision=(
+                       SELECT MAX(revision) FROM region_geometry_revisions WHERE region_id=r.id
+                   )
+                   JOIN label_revisions l ON l.region_id=r.id AND l.revision=(
+                       SELECT MAX(revision) FROM label_revisions WHERE region_id=r.id
+                   )
+                   WHERE l.review_state IN ('accepted','pending')
+                     AND (l.mode_id IS NOT NULL OR l.family IS NOT NULL OR l.method IS NOT NULL
+                          OR l.protocol IS NOT NULL OR l.variant IS NOT NULL)
+                     AND NOT EXISTS(SELECT 1 FROM region_removals rr WHERE rr.region_id=r.id)
+                     AND NOT EXISTS(SELECT 1 FROM region_lineage rl WHERE rl.source_region_id=r.id)
+                   ORDER BY (l.review_state='accepted') DESC,c.created_utc DESC,g.sample_start"""
+            ).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            source_metadata = json.loads(item.pop("source_metadata_json"))
+            region = {
+                key: item.pop(key) for key in (
+                    "region_id", "origin", "signal_id", "geometry_revision", "sample_start",
+                    "region_sample_count", "frequency_low_hz", "frequency_high_hz", "revision",
+                    "family", "method", "protocol", "variant", "mode_id", "source", "review_state",
+                )
+            }
+            region["id"] = region.pop("region_id")
+            region["sample_count"] = region.pop("region_sample_count")
+            item["source_metadata"] = source_metadata
+            item["region"] = region
+            result.append(item)
+        return result
+
     def create_decoder_run(
         self, *, session_id: str, track_id: str, sample_start: int | None,
         sample_count: int | None, sample_rate: int | None,
@@ -2228,6 +2324,7 @@ class CaptureStore:
         output_scope: str = "shared_live_input",
         association: str = "track_window_tentative",
         carrier_hz: float | None = None,
+        auto_identify: bool | None = None,
         region_id: str | None = None,
         classifier_evidence: dict[str, Any] | None = None,
         detector_evidence: dict[str, Any] | None = None,
@@ -2246,12 +2343,13 @@ class CaptureStore:
         with self._connect() as db:
             db.execute(
                 """INSERT INTO decoder_runs
-                   (id, session_id, capture_id, region_id, track_id, sample_start, sample_count, sample_rate, carrier_hz,
+                   (id, session_id, capture_id, region_id, track_id, sample_start, sample_count, sample_rate, carrier_hz, auto_identify,
                     modulation_hypothesis, backend, modes_json, attempted_modes_json,
                     current_mode, output_offset, output_end, output_text, status, note,
                     output_scope, association, classifier_evidence_json, detector_evidence_json, created_utc, updated_utc)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '', ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '', ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (run_id, session_id, capture_id, region_id, track_id, sample_start, sample_count, sample_rate, carrier_hz,
+                 int(auto_identify),
                  modulation_hypothesis, backend, json.dumps(modes),
                  json.dumps(attempted_modes), current_mode, output_offset, status,
                  note, output_scope, association, json.dumps(classifier_evidence or {}, sort_keys=True),
@@ -2298,6 +2396,8 @@ class CaptureStore:
         result = []
         for row in rows:
             item = dict(row)
+            if item["auto_identify"] is not None:
+                item["auto_identify"] = bool(item["auto_identify"])
             item["modes"] = json.loads(item.pop("modes_json"))
             item["attempted_modes"] = json.loads(item.pop("attempted_modes_json"))
             item["classifier_evidence"] = json.loads(item.pop("classifier_evidence_json"))

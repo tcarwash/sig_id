@@ -99,7 +99,8 @@ try {
     );
     assert.ok(await page.locator("#error").isHidden());
     await page.locator("#show-signals").click();
-    await page.locator('[data-inspector-tab="raw"]').click();
+    await page.locator('[data-inspector-tab="investigate"]').click();
+    await page.locator('[data-investigation-tool="raw"]').click();
     await page.locator("#raw-tool").selectOption(mode);
     const submit = mode === "2fsk" ? "demod-run" : `${mode}-run`;
     await page.locator(`#${submit}`).click();
@@ -226,7 +227,8 @@ try {
   assert.ok(await page.locator("#coverage-panel").isHidden());
   // Manual labeling and direct saved-annotation selection.
   await page.locator("#show-signals").click();
-  await page.locator('[data-inspector-tab="raw"]').click();
+  await page.locator('[data-inspector-tab="investigate"]').click();
+  await page.locator('[data-investigation-tool="raw"]').click();
   await page.locator("#raw-tool").selectOption("2fsk");
   await page.locator("#demod-run").click();
   await page.waitForFunction(() => [...document.querySelectorAll(".bit-clues")].some(node => node.textContent.includes("Saved preamble")));
@@ -273,7 +275,8 @@ try {
     0,
     "signal selection must not switch decoder modes",
   );
-  await page.locator('[data-inspector-tab="decode"]').click();
+  await page.locator('[data-inspector-tab="investigate"]').click();
+  await page.locator('[data-investigation-tool="decoder"]').click();
   await page.locator("#fldigi-mode").selectOption("RTTY");
   assert.equal(modeChanges, 0, "mode choice requires explicit action");
   await page.locator("#fldigi-select").click();
@@ -332,7 +335,8 @@ try {
   )).json();
   assert.equal(taggedRegions[0].variant, "RTTY");
   // A result returning after a source change must not be exported as the new source.
-  await page.locator('[data-inspector-tab="raw"]').click();
+  await page.locator('[data-inspector-tab="investigate"]').click();
+  await page.locator('[data-investigation-tool="raw"]').click();
   await page.locator("#raw-tool").selectOption("qpsk");
   await page.route("**/demod/qpsk", async (route) => {
     const response = await route.fetch();
@@ -378,7 +382,8 @@ try {
   await page.locator("#capture-list .capture-row").filter({ hasText: "saved-run-fresh.wav" }).getByRole("button", { name: "Open" }).click();
   await page.locator("#library-dialog").waitFor({state:"hidden"});
   await page.locator("#show-signals").click();
-  await page.locator('[data-inspector-tab="decode"]').click();
+  await page.locator('[data-inspector-tab="investigate"]').click();
+  await page.locator('[data-investigation-tool="decoder"]').click();
   await page.locator("#decode-runs .decode-run").waitFor();
   await page.locator("#decode-runs .decode-run").click();
   assert.match(await page.locator("#decoded-text").textContent(), /TEST SAVED TRACK RUN/);
@@ -577,7 +582,8 @@ try {
         await page.waitForTimeout(1100);
         await page.locator("#show-signals").click();
         await page.locator("#track-list").getByRole("button", { name: "Review region" }).first().click();
-        await page.locator('[data-inspector-tab="decode"]').click();
+        await page.locator('[data-inspector-tab="investigate"]').click();
+        await page.locator('[data-investigation-tool="decoder"]').click();
         await page.locator("#fldigi-mode").selectOption("RTTY");
         assert.equal(await page.locator("#play-selection").isDisabled(), true);
         assert.equal(await page.locator("#decode-selection").textContent(), "Decode live track window");

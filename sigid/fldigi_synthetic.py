@@ -272,9 +272,24 @@ def build_fldigi_corpus(
 
     if not 1 <= examples_per_mode <= 100:
         raise ValueError("examples_per_mode must be between 1 and 100")
+    data_root = Path(data_dir).expanduser().resolve()
     modes = fldigi_modes()
     query = mode_query.strip().casefold()
-    if query != "all":
+    if query == "missing":
+        store = CaptureStore(data_root / "dataset.sqlite3")
+        existing = set()
+        for item in store.list_library_signals():
+            if item.get("source_metadata", {}).get("generator") != "sig-id-fldigi":
+                continue
+            region = item.get("region") or {}
+            for value in (region.get("mode_id"), region.get("variant")):
+                token = re.sub(r"[^a-z0-9]", "", str(value or "").casefold())
+                existing.add(token.removeprefix("fldigi"))
+        def mode_tokens(mode: dict[str, Any]) -> set[str]:
+            values = (mode.get("id"), mode.get("display_name"), mode.get("backend_name"), mode.get("variant"))
+            return {re.sub(r"[^a-z0-9]", "", str(value or "").casefold()).removeprefix("fldigi") for value in values}
+        modes = [mode for mode in modes if not (mode_tokens(mode) & existing)]
+    elif query != "all":
         matches = [item for item in modes if query in {
             str(item["id"]).casefold(), str(item["display_name"]).casefold(),
             str(item["backend_name"]).casefold(),
@@ -282,7 +297,6 @@ def build_fldigi_corpus(
         if len(matches) != 1:
             raise ValueError(f"mode must exactly match one Fldigi mode ID, label, or backend name; found {len(matches)}")
         modes = matches
-    data_root = Path(data_dir).expanduser().resolve()
     output = Path(output_dir).expanduser().resolve()
     store = CaptureStore(data_root / "dataset.sqlite3")
     audio_dir = output / "audio"
@@ -393,7 +407,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Generate classified audio samples using native Fldigi transmit modes")
     parser.add_argument("--data-dir", type=Path, default=Path(os.environ.get("SIG_ID_DATA_DIR", "~/.local/share/sig-id")).expanduser())
     parser.add_argument("--output-dir", type=Path, default=Path("data/fldigi-corpus"))
-    parser.add_argument("--mode", default="all", help="all, or one exact registry ID, display name, or Fldigi mode name")
+    parser.add_argument("--mode", default="all", help="all, missing (skip modes with a saved Fldigi reference), or one exact registry ID, display name, or Fldigi mode name")
     parser.add_argument("--examples-per-mode", type=int, default=1)
     parser.add_argument("--seed", type=int, default=4192026)
     parser.add_argument("--carrier-hz", type=float, default=1500.0)

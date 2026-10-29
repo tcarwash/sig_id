@@ -11,7 +11,7 @@ dependencies = ["numpy>=2.0"]
 
 [project.optional-dependencies]
 audio = ["numpy>=2.0", "scipy>=1.13", "soundfile>=0.12", "sounddevice>=0.5"]
-api = ["fastapi>=0.111", "uvicorn>=0.30", "python-multipart>=0.0.9", "numpy>=2.0", "scipy>=1.13"]
+api = ["fastapi>=0.111", "uvicorn>=0.30", "python-multipart>=0.0.9", "numpy>=2.0", "scipy>=1.13", "Pillow>=10"]
 dev = ["pytest>=8", "fastapi>=0.111", "httpx>=0.27", "numpy>=2.0", "python-multipart>=0.0.9", "uvicorn>=0.30", "scipy>=1.13"]
 cv = ["ultralytics==8.4.184"]
 hub-s3 = ["boto3>=1.35"]
@@ -44,6 +44,7 @@ sig-id-train-cv-detector = "sigid.cv_training:main"
 sig-id-build-cv-embedding-index = "sigid.cv_embeddings:main"
 sig-id-evaluate-cv-flow = "sigid.cv_flow_evaluation:main"
 sig-id-import-sigidwiki = "sigid.sigidwiki:main"
+sig-id-import-sigidwiki-images = "sigid.sigidwiki_images:main"
 sig-id-serve = "sigid.server:main"
 sig-id-hub = "sigid.hub:main"
 

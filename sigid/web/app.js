@@ -4,9 +4,10 @@ import { createDemodExport, downloadDemodExport } from "/demod-export.mjs";
 import { bitSelectionRange, bitstreamMetrics, bytesForBits, framingCandidates, transformBitstream, createBitAnnotation } from "/bit-inspector.mjs";
 import { narrowKnownModes } from "/mode-candidates.mjs";
 import { layoutSignalLabels, signalCaption, hitSignal } from "/signal-overlays.mjs";
+import { decodeSelectionKey, mayPresentDecodeResult } from "/decode-context.mjs";
 
 const el = (id) => document.getElementById(id);
-const state = { capture: null, waterfall: null, drag: null, resizeDrag: null, moveDrag: null, selection: null, regions: [], tracks: [], cvDetections: [], cvDetectionCache: new Map(), cvDismissedCount: 0, cvRejectedProposals: [], cvAvailable: false, cvSimilarAvailable: false, bitAnnotations: [], protocolStencils: [], liveView: false, liveSessionId: null, modelAvailable: false, modelTraining: false, view: null, demodExports: {}, selectedTrack: null, classifierProposal: null, frozen: false, labelModeId: null, modeSearchResults: [], modeSearchRequest: 0, applyingMode: false, adjustingGeometry: false, geometryDraft: false, adjustingCandidate: null, drawingSignalBox: false, batchBoxMode: false, batchBoxes: [], batchBoxUndo: [], batchReviewBox: null, batchSaveKey: null, batchSaveDigest: null, batchSaving: false, windowRegionEdits: new Map(), windowRegionDeletes: new Map(), windowMerges: [], windowIdentityLinks: [], identityLinkSelection: new Set(), splitMode: false, splitChildren: [], splitParentSelection: null, mergeRegionIds: new Set(), selectionMergeRegions: [], excludedMergeCandidates: new Set(), modeProposalRegion: null, proposalCaptureRequest: 0, proposalEvidenceCaptures: [] };
+const state = { capture: null, waterfall: null, drag: null, resizeDrag: null, moveDrag: null, selection: null, regions: [], tracks: [], cvDetections: [], cvDetectionCache: new Map(), cvDismissedCount: 0, cvRejectedProposals: [], cvAvailable: false, cvSimilarAvailable: false, bitAnnotations: [], rawDemodAttempts: [], comparedRawAttemptIds: new Set(), rawRetrySample: null, protocolStencils: [], liveView: false, liveMonitoring: false, liveSessionId: null, liveReviewReturn: null, modelAvailable: false, modelTraining: false, view: null, demodExports: {}, selectedTrack: null, classifierProposal: null, frozen: false, labelModeId: null, modeSearchResults: [], modeSearchRequest: 0, applyingMode: false, adjustingGeometry: false, geometryDraft: false, adjustingCandidate: null, drawingSignalBox: false, batchBoxMode: false, batchBoxes: [], batchBoxUndo: [], batchReviewBox: null, batchSaveKey: null, batchSaveDigest: null, batchSaving: false, windowRegionEdits: new Map(), windowRegionDeletes: new Map(), windowMerges: [], windowIdentityLinks: [], identityLinkSelection: new Set(), comparedDecodeRunIds: new Set(), splitMode: false, splitChildren: [], splitParentSelection: null, mergeRegionIds: new Set(), selectionMergeRegions: [], excludedMergeCandidates: new Set(), modeProposalRegion: null, proposalCaptureRequest: 0, proposalEvidenceCaptures: [] };
 state.geometryMergeRegions = [];
 state.showSupersededRegions = false;
 let nativeDecoderBindings = [];
@@ -61,10 +62,103 @@ function saveFrequencyNotches() {
 }
 state.inspectorMode = savedInspectorPreference("sig-id-inspector-mode", ["classify", "annotate"], "classify");
 state.inspectorTab = savedInspectorPreference("sig-id-inspector-tab", ["label", "decode", "raw", "signals"], "label");
-state.inspectorDetailLevel = savedInspectorPreference("sig-id-inspector-detail", ["simple", "advanced"], "simple");
 const classifierCropOptions = Array.from({ length: 20 }, (_, index) => String(index + 1));
 const classifierCropCount = savedInspectorPreference("sig-id-classifier-crop-count", classifierCropOptions, "1");
 el("classifier-crop-count").value = classifierCropCount;
+const RIGCTL_SETTINGS_KEY = "sig-id-rigctl-settings";
+let rigctlSavedSettings = {};
+try { rigctlSavedSettings = JSON.parse(localStorage.getItem(RIGCTL_SETTINGS_KEY) || "{}"); } catch {}
+el("rigctl-enabled").checked = rigctlSavedSettings.enabled === true;
+el("rigctl-host").value = typeof rigctlSavedSettings.host === "string" ? rigctlSavedSettings.host : "127.0.0.1";
+el("rigctl-port").value = Number.isInteger(rigctlSavedSettings.port) ? String(rigctlSavedSettings.port) : "4532";
+function saveRigctlSettings() {
+  const settings = {
+    enabled: el("rigctl-enabled").checked,
+    host: el("rigctl-host").value.trim(),
+    port: Number(el("rigctl-port").value),
+  };
+  try { localStorage.setItem(RIGCTL_SETTINGS_KEY, JSON.stringify(settings)); } catch {}
+  return settings;
+}
+for (const id of ["rigctl-enabled", "rigctl-host", "rigctl-port"]) {
+  el(id).addEventListener("change", saveRigctlSettings);
+}
+function formatRigFrequency(frequencyHz) {
+  if (frequencyHz >= 1_000_000) return `${(frequencyHz / 1_000_000).toFixed(6)} MHz`;
+  if (frequencyHz >= 1_000) return `${(frequencyHz / 1_000).toFixed(3)} kHz`;
+  return `${frequencyHz.toFixed(1)} Hz`;
+}
+async function readRigctlFrequency() {
+  const settings = saveRigctlSettings();
+  if (!/^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$/.test(settings.host)
+      || !Number.isInteger(settings.port) || settings.port < 1 || settings.port > 65535) {
+    const result = {connected: false, error: "Enter a valid rigctld hostname/IP and TCP port."};
+    el("rigctl-status").textContent = result.error;
+    return result;
+  }
+  const button = el("rigctl-check");
+  button.disabled = true;
+  el("rigctl-status").textContent = `Reading frequency from ${settings.host}:${settings.port}…`;
+  try {
+    const result = await request("/api/rigctl/frequency", {
+      method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify(settings),
+    });
+    el("rigctl-status").textContent = result.connected
+      ? `Connected · ${formatRigFrequency(result.frequency_hz)} · read-only`
+      : `rigctld unavailable · ${result.error || "No frequency returned."}`;
+    return result;
+  } catch (error) {
+    const result = {connected: false, error: error.message};
+    el("rigctl-status").textContent = `rigctld query failed · ${error.message}`;
+    return result;
+  } finally {
+    button.disabled = false;
+  }
+}
+el("rigctl-check").addEventListener("click", readRigctlFrequency);
+const BAND_HOP_SETTINGS_KEY = "sig-id-band-hop-settings";
+let bandHopSavedSettings = {};
+let bandHopAvailable = false;
+try { bandHopSavedSettings = JSON.parse(localStorage.getItem(BAND_HOP_SETTINGS_KEY) || "{}"); } catch {}
+el("band-hop-enabled").checked = bandHopSavedSettings.enabled === true;
+el("band-hop-frequencies").value = typeof bandHopSavedSettings.frequencies === "string" ? bandHopSavedSettings.frequencies : "";
+el("band-hop-dwell-minutes").value = ["1", "2", "5", "10", "15"].includes(String(bandHopSavedSettings.dwellMinutes))
+  ? String(bandHopSavedSettings.dwellMinutes) : "5";
+function saveBandHopSettings() {
+  const settings = {
+    enabled: el("band-hop-enabled").checked,
+    frequencies: el("band-hop-frequencies").value,
+    dwellMinutes: Number(el("band-hop-dwell-minutes").value) || 5,
+  };
+  try { localStorage.setItem(BAND_HOP_SETTINGS_KEY, JSON.stringify(settings)); } catch {}
+  updateLiveCaptureModeControls();
+  return settings;
+}
+request("/api/live/capabilities").then((capabilities) => {
+  bandHopAvailable = capabilities.band_hopping === true;
+  el("band-hop-enabled").disabled = !bandHopAvailable;
+  el("band-hop-frequencies").disabled = !bandHopAvailable;
+  el("band-hop-dwell-minutes").disabled = !bandHopAvailable;
+  el("band-hop-capability-status").textContent = bandHopAvailable
+    ? "Ready · receiver tuning is enabled for unattended captures."
+    : "This server build does not support band hopping. Restart Signal ID after updating to enable it.";
+  updateLiveCaptureModeControls();
+}).catch(() => {
+  el("band-hop-capability-status").textContent = "Restart the Signal ID server to enable band hopping.";
+});
+for (const id of ["band-hop-enabled", "band-hop-frequencies", "band-hop-dwell-minutes"]) {
+  el(id).addEventListener("change", saveBandHopSettings);
+}
+function bandHopFrequenciesHz() {
+  const raw = el("band-hop-frequencies").value.trim();
+  const values = raw.split(/[\s,;]+/).filter(Boolean).map(Number);
+  if (values.length < 2 || values.some((value) => !Number.isFinite(value) || value < 0.1 || value > 6000)) {
+    throw new Error("Enter at least two receiver frequencies between 0.1 and 6000 MHz.");
+  }
+  const frequencies = values.map((value) => Math.round(value * 1_000_000));
+  if (new Set(frequencies).size !== frequencies.length) throw new Error("Each band-hop frequency must be unique.");
+  return frequencies;
+}
 el("live-cv-enabled").checked = savedInspectorPreference("sig-id-live-cv-enabled", ["on", "off"], "on") === "on";
 el("live-classifier-enabled").checked = savedInspectorPreference("sig-id-live-classifier-enabled", ["on", "off"], "on") === "on";
 for (const id of ["live-cv-enabled", "live-classifier-enabled"]) {
@@ -540,6 +634,7 @@ el("native-decode-selection").addEventListener("click", async () => {
   );
   const button = el("native-decode-selection");
   button.disabled = true;
+  const owner = beginDecodeAttempt();
   el("native-decode-status").textContent = `Sending selected audio to ${backendId} · ${modeId}…`;
   try {
     const result = await request(`/api/captures/${encodeURIComponent(capture.id)}/decoder-backends/${encodeURIComponent(backendId)}/decode`, {
@@ -551,15 +646,19 @@ el("native-decode-selection").addEventListener("click", async () => {
     });
     const text = (result.products || []).filter((product) => product.kind === "text")
       .map((product) => product.content).join("\n");
-    el("native-decode-status").textContent = `${result.status.toUpperCase()} · ${result.application} · ${result.note}`;
-    showOutput("text");
-    state.textOutputContext = `${result.application} · ${result.native_mode} · exact selected window`;
-    el("output-context").textContent = state.textOutputContext;
-    el("decoded-text").textContent = text || "No decoded text in this window.";
-    state.decodeRuns = await request(`/api/captures/${encodeURIComponent(capture.id)}/decode-runs`);
+    if (state.liveView || state.capture?.id !== capture.id) return;
+    if (ownsDecodeOutput(owner)) {
+      el("native-decode-status").textContent = `${result.status.toUpperCase()} · ${result.application} · ${result.note}`;
+      state.textOutputContext = `${result.application} · ${result.native_mode} · exact selected window`;
+      el("output-context").textContent = state.textOutputContext;
+      el("decoded-text").textContent = text || "No decoded text in this window.";
+    }
+    const runs = await request(`/api/captures/${encodeURIComponent(capture.id)}/decode-runs`);
+    if (state.liveView || state.capture?.id !== capture.id) return;
+    state.decodeRuns = runs;
     renderDecodeRuns();
   } catch (error) {
-    el("native-decode-status").textContent = `Native decode failed · ${error.message}`;
+    if (ownsDecodeOutput(owner)) el("native-decode-status").textContent = `Native decode failed · ${error.message}`;
   } finally {
     updateDecoderSelectionControls();
   }
@@ -621,7 +720,7 @@ async function pollFldigiOutput() {
     if (generation !== state.outputGeneration) return;
     if (result.end < fldigiOffset) fldigiOffset = 0;
     fldigiOffset = result.end;
-    if (result.text) {
+    if (result.text && !state.focusedDecodeAttempt) {
       const target = el("decoded-text");
       const old = target.textContent === "Decoded text will appear here." ? "" : target.textContent;
       target.textContent = (old + result.text).slice(-20000);
@@ -638,12 +737,18 @@ function watchDecoderTrial(result) {
   if (!result.run_id || watchedTrialTrack === result.track_id) return;
   watchedTrialTrack = result.track_id;
   state.decoderTrial = {track_id:result.track_id,status:result.status,mode:result.current_mode,run_id:result.run_id};
-  state.textOutputContext = `Isolated mode sweep ${result.run_id.slice(0,8)} · track ${result.track_id} · tentative`;
-  updateOutputContext();
-  el("fldigi-status").textContent = `Trying isolated tested modes for ${result.track_id} · exact live sample window`;
-  el("decoded-text").textContent = `Isolated receive trial: ${result.current_mode}\nTentative only · ${result.note}`;
+  let owner = null;
+  if (state.selectedTrack?.track_id === result.track_id && !state.focusedDecodeAttempt) {
+    owner = beginDecodeAttempt();
+    owner.runId = result.run_id;
+    state.textOutputContext = `Isolated mode sweep ${result.run_id.slice(0,8)} · track ${result.track_id} · tentative`;
+    updateOutputContext();
+    el("fldigi-status").textContent = `Trying isolated tested modes for ${result.track_id} · exact live sample window`;
+    el("decoded-text").textContent = `Isolated receive trial: ${result.current_mode}\nTentative only · ${result.note}`;
+  }
   isolatedTrialActive = true;
-  pollLiveDecodeRun(result.session_id || state.liveSessionId, result.run_id);
+  pollLiveDecodeRun(result.session_id || state.liveSessionId, result.run_id, owner)
+    .finally(() => { isolatedTrialActive = false; });
 }
 
 async function startDecoderTrial(track) {
@@ -768,6 +873,7 @@ el("decode-selection").addEventListener("click", async () => {
   const button = el("decode-selection");
   button.disabled = true;
   const carrierStatus = carrierHz === null ? "carrier unset" : `carrier ${carrierHz.toFixed(0)} Hz`;
+  const owner = beginDecodeAttempt();
   const linkedRegion = state.editRegion && state.regions.find((region) =>
     region.id === state.editRegion.id && region.lineage_state === "active"
       && region.sample_start === selection.sample_start && region.sample_count === selection.sample_count,
@@ -783,6 +889,8 @@ el("decode-selection").addEventListener("click", async () => {
         mode,
         sample_start: selection.sample_start,
         sample_count: selection.sample_count,
+        frequency_low_hz: selection.frequency_low_hz,
+        frequency_high_hz: selection.frequency_high_hz,
         track_id: state.selectedTrack?.track_id || null,
         carrier_hz: carrierHz,
         region_id: liveSessionId ? null : linkedRegion?.id || null,
@@ -791,8 +899,9 @@ el("decode-selection").addEventListener("click", async () => {
       }),
     });
     el("replay-status").textContent = `Decode ${result.status} · ${mode} · ${carrierStatus} · isolated ${liveSessionId ? "live track" : "selected region"} input`;
-    if (liveSessionId) pollLiveDecodeRun(liveSessionId, result.run_id);
-    else pollSavedDecodeRun(captureId, result.run_id);
+    owner.runId = result.run_id;
+    if (liveSessionId) pollLiveDecodeRun(liveSessionId, result.run_id, owner);
+    else pollSavedDecodeRun(captureId, result.run_id, owner);
   } catch (error) {
     el("replay-status").textContent = `Decode could not start · ${error.message}`;
   } finally {
@@ -839,6 +948,7 @@ el("auto-identify-selection").addEventListener("click", async () => {
   }
   const button = el("auto-identify-selection");
   button.disabled = true;
+  const owner = beginDecodeAttempt();
   el("replay-status").textContent = `Checking RSID, then testing ${candidates.join(", ")} against this exact audio window…`;
   try {
     const endpoint = liveSessionId
@@ -849,13 +959,15 @@ el("auto-identify-selection").addEventListener("click", async () => {
       body: JSON.stringify({
         mode: candidates[0], auto_identify: true, candidate_modes: candidates,
         sample_start: selection.sample_start, sample_count: selection.sample_count,
+        frequency_low_hz: selection.frequency_low_hz, frequency_high_hz: selection.frequency_high_hz,
         track_id: state.selectedTrack?.track_id || null, carrier_hz: carrierHz,
         region_id: null,
       }),
     });
     el("replay-status").textContent = `Auto-identification ${result.status} · ${candidates.length} candidates · isolated ${liveSessionId ? "live track" : "selected region"} input · tentative only`;
-    if (liveSessionId) pollLiveDecodeRun(liveSessionId, result.run_id);
-    else pollSavedDecodeRun(captureId, result.run_id);
+    owner.runId = result.run_id;
+    if (liveSessionId) pollLiveDecodeRun(liveSessionId, result.run_id, owner);
+    else pollSavedDecodeRun(captureId, result.run_id, owner);
   } catch (error) {
     el("replay-status").textContent = `Auto-identification could not start · ${error.message}`;
   } finally {
@@ -863,12 +975,24 @@ el("auto-identify-selection").addEventListener("click", async () => {
   }
 });
 
-async function pollLiveDecodeRun(sessionId, runId) {
+function beginDecodeAttempt() {
+  const owner = {selectionKey: decodeSelectionKey(state), runId: crypto.randomUUID()};
+  state.focusedDecodeAttempt = owner;
+  showOutput("text");
+  return owner;
+}
+
+function ownsDecodeOutput(owner) {
+  return mayPresentDecodeResult(owner, {selectionKey: decodeSelectionKey(state),
+    runId: state.focusedDecodeAttempt?.runId, outputTab: state.outputTab});
+}
+
+async function pollLiveDecodeRun(sessionId, runId, owner = null) {
   for (let attempt = 0; attempt < 240; attempt++) {
-    if (state.liveSessionId !== sessionId) return;
+    if (!state.liveView || state.liveSessionId !== sessionId) return;
     try {
       const runs = await request(`/api/live/sessions/${encodeURIComponent(sessionId)}/decode-runs`);
-      if (state.liveSessionId !== sessionId) return;
+      if (!state.liveView || state.liveSessionId !== sessionId) return;
       state.decodeRuns = runs;
       renderDecodeRuns();
       const run = runs.find((item) => item.id === runId);
@@ -877,12 +1001,12 @@ async function pollLiveDecodeRun(sessionId, runId) {
           track_id: run.track_id, status: run.status,
           mode: run.current_mode, run_id: run.id,
         };
-        el("fldigi-status").textContent = `${run.status} · ${run.attempted_modes.join(" → ")} · ${run.note}`;
+        if (ownsDecodeOutput(owner)) el("fldigi-status").textContent = `${run.status} · ${run.attempted_modes.join(" → ")} · ${run.note}`;
         if (!state.frozen) renderSignalLabels();
       }
       if (run && !["queued", "running"].includes(run.status)) {
-        el("replay-status").textContent = `${run.status.toUpperCase()} · ${run.current_mode} · ${run.note}`;
-        if (run.output_text) {
+        if (ownsDecodeOutput(owner)) el("replay-status").textContent = `${run.status.toUpperCase()} · ${run.current_mode} · ${run.note}`;
+        if (run.output_text && ownsDecodeOutput(owner)) {
           showOutput("text");
           state.textOutputContext = `Isolated replay ${run.id.slice(0,8)} · exact live track window · tentative text`;
           el("output-context").textContent = state.textOutputContext;
@@ -892,26 +1016,26 @@ async function pollLiveDecodeRun(sessionId, runId) {
         return;
       }
     } catch (error) {
-      el("replay-status").textContent = `Decode status unavailable · ${error.message}`;
+      if (ownsDecodeOutput(owner)) el("replay-status").textContent = `Decode status unavailable · ${error.message}`;
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
-  el("replay-status").textContent = "Decode is still running. Stop and reopen the capture later to review its saved result.";
+  if (ownsDecodeOutput(owner)) el("replay-status").textContent = "Decode is still running. Check receive attempts for its result; monitoring can continue.";
 }
 
-async function pollSavedDecodeRun(captureId, runId) {
+async function pollSavedDecodeRun(captureId, runId, owner = null) {
   for (let attempt = 0; attempt < 240; attempt++) {
-    if (state.capture?.id !== captureId) return;
+    if (state.liveView || state.capture?.id !== captureId) return;
     try {
       const runs = await request(`/api/captures/${captureId}/decode-runs`);
-      if (state.capture?.id !== captureId) return;
+      if (state.liveView || state.capture?.id !== captureId) return;
       state.decodeRuns = runs;
       renderDecodeRuns();
       const run = runs.find((item) => item.id === runId);
       if (run && !["queued", "running"].includes(run.status)) {
-        el("replay-status").textContent = `${run.status.toUpperCase()} · ${run.current_mode} · ${run.note}`;
-        if (run.output_text) {
+        if (ownsDecodeOutput(owner)) el("replay-status").textContent = `${run.status.toUpperCase()} · ${run.current_mode} · ${run.note}`;
+        if (run.output_text && ownsDecodeOutput(owner)) {
           showOutput("text");
           state.textOutputContext = `Isolated replay ${run.id.slice(0,8)} · exact selected region · tentative text`;
           el("output-context").textContent = state.textOutputContext;
@@ -921,12 +1045,12 @@ async function pollSavedDecodeRun(captureId, runId) {
         return;
       }
     } catch (error) {
-      el("replay-status").textContent = `Decode status unavailable · ${error.message}`;
+      if (ownsDecodeOutput(owner)) el("replay-status").textContent = `Decode status unavailable · ${error.message}`;
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
-  el("replay-status").textContent = "Decode is still running. Reopen this capture later to review its saved result.";
+  if (ownsDecodeOutput(owner)) el("replay-status").textContent = "Decode is still running. Reopen this capture later to review its saved result.";
 }
 
 el("tag-as-mode").addEventListener("click", () => {
@@ -945,6 +1069,7 @@ el("fldigi-select").addEventListener("click", async () => {
       body: JSON.stringify({ name: el("fldigi-mode").value }),
     });
     el("fldigi-status").textContent = `Selected ${result.current_mode} · audio routing not verified`;
+    state.focusedDecodeAttempt = null;
     fldigiOffset = result.output_offset;
     state.textOutputContext = `Shared Fldigi output · ${result.current_mode} · external audio route`;
     updateOutputContext();
@@ -2098,7 +2223,7 @@ function updateAnnotationSaveAvailability() {
     : !state.selection || !state.capture || state.liveView || state.batchSaving;
   el("save-annotations").textContent = state.liveView
     ? "Save annotations"
-    : hasWindowChanges ? "Save all annotations" : annotate ? "Save annotations" : "Save signal";
+    : annotate ? "Save progress · stay here" : hasWindowChanges ? "Save all annotations" : "Save signal";
   el("save-annotations").title = state.liveView
     ? state.selection
       ? "Save this labeled signal as a training candidate from the current 10-second live window."
@@ -2108,11 +2233,18 @@ function updateAnnotationSaveAvailability() {
       : annotate
         ? "Save this annotation as part of the current 10-second window."
         : "Save the selected signal and its label.";
-  el("save-annotations").hidden = annotate;
   el("save-annotations-close").disabled = !state.capture || state.liveView || state.batchSaving;
+  el("save-annotations").hidden = false;
   const reportButton = el("report-window-pdf");
   if (reportButton) reportButton.disabled = !state.capture || !state.waterfall || state.liveView;
   el("save-annotations-complete").disabled = state.batchSaving || !state.capture || state.liveView;
+  const claim = el("review-completion-claim");
+  const queued = annotate && !state.liveView && state.capture?.source_metadata?.auto_review_queue;
+  claim.hidden = !queued;
+  if (queued) {
+    const bounds = annotationWindowBounds();
+    claim.textContent = `Complete confirms every signal was checked: ${(bounds.startSample / state.capture.sample_rate).toFixed(1)}–${(bounds.endSample / state.capture.sample_rate).toFixed(1)} s · 0–${state.cvReviewMaxFrequencyHz} Hz. Unknown identities are valid.`;
+  }
 }
 
 function reportRegionsForWindow(bounds) {
@@ -2137,9 +2269,25 @@ function reportWaterfallCanvas(bounds, regions, cropRegion = null) {
   const canvas = document.createElement("canvas");
   if (!rowIndices.length) return canvas;
   const hasBand = cropRegion && Number.isFinite(cropRegion.frequency_low_hz) && Number.isFinite(cropRegion.frequency_high_hz);
-  const frequencyStart = hasBand ? Math.max(0, lowerBound(data.frequency_hz, cropRegion.frequency_low_hz)) : 0;
-  const frequencyEnd = hasBand ? Math.min(data.frequency_hz.length, lowerBound(data.frequency_hz, cropRegion.frequency_high_hz) + 1) : data.frequency_hz.length;
-  const selectedRows = (cropRegion ? rowIndices.filter(({sample}) => sample < cropRegion.sample_start + cropRegion.sample_count && sample + data.fft_size > cropRegion.sample_start) : rowIndices).reverse();
+  let frequencyStart = hasBand ? Math.max(0, lowerBound(data.frequency_hz, cropRegion.frequency_low_hz)) : 0;
+  let frequencyEnd = hasBand ? Math.min(data.frequency_hz.length, lowerBound(data.frequency_hz, cropRegion.frequency_high_hz) + 1) : data.frequency_hz.length;
+  const bandStart = frequencyStart, bandEnd = frequencyEnd;
+  const sampleRate = data.sample_rate || state.capture.sample_rate;
+  const cropTimePadding = cropRegion ? Math.max(data.fft_size, Math.round(sampleRate * 0.15)) : 0;
+  const cropStart = cropRegion ? Math.max(bounds.startSample, cropRegion.sample_start - cropTimePadding) : bounds.startSample;
+  const cropEnd = cropRegion ? Math.min(bounds.endSample, cropRegion.sample_start + cropRegion.sample_count + cropTimePadding) : bounds.endSample;
+  const selectedRows = (cropRegion
+    ? rowIndices.filter(({sample}) => sample < cropEnd && sample + data.fft_size > cropStart)
+    : rowIndices).reverse();
+  if (hasBand && selectedRows.length) {
+    // Keep closeups landscape and include nearby spectrum as context around narrow signals.
+    const targetWidth = Math.min(data.frequency_hz.length, Math.max(bandEnd - bandStart, Math.ceil(selectedRows.length * 1.85)));
+    const center = (bandStart + bandEnd) / 2;
+    frequencyStart = Math.max(0, Math.min(data.frequency_hz.length - targetWidth, Math.floor(center - targetWidth / 2)));
+    frequencyEnd = frequencyStart + targetWidth;
+    if (frequencyStart > bandStart) frequencyStart = bandStart;
+    if (frequencyEnd < bandEnd) frequencyEnd = bandEnd;
+  }
   canvas.width = Math.max(1, frequencyEnd - frequencyStart);
   canvas.height = Math.max(1, selectedRows.length);
   const context = canvas.getContext("2d", {alpha:false});
@@ -2168,6 +2316,15 @@ function reportWaterfallCanvas(bounds, regions, cropRegion = null) {
       context.fillStyle = "#08111de8"; context.fillRect(x1, Math.max(0, y1 - 16), Math.min(canvas.width - x1, context.measureText(caption).width + 8), 16);
       context.fillStyle = "#ffffff"; context.fillText(caption, x1 + 4, Math.max(12, y1 - 4));
     }
+  } else if (hasBand) {
+    const frequencySpan = Math.max(1, data.frequency_hz[frequencyEnd - 1] - data.frequency_hz[frequencyStart]);
+    const x1 = Math.max(0, (data.frequency_hz[bandStart] - data.frequency_hz[frequencyStart]) / frequencySpan * canvas.width);
+    const x2 = Math.min(canvas.width - 1, (data.frequency_hz[Math.max(bandStart, bandEnd - 1)] - data.frequency_hz[frequencyStart]) / frequencySpan * canvas.width);
+    const y1 = Math.max(0, Math.min(canvas.height - 1, (cropEnd - Math.min(cropEnd, cropRegion.sample_start + cropRegion.sample_count)) / Math.max(1, cropEnd - cropStart) * canvas.height));
+    const y2 = Math.max(0, Math.min(canvas.height - 1, (cropEnd - Math.max(cropStart, cropRegion.sample_start)) / Math.max(1, cropEnd - cropStart) * canvas.height));
+    context.strokeStyle = "#fff2a6";
+    context.lineWidth = Math.max(2, Math.round(canvas.width / 700));
+    context.strokeRect(x1, y1, Math.max(1, x2 - x1), Math.max(1, y2 - y1));
   }
   return canvas;
 }
@@ -2196,13 +2353,14 @@ function escapeReportText(value) {
   return String(value ?? "").replace(/[&<>"']/g, (char) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]));
 }
 
-function generateWindowPdfReport() {
+async function generateWindowPdfReport() {
   if (!state.capture || !state.waterfall || state.liveView) return;
   const popup = window.open("", "_blank");
   if (!popup) { showError("Allow popups to open the printable window report."); return; }
   const bounds = annotationWindowBounds();
   const regions = reportRegionsForWindow(bounds);
   const fullImage = reportWaterfallCanvas(bounds, regions).toDataURL("image/png");
+  const captureName = state.capture.display_name || state.capture.id;
   const rate = state.capture.sample_rate;
   const start = (bounds.startSample / rate).toFixed(2), end = (bounds.endSample / rate).toFixed(2);
   const details = regions.map((region, index) => {
@@ -2217,16 +2375,37 @@ function generateWindowPdfReport() {
       .filter(([, value]) => value).map(([name, value]) => `<span><b>${name}:</b> ${escapeReportText(value)}</span>`).join(" ");
     return `<article class="region"><h2>Region ${index + 1}${region.signal_id ? ` · ${escapeReportText(region.signal_id)}` : ""}${region.reportDraft ? " · Draft" : ""}</h2><img class="closeup" src="${crop}" alt="Waterfall closeup for region ${index + 1}"><div class="facts"><p><b>Classification:</b> ${escapeReportText(mode)}</p><p>${taxonomy || "No detailed taxonomy saved"}</p>${confidenceLine}<p><b>Time:</b> ${time} · <b>Frequency:</b> ${frequency}</p><p><b>Source:</b> ${escapeReportText(region.source || "Manual annotation")} · <b>Review:</b> ${escapeReportText(region.review_state || "Draft")}</p><p><b>SNR:</b> ${escapeReportText(reportSnrEstimate(region))}</p>${region.notes ? `<p><b>Notes:</b> ${escapeReportText(region.notes)}</p>` : ""}</div></article>`;
   }).join("");
-  popup.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Signal window report · ${escapeReportText(state.capture.display_name || state.capture.id)}</title><style>@page{size:letter;margin:14mm}body{font:12px Arial,sans-serif;color:#17212b;margin:0}h1{font-size:22px;margin:0 0 8px}h2{font-size:16px;margin:0 0 8px}.meta{color:#485967;margin:4px 0 14px}.window{width:100%;max-height:220mm;object-fit:contain}.region{page-break-before:always;break-before:page}.closeup{display:block;width:100%;max-height:125mm;object-fit:contain;background:#08111b}.facts{display:grid;grid-template-columns:1fr 1fr;gap:2px 16px}.facts p{margin:5px 0}.foot{font-size:10px;color:#52616c;margin-top:12px}@media screen{body{max-width:850px;margin:24px auto;padding:24px}.window,.closeup{border:1px solid #ccd5dc}.print{position:fixed;top:12px;right:12px;padding:10px 16px}}@media print{.print{display:none}}</style></head><body><button class="print" onclick="window.print()">Print / Save as PDF</button><h1>Signal window report</h1><p class="meta"><b>${escapeReportText(state.capture.display_name || state.capture.id)}</b> · Window ${bounds.index + 1} of ${bounds.total} · ${start}–${end} s · ${regions.length} region${regions.length === 1 ? "" : "s"}</p><img class="window" src="${fullImage}" alt="Annotated full 10-second waterfall window"><p class="foot">SNR is estimated as median in-band waterfall level minus median adjacent-bin level; it is a visual estimate, not a calibrated receiver measurement. Draft markup is identified above.</p>${details || "<article class=region><p>No saved or draft regions are in this window.</p></article>"}</body></html>`);
+  const reportButton = el("report-window-pdf");
+  reportButton.disabled = true;
+  let rigResult = null;
+  if (el("rigctl-enabled").checked) rigResult = await readRigctlFrequency();
+  const receiverSummary = rigResult?.connected
+    ? ` · Receiver frequency at report time: ${formatRigFrequency(rigResult.frequency_hz)}`
+    : rigResult ? ` · Receiver frequency unavailable: ${escapeReportText(rigResult.error || "no frequency returned")}` : "";
+  popup.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Signal window report · ${escapeReportText(captureName)}</title><style>
+    @page{size:letter;margin:14mm}
+    body{font:12px Arial,sans-serif;color:#17212b;margin:0}
+    h1{font-size:22px;margin:0 0 8px}h2{font-size:16px;margin:0 0 8px}
+    .meta{color:#485967;margin:4px 0 14px}
+    .window{display:block;width:100%;height:auto;max-height:100mm;object-fit:contain}
+    .region{page-break-before:always;break-before:page}
+    .closeup{display:block;width:100%;height:98mm;object-fit:contain;background:#08111b;margin:8px 0 10px}
+    .facts{display:grid;grid-template-columns:1fr 1fr;gap:2px 16px}.facts p{margin:5px 0}
+    .foot{font-size:10px;color:#52616c;margin-top:12px}
+    @media screen{body{max-width:850px;margin:24px auto;padding:24px}.window,.closeup{border:1px solid #ccd5dc}.print{position:fixed;top:12px;right:12px;padding:10px 16px}}
+    @media print{.print{display:none}}
+  </style></head><body><button class="print" onclick="window.print()">Print / Save as PDF</button><h1>Signal window report</h1><p class="meta"><b>${escapeReportText(captureName)}</b> · Window ${bounds.index + 1} of ${bounds.total} · ${start}–${end} s · ${regions.length} region${regions.length === 1 ? "" : "s"}${receiverSummary}</p><img class="window" src="${fullImage}" alt="Annotated full 10-second waterfall window"><p class="foot">SNR is estimated as median in-band waterfall level minus median adjacent-bin level; it is a visual estimate, not a calibrated receiver measurement. Draft markup is identified above. Receiver frequency, when present, is a CAT reading taken when this report was generated.</p>${details || "<article class=region><p>No saved or draft regions are in this window.</p></article>"}</body></html>`);
   popup.document.close();
   popup.focus();
   popup.setTimeout(() => popup.print(), 350);
+  reportButton.disabled = false;
 }
 
 el("report-window-pdf")?.addEventListener("click", generateWindowPdfReport);
 
 async function saveWindowAnnotationDrafts() {
   const capture = state.capture;
+  const selectedRegionId = state.editRegion?.id;
   if (!capture || state.liveView) return null;
   saveSelectedBatchLabelDraft();
   if (!state.batchBoxes.length && !state.windowRegionEdits.size && !state.windowRegionDeletes.size && !state.windowMerges.length && !state.windowIdentityLinks.length) return null;
@@ -2353,7 +2532,11 @@ async function saveWindowAnnotationDrafts() {
       renderTracks();
       drawOverlays();
       const savedMerge = state.regions.find((region) => mergeClientIds.has(region.evidence?.window_annotation_merge?.client_id));
-      if (savedMerge) selectSavedRegion(savedMerge, "label");
+      const selectedSavedRegion = savedMerge || state.regions.find((region) => region.id === selectedRegionId);
+      if (selectedSavedRegion) {
+        selectSavedRegion(selectedSavedRegion, "label");
+        el("label-state").textContent = `${savedCount} signal change${savedCount === 1 ? "" : "s"} saved for this 10-second window.`;
+      }
     } catch (error) {
       refreshError = error;
     }
@@ -2743,6 +2926,10 @@ el("live-start").addEventListener("click", async () => {
     const device = el("audio-device").value;
     const captureMode = el("live-capture-mode").value;
     const noiseIntervalSeconds = Number(el("noise-interval-minutes").value) * 60;
+    const bandHopSettings = saveBandHopSettings();
+    const bandHopFrequencies = bandHopAvailable && captureMode === "unattended" && bandHopSettings.enabled
+      ? bandHopFrequenciesHz() : [];
+    const rigctlSettings = saveRigctlSettings();
     const started = await request("/api/live/start", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -2750,9 +2937,15 @@ el("live-start").addEventListener("click", async () => {
         sample_rate: Number(el("audio-rate").value), channels: 1,
         max_duration_seconds: captureMode === "unattended" ? 28800 : 600,
         capture_mode: captureMode, noise_interval_seconds: noiseIntervalSeconds,
+        band_hop_frequencies_hz: bandHopFrequencies,
+        band_hop_dwell_seconds: bandHopSettings.dwellMinutes * 60,
+        rigctl_host: rigctlSettings.host,
+        rigctl_port: rigctlSettings.port,
       }),
     });
     state.captureMode = captureMode;
+    state.liveMonitoring = true;
+    state.liveReviewReturn = null;
     el("live-start").disabled = true;
     el("live-stop").disabled = false;
     el("live-stop").textContent = captureMode === "record" ? "Stop and review" : "Stop live scan";
@@ -2766,6 +2959,7 @@ el("live-start").addEventListener("click", async () => {
     updateCvButton();
     state.liveView = true;
     state.liveSessionId = started.session_id;
+    updateLiveReviewControls();
     state.liveSampleRate = started.sample_rate;
     state.liveWindowStartSample = null;
     state.liveWindowEndSample = null;
@@ -2806,7 +3000,7 @@ el("live-start").addEventListener("click", async () => {
       ? `Recording · ${started.device_name} · ${started.sample_rate.toLocaleString()} Hz`
       : captureMode === "scan_only"
         ? `Live scan only · no recording is being saved · ${started.device_name}`
-        : `Unattended monitoring · selected clips go to the review queue · ${started.device_name}`;
+        : `Unattended monitoring · selected clips go to the review queue · ${started.device_name}${started.band_hop_count ? ` · ${formatRigFrequency(started.current_frequency_hz)} (${started.band_hop_index + 1}/${started.band_hop_count})` : ""}`;
     renderRegions();
     renderDecodeRuns();
     const generation = state.liveGeneration = (state.liveGeneration || 0) + 1;
@@ -2819,10 +3013,16 @@ el("live-start").addEventListener("click", async () => {
       pending = true;
       try {
         const status = await request("/api/live");
-        if (generation !== state.liveGeneration || !state.liveView) return;
+        if (generation !== state.liveGeneration || !state.liveMonitoring) return;
         if (status.active) {
           const modeLabel = state.captureMode === "record" ? "Recording" : state.captureMode === "scan_only" ? "Live scan only · no audio saved" : `Unattended · ${status.saved_review_clips || 0} clips queued`;
-          el("live-status").textContent = state.frozen ? `${modeLabel} · view frozen` : `${modeLabel} · ${status.frames_written.toLocaleString()} samples analyzed`;
+          const hopLabel = status.band_hop_count
+            ? ` · band ${Number(status.band_hop_index || 0) + 1}/${status.band_hop_count} ${formatRigFrequency(status.current_frequency_hz || 0)} · next in ${status.band_hop_seconds_remaining ?? "?"}s`
+              + (status.band_hop_error ? ` · tune failed: ${status.band_hop_error}` : "")
+            : "";
+          el("live-status").textContent = state.liveView
+            ? (state.frozen ? `${modeLabel}${hopLabel} · view frozen` : `${modeLabel}${hopLabel} · ${status.frames_written.toLocaleString()} samples analyzed`)
+            : `Monitoring continues${hopLabel} · ${status.frames_written.toLocaleString()} samples analyzed · reviewing a saved clip`;
         }
         const cvEnabled = el("live-cv-enabled").checked;
         const classifierEnabled = el("live-classifier-enabled").checked;
@@ -2830,7 +3030,8 @@ el("live-start").addEventListener("click", async () => {
         const useHeuristicTracks = classifierEnabled && (!cvEnabled || autoTrial);
         const classifierCropCount = Number(el("classifier-crop-count").value) || 1;
         const analysis = await request(`/api/live/analysis?fft_size=4096&hop_size=512&max_rows=640&include_spectrum=false&classifier_crop_count=${classifierCropCount}&include_tracks=${useHeuristicTracks}&include_classifier=${useHeuristicTracks}&auto_trial=${autoTrial && useHeuristicTracks}`);
-        if (generation !== state.liveGeneration || !state.liveView) return;
+        if (generation !== state.liveGeneration || !state.liveMonitoring) return;
+        if (!state.liveView) return;
         state.liveWindowStartSample = Number.isFinite(analysis.sample_offset) ? analysis.sample_offset : null;
         state.liveWindowEndSample = Number.isFinite(analysis.sample_offset) && Number.isFinite(analysis.window_sample_count)
           ? analysis.sample_offset + analysis.window_sample_count : null;
@@ -2897,6 +3098,9 @@ el("live-stop").addEventListener("click", async () => {
   el("live-stop").disabled = true;
   try {
     const result = await request("/api/live/stop", { method: "POST" });
+    state.liveMonitoring = false;
+    state.liveReviewReturn = null;
+    updateLiveReviewControls();
     state.liveGeneration = (state.liveGeneration || 0) + 1;
     if (livePoll) clearInterval(livePoll);
     if (spectrumPoll) clearTimeout(spectrumPoll);
@@ -2927,6 +3131,10 @@ el("live-stop").addEventListener("click", async () => {
     showError(error.message);
     const status = await request("/api/live").catch(() => null);
     if (status && !status.active) {
+      state.liveMonitoring = false;
+      state.liveReviewReturn = null;
+      state.liveSessionId = null;
+      updateLiveReviewControls();
       state.liveView = false;
       state.liveGeneration = (state.liveGeneration || 0) + 1;
       if (livePoll) clearInterval(livePoll);
@@ -2942,10 +3150,10 @@ el("live-stop").addEventListener("click", async () => {
     }
   }
   finally {
-    if (!state.liveView) livePoll = null;
-    el("live-start").disabled = state.liveView;
-    el("live-stop").disabled = !state.liveView;
-    if (!state.liveView) {
+    if (!state.liveMonitoring) livePoll = null;
+    el("live-start").disabled = state.liveMonitoring;
+    el("live-stop").disabled = !state.liveMonitoring;
+    if (!state.liveMonitoring) {
       el("live-stop").textContent = "Stop and review";
       state.captureMode = null;
       updateLiveCaptureModeControls();
@@ -2953,13 +3161,21 @@ el("live-stop").addEventListener("click", async () => {
   }
 });
 
+function updateLiveReviewControls() {
+  const reviewing = state.liveMonitoring && !state.liveView && Boolean(state.liveReviewReturn);
+  el("live-review-banner").hidden = !reviewing;
+  el("live-start").disabled = state.liveMonitoring;
+  el("live-stop").disabled = !state.liveMonitoring;
+  el("freeze-view").disabled = !state.liveView;
+}
+
 function updateLiveCaptureModeControls() {
   const unattended = el("live-capture-mode").value === "unattended";
   el("noise-interval-wrap").hidden = !unattended;
   const mode = el("live-capture-mode").value;
   el("live-start").textContent = mode === "scan_only"
     ? "Start scan without saving"
-    : mode === "unattended" ? "Start unattended monitor" : "Start live capture";
+    : mode === "unattended" ? (bandHopAvailable && el("band-hop-enabled").checked ? "Start unattended band hop" : "Start unattended monitor") : "Start live capture";
 }
 el("live-capture-mode").addEventListener("change", updateLiveCaptureModeControls);
 updateLiveCaptureModeControls();
@@ -3392,6 +3608,8 @@ async function loadCapture({windowIndex = 0, focusedWindow = false} = {}) {
   state.selectionMergeRegions = [];
   state.geometryMergeRegions = [];
   const generation = state.captureGeneration = (state.captureGeneration || 0) + 1;
+  state.rawDemodAttempts = [];
+  renderRawDemodAttempts();
   state.batchBoxMode = false;
   state.batchBoxes = [];
   state.batchBoxUndo = [];
@@ -3406,7 +3624,7 @@ async function loadCapture({windowIndex = 0, focusedWindow = false} = {}) {
   renderBatchBoxes();
   clearDemodExports();
   state.liveView = false;
-  state.liveSessionId = null;
+  if (!state.liveMonitoring) state.liveSessionId = null;
   resetOutputSession();
   state.coverageRecords = [];
   state.cvCoverageQueue = null;
@@ -3467,11 +3685,12 @@ async function loadCapture({windowIndex = 0, focusedWindow = false} = {}) {
   const queuedReviewCapture = Boolean(c.source_metadata?.auto_review_queue && !c.source_metadata?.auto_review_queue_reviewed_utc);
   el("save-annotations-complete").hidden = !queuedReviewCapture;
   el("save-annotations-complete").title = queuedReviewCapture
-    ? "Save this annotation, record complete detection coverage for this 10-second review window, and return to the review queue."
+    ? "Save progress, confirm all signals in this window were checked, and advance to the next review item."
     : "Available for samples in the live review queue.";
   el("save-annotations-complete").textContent = state.pendingCaptureCompletion === c.id
-    ? "Retry finish"
-    : "Save and finish";
+    ? "Retry completion"
+    : "Save & complete";
+  el("defer-review").hidden = !queuedReviewCapture;
   renderBatchBoxes();
   updateCvButton();
   el("capture-title").textContent = c.source_metadata.uploaded_filename || c.source_metadata.device_name || c.source_metadata.generator || "Audio recording";
@@ -3516,6 +3735,8 @@ async function loadCapture({windowIndex = 0, focusedWindow = false} = {}) {
     el("decode-runs").textContent = `Saved receive runs unavailable · ${error.message}`;
   }
   if (generation === state.captureGeneration && !state.liveView) renderDecodeRuns();
+  await refreshRawDemodAttempts(c.id);
+  if (generation !== state.captureGeneration || state.liveView) return;
   try {
     const result = await request(`/api/captures/${c.id}/tracks`);
     if (generation !== state.captureGeneration || state.liveView) return;
@@ -3820,15 +4041,23 @@ function selectSceneCoverage(record) {
 
 function renderDecodeRuns() {
   const list = el("decode-runs");
+  const sourcePath = state.liveView && state.liveSessionId
+    ? `/api/live/sessions/${encodeURIComponent(state.liveSessionId)}`
+    : state.capture ? `/api/captures/${encodeURIComponent(state.capture.id)}` : null;
   list.replaceChildren();
   const runs = state.decodeRuns || [];
+  const runIds = new Set(runs.map((run) => run.id));
+  state.comparedDecodeRunIds = new Set([...state.comparedDecodeRunIds].filter((id) => runIds.has(id)));
   if (!runs.length) {
     list.textContent = state.liveView
       ? "No Fldigi receive runs for this live session yet."
       : "No saved Fldigi receive runs for this capture.";
+    updateDecodeRunComparisonControls(runs);
     return;
   }
   for (const run of runs) {
+    const row = document.createElement("div");
+    row.className = "decode-run-row";
     const button = document.createElement("button");
     button.type = "button";
     button.className = "decode-run";
@@ -3841,6 +4070,7 @@ function renderDecodeRuns() {
     const detectorLink = run.detector_evidence?.proposal_id ? ` · CV proposal ${run.detector_evidence.proposal_id.slice(-8)}` : "";
     button.textContent = `${run.current_mode || "Fldigi"} · ${run.status}${carrier}${interval}${regionLink}${classifierLink}${detectorLink}`;
     button.addEventListener("click", () => {
+      state.focusedDecodeAttempt = {selectionKey: decodeSelectionKey(state), runId: run.id};
       showOutput("text");
       state.textOutputContext = `Saved run ${run.id.slice(0,8)}${run.region_id ? ` · region ${run.region_id.slice(0,8)}` : ""}${run.classifier_evidence?.model_sha256 ? ` · classifier ${run.classifier_evidence.model_sha256.slice(0,8)}` : ""}${run.detector_evidence?.proposal_id ? ` · CV proposal ${run.detector_evidence.proposal_id.slice(-8)}` : ""} · ${run.output_scope} · ${run.association}`;
       el("output-context").textContent = state.textOutputContext;
@@ -3848,9 +4078,151 @@ function renderDecodeRuns() {
       el("decoded-text").textContent = `${run.status.toUpperCase()} · ${run.current_mode || "Fldigi"}\n${run.note}${classifierSummary ? `\n\n${classifierSummary}` : ""}\n\n${run.output_text || "No decoded text was recorded."}`;
       el("decoded-text").scrollTop = 0;
     });
-    list.append(button);
+    row.append(button);
+    const compareLabel = document.createElement("label");
+    compareLabel.className = "decode-run-compare-choice";
+    const compareCheck = document.createElement("input");
+    compareCheck.type = "checkbox";
+    compareCheck.dataset.compareRunId = run.id;
+    compareCheck.checked = state.comparedDecodeRunIds.has(run.id);
+    compareCheck.setAttribute("aria-label", `Select ${run.current_mode || "decoder"} attempt ${run.id.slice(0, 8)} for comparison`);
+    compareCheck.addEventListener("change", () => {
+      if (compareCheck.checked) {
+        if (state.comparedDecodeRunIds.size >= 3) {
+          compareCheck.checked = false;
+          el("decode-attempt-selection-status").textContent = "Compare up to three attempts at a time.";
+          return;
+        }
+        state.comparedDecodeRunIds.add(run.id);
+      } else state.comparedDecodeRunIds.delete(run.id);
+      updateDecodeRunComparisonControls(runs);
+    });
+    compareLabel.append(compareCheck, document.createTextNode("Compare"));
+    row.append(compareLabel);
+    const collect = document.createElement("button");
+    collect.type = "button";
+    collect.className = "decode-run-collect";
+    collect.textContent = "Collect example";
+    collect.disabled = !sourcePath || ["queued", "running"].includes(run.status)
+      || !["exact_capture_window", "exact_selected_capture_window", "exact_live_track_window"].includes(run.association);
+    collect.title = collect.disabled
+      ? "Collection requires a finished attempt with exact source audio; live audio must still be available."
+      : "Preserve this attempt and its audio as a pending review item, without accepting a label.";
+    collect.addEventListener("click", async () => {
+      collect.disabled = true;
+      const status = el("collection-status");
+      status.textContent = "Collecting this attempt and its source audio…";
+      try {
+        const result = await request(`${sourcePath}/decode-runs/${encodeURIComponent(run.id)}/collect`, {
+          method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({notes: ""}),
+        });
+        status.textContent = result.message;
+        collect.textContent = "Collected";
+        await refreshLiveReviewQueue();
+      } catch (error) {
+        status.textContent = `Could not collect example · ${error.message}`;
+        collect.disabled = false;
+      }
+    });
+    row.append(collect);
+    const linkedRegion = run.region_id && state.regions.find((region) => region.id === run.region_id);
+    if (linkedRegion && run.output_text?.trim() && !state.liveView) {
+      const addText = document.createElement("button");
+      addText.type = "button";
+      addText.className = "decode-run-add-label";
+      addText.textContent = "Add decoded text to label notes";
+      addText.disabled = linkedRegion.lineage_state === "superseded";
+      addText.title = linkedRegion.lineage_state === "superseded"
+        ? "This region was replaced; add decoded text to its active replacement instead."
+        : "Adds this run's text to the saved region's Notes draft. Save the label revision to keep it.";
+      addText.addEventListener("click", () => {
+        selectSavedRegion(linkedRegion);
+        const note = `[Fldigi ${run.current_mode || "decode"} · run ${run.id.slice(0, 8)}]\n${run.output_text.trim()}`;
+        const notes = el("notes");
+        if (notes.value.includes(note)) {
+          el("label-state").textContent = "This decode is already in the label notes.";
+          return;
+        }
+        const addition = `${notes.value.trim() ? `${notes.value.trim()}\n\n` : ""}${note}`;
+        if (addition.length > 2000) {
+          el("label-state").textContent = "Decoded text will not fit in the 2,000-character label notes. Shorten the notes or decode a smaller region.";
+          return;
+        }
+        notes.value = addition;
+        notes.dispatchEvent(new Event("input", {bubbles: true}));
+        el("label-state").textContent = "Decoded text added to Notes. Save revision to keep it.";
+        notes.focus();
+      });
+      row.append(addText);
+    }
+    list.append(row);
+  }
+  updateDecodeRunComparisonControls(runs);
+}
+
+function updateDecodeRunComparisonControls(runs) {
+  const selectedIds = [...state.comparedDecodeRunIds];
+  el("compare-decode-runs").disabled = selectedIds.length < 2;
+  el("compare-decode-runs").textContent = selectedIds.length >= 2
+    ? `Compare ${selectedIds.length} attempts` : "Compare selected";
+  el("decode-attempt-selection-status").textContent = selectedIds.length
+    ? `${selectedIds.length} selected · compare two or three attempts.`
+    : "Select two or three attempts to compare.";
+  for (const checkbox of document.querySelectorAll("[data-compare-run-id]")) {
+    checkbox.disabled = !checkbox.checked && selectedIds.length >= 3;
+  }
+  if (!el("decode-run-comparison").hidden) {
+    renderDecodeRunComparison(runs.filter((run) => state.comparedDecodeRunIds.has(run.id)));
   }
 }
+
+function renderDecodeRunComparison(runs) {
+  const panel = el("decode-run-comparison");
+  panel.replaceChildren();
+  for (const run of runs) {
+    const card = document.createElement("article");
+    card.className = "decode-attempt-card";
+    const heading = document.createElement("h4");
+    const identification = run.auto_identify === null || run.auto_identify === undefined
+      ? "decode method unknown"
+      : run.auto_identify ? "auto-identify" : "selected mode";
+    heading.textContent = `${run.current_mode || "Decoder"} · ${run.status} · ${identification}`;
+    const interval = Number.isInteger(run.sample_start) && Number.isInteger(run.sample_count)
+      ? `${run.sample_start}–${run.sample_start + run.sample_count} samples · ${run.sample_rate || "rate unknown"} Hz`
+      : "Exact sample interval unavailable";
+    const band = run.detector_evidence?.selection_bounds || run.detector_evidence || {};
+    const frequency = Number.isFinite(band.frequency_low_hz) && Number.isFinite(band.frequency_high_hz)
+      ? ` · ${band.frequency_low_hz}–${band.frequency_high_hz} Hz band` : "";
+    const carrier = Number.isFinite(run.carrier_hz) ? ` · carrier ${run.carrier_hz} Hz` : " · carrier unset";
+    const source = run.capture_id || run.session_id || "source unavailable";
+    const provenance = document.createElement("p");
+    provenance.textContent = `${source} · ${interval}${frequency}${carrier} · ${identification} · ${run.backend || "backend unknown"} · ${run.output_scope || "scope unknown"} · ${run.association || "association unknown"}`;
+    const modes = document.createElement("p");
+    modes.textContent = `Modes tried: ${(run.attempted_modes || []).join(" → ") || run.current_mode || "none"}`;
+    const note = document.createElement("p");
+    note.textContent = run.note || "No attempt note.";
+    const output = document.createElement("pre");
+    output.textContent = run.output_text || "No decoded text.";
+    card.append(heading, provenance, modes, note, output);
+    panel.append(card);
+  }
+  panel.hidden = runs.length < 2;
+  el("clear-decode-run-comparison").hidden = panel.hidden;
+}
+
+el("compare-decode-runs").addEventListener("click", () => {
+  const selected = (state.decodeRuns || []).filter((run) => state.comparedDecodeRunIds.has(run.id));
+  if (selected.length < 2 || selected.length > 3) return;
+  renderDecodeRunComparison(selected);
+});
+
+el("clear-decode-run-comparison").addEventListener("click", () => {
+  state.comparedDecodeRunIds.clear();
+  el("decode-run-comparison").replaceChildren();
+  el("decode-run-comparison").hidden = true;
+  el("clear-decode-run-comparison").hidden = true;
+  renderDecodeRuns();
+});
 
 function classifierEvidenceSummary(evidence) {
   if (!evidence?.model_sha256) return null;
@@ -4106,11 +4478,17 @@ function drawOverlays() {
     ctx.setLineDash([]);
     if (!state.liveView && (state.editRegion || state.batchReviewBox || state.selectedTrack) && !state.coverageOnly) {
       ctx.fillStyle = "#72fff0";
+      const handleRect = overlayCanvas.getBoundingClientRect();
+      const handleWidth = handleRect.width ? 8 * overlayCanvas.width / handleRect.width : 8;
+      const handleHeight = handleRect.height ? 8 * overlayCanvas.height / handleRect.height : 8;
+      const borderWidth = handleRect.width ? 2 * overlayCanvas.width / handleRect.width : 2;
+      const borderHeight = handleRect.height ? 2 * overlayCanvas.height / handleRect.height : 2;
       for (const [x, y] of [[x1, y1], [x2, y1], [x1, y2], [x2, y2]]) {
-        ctx.fillRect(x - 4, y - 4, 8, 8);
-        ctx.strokeStyle = "#07131c";
-        ctx.lineWidth = 1;
-        ctx.strokeRect(x - 4, y - 4, 8, 8);
+        ctx.fillStyle = "#07131c";
+        ctx.fillRect(x - (handleWidth + borderWidth) / 2, y - (handleHeight + borderHeight) / 2,
+          handleWidth + borderWidth, handleHeight + borderHeight);
+        ctx.fillStyle = "#72fff0";
+        ctx.fillRect(x - handleWidth / 2, y - handleHeight / 2, handleWidth, handleHeight);
       }
     }
   }
@@ -4146,25 +4524,31 @@ function renderFrequencyNotches() {
     band.style.width = `${Math.max(2, right - left)}px`;
     band.style.setProperty("--notch-color", color);
     container.append(band);
-    const marker = document.createElement("button");
-    marker.type = "button";
+    const marker = document.createElement("div");
     marker.className = "frequency-notch-marker";
     marker.style.left = `${(left + right) / 2}px`;
     marker.style.setProperty("--notch-color", color);
-    marker.title = `Detection notch ${notch.low_hz.toFixed(1)}–${notch.high_hz.toFixed(1)} Hz. Click to remove.`;
+    marker.title = `Detection notch ${notch.low_hz.toFixed(1)}–${notch.high_hz.toFixed(1)} Hz. Use × to remove.`;
     const triangle = document.createElement("span");
     triangle.className = "triangle";
     triangle.textContent = "▼";
     const range = document.createElement("span");
     range.textContent = `${Math.round(notch.low_hz)}–${Math.round(notch.high_hz)} Hz`;
-    const remove = document.createElement("span");
-    remove.className = "remove";
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "frequency-notch-remove";
+    remove.setAttribute("aria-label", `Remove notch ${Math.round(notch.low_hz)} to ${Math.round(notch.high_hz)} hertz`);
     remove.textContent = "×";
     marker.append(triangle, range, remove);
-    marker.addEventListener("click", () => {
-      state.frequencyNotches.splice(index, 1);
+    const removeNotch = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!state.frequencyNotches.some((item) => item.id === notch.id)) return;
+      state.frequencyNotches = state.frequencyNotches.filter((item) => item.id !== notch.id);
       saveFrequencyNotches();
-    });
+    };
+    remove.addEventListener("pointerdown", removeNotch);
+    remove.addEventListener("click", removeNotch);
     container.append(marker);
   });
   if (state.notchDrag) {
@@ -4435,14 +4819,20 @@ function selectionFromCanvasCorners(x1, y1, x2, y2) {
 }
 
 function resizeHandleAt(point) {
-  if (!state.selection || state.liveView || state.coverageOnly || state.batchBoxMode
+  if (!state.selection || state.liveView || state.coverageOnly
+      || (state.batchBoxMode && !state.editRegion && !state.batchReviewBox && !state.selectedTrack)
       || state.adjustingGeometry || (!state.editRegion && !state.batchReviewBox && !state.selectedTrack)) return null;
+  const rect = overlayCanvas.getBoundingClientRect();
+  if (!rect.width || !rect.height || !overlayCanvas.width || !overlayCanvas.height) return null;
+  const scaleX = rect.width / overlayCanvas.width;
+  const scaleY = rect.height / overlayCanvas.height;
   const {x1, y1, x2, y2} = state.selection;
   const corners = [
     {name: "top-left", x: x1, y: y1}, {name: "top-right", x: x2, y: y1},
     {name: "bottom-left", x: x1, y: y2}, {name: "bottom-right", x: x2, y: y2},
   ];
-  return corners.find((corner) => Math.hypot(point.x - corner.x, point.y - corner.y) <= 9) || null;
+  return corners.find((corner) => Math.hypot((point.x - corner.x) * scaleX,
+    (point.y - corner.y) * scaleY) <= 12) || null;
 }
 
 overlayCanvas.addEventListener("pointerdown", (event) => {
@@ -4946,40 +5336,15 @@ el("save-annotations").addEventListener("click", () => {
 el("save-annotations-complete").addEventListener("click", async () => {
   if (el("save-annotations-complete").disabled || !state.capture?.source_metadata?.auto_review_queue) return;
   saveSelectedBatchLabelDraft();
-  const hasUncommittedAnnotations = state.batchBoxes.length || state.windowRegionEdits.size
-    || state.windowRegionDeletes.size || state.windowMerges.length || state.windowIdentityLinks.length
-    || (state.selection && !state.editRegion && !state.batchReviewBox && !state.batchBoxMode);
-  if (state.pendingCaptureCompletion === state.capture.id && !hasUncommittedAnnotations) {
-    const capture = state.capture;
-    const button = el("save-annotations-complete");
-    button.disabled = true;
-    el("label-state").textContent = "Recording complete 10-second window coverage…";
-    try {
-      await recordCompleteReviewWindowCoverage(capture);
-      if (state.capture?.id !== capture.id) return;
-      state.pendingCaptureCompletion = null;
-      el("inspector").classList.add("hidden");
-      await refreshLiveReviewQueue();
-      el("review-queue-dialog").showModal();
-    } catch (error) {
-      el("label-state").textContent = `Annotations are saved, but review completion failed · ${error.message}`;
-    } finally {
-      button.disabled = state.liveView || !state.capture;
-    }
-    return;
-  }
-  if (state.pendingCaptureCompletion === state.capture.id) {
-    state.pendingCaptureCompletion = null;
-    el("save-annotations-complete").textContent = "Save and finish";
-  }
   stageCurrentSelectionAsWindowDraft();
   const completionWindow = annotationWindowBounds(state.capture);
   const unresolvedSavedRegion = state.regions.find((region) => {
     if (region.lineage_state === "superseded") return false;
     if (pendingWindowMergeSources().regions.has(region.id)) return false;
     if (state.windowRegionDeletes.has(region.id)) return false;
-    if (region.sample_start < completionWindow.startSample
-      || region.sample_start + region.sample_count > completionWindow.endSample) return false;
+    const geometry = state.windowRegionEdits.get(region.id)?.geometry || region;
+    if (geometry.sample_start >= completionWindow.endSample
+      || geometry.sample_start + geometry.sample_count <= completionWindow.startSample) return false;
     const draft = state.windowRegionEdits.get(region.id)?.labelDraft;
     const hasIdentity = Boolean(draft
       ? draft.mode_id || draft.family || draft.method || draft.protocol || draft.variant
@@ -4992,9 +5357,8 @@ el("save-annotations-complete").addEventListener("click", async () => {
     el("label-state").textContent = "This saved signal still needs a label. Choose a mode or mark its identity unknown, then save the window changes before completion.";
     return;
   }
-  if (state.batchBoxes.length || state.windowRegionEdits.size || state.windowRegionDeletes.size || state.windowMerges.length || state.windowIdentityLinks.length || !state.selection) {
-    const capture = state.capture;
-    const unlabeled = state.batchBoxes.findIndex((box) => {
+  const capture = state.capture;
+  const unlabeled = state.batchBoxes.findIndex((box) => {
       const label = box === state.batchReviewBox ? readBatchLabelDraft() : box.labelDraft || {};
       return !label.identity_unknown_confirmed && ![label.mode_id, label.family, label.method, label.protocol, label.variant].some(Boolean);
     });
@@ -5003,26 +5367,27 @@ el("save-annotations-complete").addEventListener("click", async () => {
       reviewBatchBox(unlabeled);
       return;
     }
-    const button = el("save-annotations-complete");
-    button.disabled = true;
-    try {
-      if (state.batchBoxes.length || state.windowRegionEdits.size || state.windowRegionDeletes.size || state.windowMerges.length || state.windowIdentityLinks.length) await saveWindowAnnotationDrafts();
-      await recordCompleteReviewWindowCoverage(capture);
-      if (state.capture?.id !== capture.id) return;
-      el("inspector").classList.add("hidden");
-      await refreshLiveReviewQueue();
-      el("review-queue-dialog").showModal();
-    } catch (error) {
-      showError(error.message);
-      el("label-state").textContent = `Could not complete this window · ${error.message}. Unsaved drafts remain here.`;
-    } finally {
-      updateAnnotationSaveAvailability();
-    }
-    return;
+  const button = el("save-annotations-complete");
+  button.disabled = true;
+  let annotationsSaved = false;
+  try {
+    if (state.batchBoxes.length || state.windowRegionEdits.size || state.windowRegionDeletes.size || state.windowMerges.length || state.windowIdentityLinks.length) await saveWindowAnnotationDrafts();
+    annotationsSaved = true;
+    state.pendingCaptureCompletion = capture.id;
+    await recordCompleteReviewWindowCoverage(capture, completionWindow);
+    if (state.capture?.id !== capture.id) return;
+    state.pendingCaptureCompletion = null;
+    clearError();
+    await advanceReviewSession(capture.id);
+  } catch (error) {
+    showError(error.message);
+    el("label-state").textContent = annotationsSaved
+      ? `Annotations saved · completion pending · ${error.message}`
+      : `Could not save annotations · ${error.message}. Your drafts remain here.`;
+    if (annotationsSaved) button.textContent = "Retry completion";
+  } finally {
+    updateAnnotationSaveAvailability();
   }
-  state.closeInspectorAfterSave = true;
-  state.markCaptureCompleteAfterSave = true;
-  el("save-region").click();
 });
 
 el("save-region").addEventListener("click", async () => {
@@ -5628,10 +5993,9 @@ el("demod-form").addEventListener("submit", async (event) => {
   button.textContent = "Recovering…";
   el("demod-output").textContent = "Analyzing selected audio…";
   try {
-    const selection = state.selection;
+    const sampleRange = rawSampleWindow();
     const settings = {
-      sample_start: selection?.sample_start ?? 0,
-      sample_count: Math.min(1_000_000, selection?.sample_count ?? Math.min(120_000, state.capture.sample_count)),
+      ...sampleRange,
       symbol_rate: Number(el("demod-rate").value),
       tone_0_hz: Number(el("demod-tone0").value),
       tone_1_hz: Number(el("demod-tone1").value),
@@ -5645,6 +6009,7 @@ el("demod-form").addEventListener("submit", async (event) => {
     });
     if (state.capture !== sourceCapture) return;
     storeDemodExport("2fsk", result, settings);
+    await refreshRawDemodAttempts(sourceCapture.id);
     const confidence = result.soft_metrics.length
       ? result.soft_metrics.reduce((sum, value) => sum + Math.abs(value), 0) / result.soft_metrics.length
       : 0;
@@ -5673,10 +6038,9 @@ el("ook-form").addEventListener("submit", async (event) => {
   button.textContent = "Recovering…";
   el("ook-output").textContent = "Analyzing selected audio…";
   try {
-    const selection = state.selection;
+    const sampleRange = rawSampleWindow();
     const settings = {
-      sample_start: selection?.sample_start ?? 0,
-      sample_count: Math.min(1_000_000, selection?.sample_count ?? Math.min(120_000, state.capture.sample_count)),
+      ...sampleRange,
       symbol_rate: Number(el("ook-rate").value),
       carrier_hz: Number(el("ook-carrier").value),
       timing_offset_samples: Number(el("ook-offset").value),
@@ -5689,6 +6053,7 @@ el("ook-form").addEventListener("submit", async (event) => {
     });
     if (state.capture !== sourceCapture) return;
     storeDemodExport("ook", result, settings);
+    await refreshRawDemodAttempts(sourceCapture.id);
     const groupedBits = result.bits.match(/.{1,64}/g)?.join("\n") || "(no complete symbols)";
     const timing = result.timing_offset_estimated
       ? `estimated ${result.timing_offset_samples.toFixed(2)} samples (${result.timing_search.phase_count} phases)`
@@ -5714,10 +6079,9 @@ el("mfsk-form").addEventListener("submit", async (event) => {
   button.textContent = "Recovering…";
   el("mfsk-output").textContent = "Analyzing selected audio…";
   try {
-    const selection = state.selection;
+    const sampleRange = rawSampleWindow();
     const settings = {
-      sample_start: selection?.sample_start ?? 0,
-      sample_count: Math.min(1_000_000, selection?.sample_count ?? Math.min(120_000, state.capture.sample_count)),
+      ...sampleRange,
       symbol_rate: Number(el("mfsk-rate").value),
       tone_count: Number(el("mfsk-count").value),
       base_tone_hz: Number(el("mfsk-base").value),
@@ -5736,6 +6100,7 @@ el("mfsk-form").addEventListener("submit", async (event) => {
     });
     if (state.capture !== sourceCapture) return;
     storeDemodExport("mfsk", result, settings);
+    await refreshRawDemodAttempts(sourceCapture.id);
     const confidence = result.soft_confidence.length
       ? result.soft_confidence.reduce((sum, value) => sum + value, 0) / result.soft_confidence.length
       : 0;
@@ -5776,10 +6141,9 @@ el("bpsk-form").addEventListener("submit", async (event) => {
   button.textContent = "Recovering…";
   el("bpsk-output").textContent = "Analyzing selected audio…";
   try {
-    const selection = state.selection;
+    const sampleRange = rawSampleWindow();
     const settings = {
-      sample_start: selection?.sample_start ?? 0,
-      sample_count: Math.min(1_000_000, selection?.sample_count ?? Math.min(120_000, state.capture.sample_count)),
+      ...sampleRange,
       symbol_rate: Number(el("bpsk-rate").value),
       carrier_hz: Number(el("bpsk-carrier").value),
       timing_offset_samples: Number(el("bpsk-offset").value),
@@ -5791,6 +6155,7 @@ el("bpsk-form").addEventListener("submit", async (event) => {
     });
     if (state.capture !== sourceCapture) return;
     storeDemodExport("bpsk", result, settings);
+    await refreshRawDemodAttempts(sourceCapture.id);
     const grouped = (bits) => bits.match(/.{1,64}/g)?.join("\n") || "(no complete symbols)";
     const confidence = result.soft_metrics.length
       ? result.soft_metrics.reduce((sum, value) => sum + Math.abs(value), 0) / result.soft_metrics.length
@@ -5816,10 +6181,9 @@ el("qpsk-form").addEventListener("submit", async (event) => {
   button.textContent = "Recovering…";
   el("qpsk-output").textContent = "Analyzing selected audio…";
   try {
-    const selection = state.selection;
+    const sampleRange = rawSampleWindow();
     const settings = {
-      sample_start: selection?.sample_start ?? 0,
-      sample_count: Math.min(1_000_000, selection?.sample_count ?? Math.min(120_000, state.capture.sample_count)),
+      ...sampleRange,
       symbol_rate: Number(el("qpsk-rate").value),
       carrier_hz: Number(el("qpsk-carrier").value),
       timing_offset_samples: Number(el("qpsk-offset").value),
@@ -5831,6 +6195,7 @@ el("qpsk-form").addEventListener("submit", async (event) => {
     });
     if (state.capture !== sourceCapture) return;
     storeDemodExport("qpsk", result, settings);
+    await refreshRawDemodAttempts(sourceCapture.id);
     const grouped = (bits) => bits.match(/.{1,64}/g)?.join("\n") || "(no complete symbols)";
     const hypotheses = result.symbol_hypotheses.map((item, index) =>
       `Hypothesis ${index + 1} · rotation ${(item.rotation_radians * 180 / Math.PI).toFixed(0)}°\nSymbols: ${item.symbols.join(" ")}\nBits:\n${grouped(item.bits)}`
@@ -6237,8 +6602,12 @@ for (const [inputId, labelText] of [["synthetic-wav", "Choose fixture WAV"], ["s
 
 // Workspace navigation keeps capture and selection state in one place.
 function openInspector(tab = "label") {
+  if (tab === "investigate") {
+    if (!["decode", "raw"].includes(state.inspectorTab)) state.inspectorTab = "decode";
+    tab = state.inspectorTab;
+  }
   if (tab !== "signals" && state.coverageOnly) exitSceneCoverageReview();
-  if (tab === "decode" || tab === "raw") setInspectorMode("classify");
+  if ((tab === "decode" || tab === "raw") && state.inspectorMode !== "classify") setInspectorMode("classify");
   if (state.inspectorMode === "classify") {
     state.inspectorTab = tab;
     try { localStorage.setItem("sig-id-inspector-tab", tab); } catch {}
@@ -6249,18 +6618,26 @@ function openInspector(tab = "label") {
 }
 function syncInspectorModeUI() {
   const annotate = state.inspectorMode === "annotate";
+  const activeTopTab = ["decode", "raw"].includes(state.inspectorTab) ? "investigate" : state.inspectorTab;
   el("inspector").dataset.workflowMode = state.inspectorMode;
   el("output-dock").dataset.workflowMode = state.inspectorMode;
   el("inspector-tabs").hidden = annotate;
   for (const node of document.querySelectorAll("[data-inspector-view]")) {
-    node.hidden = annotate
-      ? !["label", "signals"].includes(node.dataset.inspectorView)
-      : node.dataset.inspectorView !== state.inspectorTab;
+    if (annotate) node.hidden = !["label", "signals"].includes(node.dataset.inspectorView);
+    else if (node.dataset.inspectorView === "investigate") {
+      node.hidden = activeTopTab !== "investigate"
+        || node.dataset.investigationPane !== state.inspectorTab;
+    } else node.hidden = node.dataset.inspectorView !== state.inspectorTab;
   }
-  for (const button of document.querySelectorAll("[data-inspector-tab]")) button.setAttribute("aria-pressed", String(!annotate && button.dataset.inspectorTab === state.inspectorTab));
+  el("investigation-tools").hidden = annotate || activeTopTab !== "investigate";
+  for (const button of document.querySelectorAll("[data-inspector-tab]")) button.setAttribute("aria-pressed", String(!annotate && button.dataset.inspectorTab === activeTopTab));
+  for (const button of document.querySelectorAll("[data-investigation-tool]")) {
+    const selectedTool = state.inspectorTab === "raw" ? "raw" : "decoder";
+    button.setAttribute("aria-pressed", String(!annotate && button.dataset.investigationTool === selectedTool));
+  }
   for (const button of document.querySelectorAll("[data-inspector-mode]")) button.setAttribute("aria-pressed", String(button.dataset.inspectorMode === state.inspectorMode));
-  el("save-annotations").hidden = annotate;
   el("save-annotations-close").hidden = !annotate;
+  el("save-annotations").hidden = false;
   updateAnnotationSaveAvailability();
 }
 function setInspectorMode(mode) {
@@ -6272,22 +6649,184 @@ function setInspectorMode(mode) {
   if (mode === "annotate") {
     state.inspectorTab = "label";
     state.batchBoxMode = true;
-    beginNewRegion();
   } else state.batchBoxMode = false;
   syncInspectorModeUI();
   openInspector(mode === "annotate" ? "label" : state.inspectorTab);
 }
-function setInspectorDetailLevel(level) {
-  if (level !== "simple" && level !== "advanced") return;
-  // Keep an in-progress coverage form and its exit controls reachable.
-  if (level === "simple" && state.coverageOnly) level = "advanced";
-  state.inspectorDetailLevel = level;
-  el("inspector").dataset.detailLevel = level;
-  try { localStorage.setItem("sig-id-inspector-detail", level); } catch {}
-  for (const button of document.querySelectorAll("[data-detail-level]")) {
-    button.setAttribute("aria-pressed", String(button.dataset.detailLevel === level));
+function localizeAdvancedControls() {
+  const groups = new Map();
+  for (const node of document.querySelectorAll(".advanced-only")) {
+    node.classList.remove("advanced-only");
+    // Existing details already provide a local disclosure. Keep status and errors
+    // visible, and keep the coverage panel itself reachable while a review is active.
+    if (node.tagName === "DETAILS" || node.id === "coverage-panel" || node.hasAttribute("aria-live")) continue;
+    const owner = node.closest(".selection-panel, .tracks-panel, .raw-tool, .raw-demod-panel, .panel");
+    const parent = owner === node ? node.parentElement : owner || node.parentElement;
+    if (!parent) continue;
+    if (!groups.has(parent)) groups.set(parent, []);
+    groups.get(parent).push(node);
+  }
+  for (const [parent, nodes] of groups) {
+    const disclosure = document.createElement("details");
+    disclosure.className = "local-options-disclosure";
+    const summary = document.createElement("summary");
+    summary.textContent = parent.classList.contains("tracks-panel")
+      ? "Training and detector options"
+      : parent.classList.contains("raw-tool")
+        ? "More analysis options"
+        : parent.classList.contains("raw-demod-panel")
+          ? "Export options"
+          : parent.classList.contains("saved-signals-panel")
+            ? "History and merge options"
+            : "More label options";
+    disclosure.append(summary, ...nodes);
+    parent.append(disclosure);
   }
 }
+function renderRawDemodAttempts() {
+  const list = el("raw-attempt-list");
+  if (!list) return;
+  list.replaceChildren();
+  const ids = new Set(state.rawDemodAttempts.map((item) => item.id));
+  state.comparedRawAttemptIds = new Set([...state.comparedRawAttemptIds].filter((id) => ids.has(id)));
+  if (!state.rawDemodAttempts.length) {
+    list.textContent = "No saved raw analysis attempts for this capture.";
+    updateRawAttemptComparisonControls();
+    return;
+  }
+  for (const attempt of state.rawDemodAttempts) {
+    const details = document.createElement("details");
+    details.className = "decode-run-row raw-attempt-row";
+    const summary = document.createElement("summary");
+    const rate = state.capture?.sample_rate || 1;
+    const interval = `${(attempt.sample_start / rate).toFixed(2)}–${((attempt.sample_start + attempt.sample_count) / rate).toFixed(2)} s`;
+    summary.textContent = `${attempt.mode.toUpperCase()} · ${interval} · ${new Date(attempt.created_utc).toLocaleString()}`;
+    const provenance = document.createElement("p");
+    provenance.className = "muted";
+    provenance.textContent = `Attempt ${attempt.id.slice(0, 8)} · samples ${attempt.sample_start}–${attempt.sample_start + attempt.sample_count}`;
+    const settings = document.createElement("pre");
+    settings.textContent = `Settings\n${JSON.stringify(attempt.settings, null, 2)}`;
+    const result = document.createElement("pre");
+    result.textContent = `Result preview\n${JSON.stringify(attempt.result, null, 2)}`;
+    const actions = document.createElement("div");
+    actions.className = "save-row";
+    const compare = document.createElement("label");
+    compare.className = "decode-run-compare-choice";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = state.comparedRawAttemptIds.has(attempt.id);
+    checkbox.setAttribute("aria-label", `Compare raw ${attempt.mode} attempt ${attempt.id.slice(0, 8)}`);
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) {
+        if (state.comparedRawAttemptIds.size >= 3) {
+          checkbox.checked = false;
+          el("raw-attempt-selection-status").textContent = "Compare up to three raw attempts at a time.";
+          return;
+        }
+        state.comparedRawAttemptIds.add(attempt.id);
+      } else state.comparedRawAttemptIds.delete(attempt.id);
+      updateRawAttemptComparisonControls();
+    });
+    compare.append(checkbox, document.createTextNode("Compare"));
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.textContent = "Retry with these settings";
+    retry.addEventListener("click", () => retryRawDemodAttempt(attempt));
+    actions.append(compare, retry);
+    details.append(summary, provenance, actions, settings, result);
+    list.append(details);
+  }
+  updateRawAttemptComparisonControls();
+}
+
+function updateRawAttemptComparisonControls() {
+  const count = state.comparedRawAttemptIds.size;
+  el("compare-raw-attempts").disabled = count < 2;
+  el("compare-raw-attempts").textContent = count >= 2 ? `Compare ${count} attempts` : "Compare selected";
+  el("raw-attempt-selection-status").textContent = count
+    ? `${count} selected · compare two or three attempts.` : "Select two or three attempts to compare.";
+  for (const checkbox of el("raw-attempt-list").querySelectorAll('input[type="checkbox"]')) {
+    checkbox.disabled = !checkbox.checked && count >= 3;
+  }
+  if (count < 2) {
+    el("raw-attempt-comparison").replaceChildren();
+    el("raw-attempt-comparison").hidden = true;
+    el("clear-raw-attempt-comparison").hidden = true;
+  }
+}
+
+function renderRawAttemptComparison() {
+  const selected = state.rawDemodAttempts.filter((attempt) => state.comparedRawAttemptIds.has(attempt.id));
+  if (selected.length < 2 || selected.length > 3) return;
+  const panel = el("raw-attempt-comparison");
+  panel.replaceChildren();
+  for (const attempt of selected) {
+    const card = document.createElement("article");
+    card.className = "decode-attempt-card";
+    const heading = document.createElement("h4");
+    heading.textContent = `${attempt.mode.toUpperCase()} · ${attempt.id.slice(0, 8)}`;
+    const rate = state.capture?.sample_rate || 1;
+    const range = document.createElement("p");
+    range.textContent = `${(attempt.sample_start / rate).toFixed(3)}–${((attempt.sample_start + attempt.sample_count) / rate).toFixed(3)} s · ${attempt.sample_count} samples`;
+    const settings = document.createElement("pre");
+    settings.textContent = `Settings\n${JSON.stringify(attempt.settings, null, 2)}`;
+    const result = document.createElement("pre");
+    result.textContent = `Result preview\n${JSON.stringify(attempt.result, null, 2)}`;
+    card.append(heading, range, settings, result);
+    panel.append(card);
+  }
+  panel.hidden = false;
+  el("clear-raw-attempt-comparison").hidden = false;
+}
+
+function retryRawDemodAttempt(attempt) {
+  const fields = {
+    "2fsk": {symbol_rate: "demod-rate", tone_0_hz: "demod-tone0", tone_1_hz: "demod-tone1", timing_offset_samples: "demod-offset", auto_timing: "demod-auto-timing"},
+    ook: {symbol_rate: "ook-rate", carrier_hz: "ook-carrier", timing_offset_samples: "ook-offset", auto_timing: "ook-auto-timing"},
+    mfsk: {symbol_rate: "mfsk-rate", tone_count: "mfsk-count", base_tone_hz: "mfsk-base", tone_spacing_hz: "mfsk-spacing", timing_offset_samples: "mfsk-offset", auto_timing: "mfsk-auto-timing", auto_rate_search: "mfsk-auto-rate", rate_search_min: "mfsk-rate-min", rate_search_max: "mfsk-rate-max", rate_search_steps: "mfsk-rate-steps"},
+    bpsk: {symbol_rate: "bpsk-rate", carrier_hz: "bpsk-carrier", timing_offset_samples: "bpsk-offset"},
+    qpsk: {symbol_rate: "qpsk-rate", carrier_hz: "qpsk-carrier", timing_offset_samples: "qpsk-offset"},
+  };
+  const formId = attempt.mode === "2fsk" ? "demod-form" : `${attempt.mode}-form`;
+  for (const [key, id] of Object.entries(fields[attempt.mode] || {})) {
+    const input = el(id);
+    if (input.type === "checkbox") input.checked = Boolean(attempt.settings[key]);
+    else if (attempt.settings[key] !== undefined) input.value = String(attempt.settings[key]);
+  }
+  el("raw-tool").value = attempt.mode;
+  showRawTool(attempt.mode);
+  state.rawRetrySample = {sample_start: attempt.sample_start, sample_count: attempt.sample_count};
+  openInspector("raw");
+  el(formId).requestSubmit();
+}
+
+function rawSampleWindow() {
+  if (state.rawRetrySample) {
+    const window = state.rawRetrySample;
+    state.rawRetrySample = null;
+    return window;
+  }
+  const selection = state.selection;
+  return {
+    sample_start: selection?.sample_start ?? 0,
+    sample_count: Math.min(1_000_000, selection?.sample_count ?? Math.min(120_000, state.capture.sample_count)),
+  };
+}
+
+async function refreshRawDemodAttempts(captureId = state.capture?.id) {
+  if (!captureId) return;
+  try {
+    const attempts = await request(`/api/captures/${encodeURIComponent(captureId)}/demod-attempts`);
+    if (state.capture?.id !== captureId) return;
+    state.rawDemodAttempts = attempts;
+    renderRawDemodAttempts();
+  } catch (error) {
+    if (state.capture?.id !== captureId) return;
+    state.rawDemodAttempts = [];
+    el("raw-attempt-list").textContent = `Saved raw attempts unavailable · ${error.message}`;
+  }
+}
+
 function updateCarrierFromSelection(selection) {
   const input = el("fldigi-carrier-hz");
   if (!input) return;
@@ -6335,6 +6874,7 @@ function showRawTool(mode) {
 }
 function resetOutputSession() {
   state.outputGeneration = (state.outputGeneration || 0) + 1;
+  state.focusedDecodeAttempt = null;
   fldigiOffset = null;
   state.textOutputContext = "Shared Fldigi output · audio route external";
   el("decoded-text").textContent = "Decoded text will appear here.";
@@ -6522,10 +7062,49 @@ function renderSignalLabels() {
     container.append(button);
   }
 }
+function renderCollectedAttempt(region = null) {
+  const run = region?.evidence?.decoder_run;
+  el("collected-attempt").hidden = !run;
+  state.collectedAttempt = run || null;
+  if (!run) return;
+  const rate = run.sample_rate;
+  const interval = rate ? `${(run.sample_start / rate).toFixed(2)}–${((run.sample_start + run.sample_count) / rate).toFixed(2)} s` : "sample interval unavailable";
+  const identification = run.auto_identify === null || run.auto_identify === undefined
+    ? "decode method unknown" : run.auto_identify ? "auto-identify" : "selected mode";
+  el("collected-attempt-summary").textContent = `${run.current_mode || "Unknown mode"} · ${run.status} · ${identification} · run ${run.id.slice(0, 8)} · original ${interval}${Number.isFinite(run.carrier_hz) ? ` · carrier ${run.carrier_hz} Hz` : ""}`;
+  el("collected-attempt-output").textContent = run.output_text || "No text output. The attempt and source evidence are retained.";
+  el("use-collected-mode").disabled = !run.current_mode;
+}
+
+el("use-collected-mode").addEventListener("click", async () => {
+  const run = state.collectedAttempt;
+  const regionId = state.editRegion?.id;
+  if (!run || !regionId) return;
+  try {
+    const result = await request(`/api/modes?q=${encodeURIComponent(run.current_mode)}&limit=50`);
+    if (state.editRegion?.id !== regionId || state.collectedAttempt !== run) return;
+    const name = run.current_mode.toLocaleLowerCase();
+    const mode = result.modes.find((item) => item.id.toLocaleLowerCase() === name
+      || item.display_name.toLocaleLowerCase() === name
+      || item.aliases?.some((alias) => alias.toLocaleLowerCase() === name));
+    if (!mode) {
+      el("label-state").textContent = "This decoder mode has no exact catalog match. Choose a known or partial label; the attempt is retained.";
+      return;
+    }
+    applyModeSelection(mode);
+    saveSelectedBatchLabelDraft();
+    el("label-state").textContent = "Suggested mode applied to draft · review and Save progress to keep it.";
+  } catch (error) { el("label-state").textContent = `Could not resolve suggested mode · ${error.message}`; }
+});
+
 function selectSavedRegion(region, inspectorView = "label") {
   if (state.windowRegionDeletes.has(region.id)) return;
   stopSelectedAudioPlayback(null);
   saveSelectedBatchLabelDraft();
+  if (state.inspectorMode === "annotate" && state.batchBoxMode) {
+    state.batchBoxMode = false;
+    renderBatchBoxes();
+  }
   if (state.editRegion?.id !== region.id) saveSelectedExistingRegionDraft();
   const pendingDraft = state.windowRegionEdits.get(region.id) || null;
   const data = state.waterfall;
@@ -6553,6 +7132,7 @@ function selectSavedRegion(region, inspectorView = "label") {
   el("batch-unknown-row").hidden = true;
   el("batch-unknown-confirmed").checked = false;
   state.editRegion = {id:region.id, revision:region.revision, geometry_revision:region.geometry_revision};
+  renderCollectedAttempt(region);
   state.selectionMergeRegions = boxesCrossedBySelection(state.selection, region.id);
   updateSelectionMergeControls();
   state.geometryMergeRegions = [];
@@ -6614,10 +7194,90 @@ function selectSavedRegion(region, inspectorView = "label") {
 }
 async function refreshLibrary() {
   const target = el("capture-list");
+  const signalTarget = el("library-signal-grid");
   try {
-    const captures = await request("/api/captures");
+    const [captures, signals] = await Promise.all([
+      request("/api/captures"),
+      request("/api/library/signals"),
+    ]);
+    signalTarget.replaceChildren();
+    const capturesWithSignals = new Set(signals.map((item) => item.capture_id));
+    if (signals.length) {
+      const classifications = new Map();
+      for (const item of signals) {
+        const region = item.region || {};
+        const classification = [region.family, region.method]
+          .find((value) => typeof value === "string" && value.trim())
+          || [region.protocol, region.variant, region.mode_id]
+            .find((value) => typeof value === "string" && value.trim())
+          || "Unclassified";
+        if (!classifications.has(classification)) classifications.set(classification, []);
+        classifications.get(classification).push(item);
+      }
+      for (const [classification, classifiedItems] of classifications) {
+        const group = document.createElement("section");
+        group.className = "library-classification-group";
+        const heading = document.createElement("h4");
+        heading.className = "library-classification-heading";
+        heading.textContent = classification;
+        const count = document.createElement("span");
+        count.textContent = `${classifiedItems.length} ${classifiedItems.length === 1 ? "recording" : "recordings"}`;
+        heading.append(count);
+        const cards = document.createElement("div");
+        cards.className = "library-classification-cards";
+        group.append(heading, cards);
+        signalTarget.append(group);
+        for (const item of classifiedItems) {
+        const card = document.createElement("button");
+        card.type = "button";
+        card.className = "library-signal-card";
+        card.disabled = state.liveView;
+        const preview = document.createElement("canvas");
+        preview.className = "library-signal-preview";
+        preview.width = 320; preview.height = 120;
+        preview.setAttribute("aria-hidden", "true");
+        const body = document.createElement("span"); body.className = "library-signal-body";
+        const title = document.createElement("strong");
+        title.textContent = [item.region.variant, item.region.protocol, item.region.method, item.region.family, item.region.mode_id]
+          .find((value) => typeof value === "string" && value.trim()) || "Classified signal";
+        const sourceName = item.source_metadata.uploaded_filename || item.source_metadata.generator
+          || item.source_metadata.device_name || `${item.source_kind} recording`;
+        const when = new Date(item.created_utc).toLocaleString();
+        const span = document.createElement("span");
+        span.textContent = `${sourceName} · ${(item.region.sample_start / item.sample_rate).toFixed(1)} s · ${item.region.review_state === "accepted" ? "reviewed" : "label saved"}`;
+        const cue = document.createElement("span"); cue.className = "library-signal-open-cue"; cue.textContent = "Open source recording ↗";
+        const date = document.createElement("span"); date.className = "library-signal-date"; date.textContent = when;
+        body.append(title, span, date, cue); card.append(preview, body);
+        card.title = `Open ${title.textContent} in ${sourceName}`;
+        card.addEventListener("click", async () => {
+          if (state.liveView) return;
+          card.disabled = true;
+          try {
+            state.capture = {
+              id: item.capture_id, created_utc: item.created_utc, source_kind: item.source_kind,
+              sha256: item.sha256, sample_rate: item.sample_rate, channels: item.channels,
+              sample_count: item.sample_count, source_metadata: item.source_metadata,
+            };
+            const windowIndex = Math.floor(item.region.sample_start / (item.sample_rate * ANNOTATION_WINDOW_SECONDS));
+            const loaded = await loadCapture({windowIndex, focusedWindow: true});
+            if (!loaded) return;
+            const saved = state.regions.find((region) => region.id === item.region.id);
+            if (saved) selectSavedRegion(saved);
+            else showError("The signal label is no longer active in this recording.");
+          } catch (error) { showError(error.message); }
+          finally { card.disabled = state.liveView; }
+        });
+        cards.append(card);
+        card._libraryPreview = item;
+        if (libraryPreviewObserver) libraryPreviewObserver.observe(card);
+        else observeLibraryPreview(card);
+        }
+      }
+    } else {
+      signalTarget.textContent = "No classified signals yet. Labeled signal regions will appear here with a preview of their source audio.";
+    }
     target.replaceChildren();
-    for (const capture of captures) {
+    for (const capture of captures.filter((item) => !capturesWithSignals.has(item.id))) {
       const row = document.createElement("div");
       row.className = "capture-row";
       row.dataset.captureId = capture.id;
@@ -6631,20 +7291,173 @@ async function refreshLibrary() {
       });
       row.append(title, open); target.append(row);
     }
-    if (!captures.length) target.textContent = "No saved recordings yet.";
-  } catch (error) { target.textContent = error.message; }
+    if (!captures.some((item) => !capturesWithSignals.has(item.id))) target.textContent = "Every saved recording with classified signals is shown above.";
+  } catch (error) { target.textContent = error.message; signalTarget.textContent = error.message; }
 }
+function drawLibrarySignalPreview(canvas, spectrum, item) {
+  const context = canvas.getContext("2d");
+  const width = canvas.width, height = canvas.height;
+  const frequencies = spectrum.frequency_hz;
+  const sampleRate = spectrum.sample_rate;
+  const maxFrequency = Math.min(3000, frequencies.at(-1) || sampleRate / 2);
+  if (!spectrum.db?.length || !frequencies.length || maxFrequency <= 0) return;
+  const image = context.createImageData(width, height);
+  const frequencyStep = sampleRate / spectrum.fft_size;
+  for (let y = 0; y < height; y++) {
+    const row = spectrum.db[Math.max(0, Math.min(spectrum.db.length - 1,
+      Math.round((height - 1 - y) * (spectrum.db.length - 1) / Math.max(1, height - 1))))];
+    for (let x = 0; x < width; x++) {
+      const bin = Math.max(0, Math.min(row.length - 1, Math.round((x / Math.max(1, width - 1) * maxFrequency) / frequencyStep)));
+      const [r,g,b] = colorFor(row[bin], -95, -20);
+      const p = (y * width + x) * 4;
+      image.data[p] = r; image.data[p+1] = g; image.data[p+2] = b; image.data[p+3] = 255;
+    }
+  }
+  context.putImageData(image, 0, 0);
+}
+function drawSignalOnlyPreview(canvas, spectrum, item) {
+  const context = canvas.getContext("2d");
+  const width = canvas.width, height = canvas.height;
+  const rows = spectrum.db || [], region = item.region || {};
+  const maxFrequency = Math.min(3000, spectrum.frequency_hz?.at(-1) || spectrum.sample_rate / 2);
+  const frequencyStep = spectrum.sample_rate / spectrum.fft_size;
+  if (!rows.length || !maxFrequency || !frequencyStep) return;
+  const firstSample = spectrum.sample_starts?.[0] || 0;
+  const lastSample = Math.min(item.sample_count, (spectrum.sample_starts?.at(-1) || firstSample) + spectrum.fft_size);
+  const regionStart = region.sample_start || 0;
+  const regionEnd = regionStart + (region.sample_count || item.sample_count);
+  const lowHz = Math.max(0, region.frequency_low_hz ?? 0);
+  const highHz = Math.min(maxFrequency, region.frequency_high_hz ?? maxFrequency);
+  const image = context.createImageData(width, height);
+  const lowBin = Math.max(0, Math.floor(lowHz / frequencyStep));
+  const highBin = Math.min(rows[0].length - 1, Math.ceil(highHz / frequencyStep));
+  const rowIndices = Array.from({length: height}, (_, y) => Math.max(0, Math.min(rows.length - 1,
+    Math.round((height - 1 - y) * (rows.length - 1) / Math.max(1, height - 1)))));
+  for (let y = 0; y < height; y++) {
+    const rowIndex = rowIndices[y], row = rows[rowIndex];
+    const sampleAt = spectrum.sample_starts?.[rowIndex] || firstSample;
+    const centerSample = sampleAt + spectrum.fft_size / 2;
+    if (centerSample < regionStart || centerSample > regionEnd) continue;
+    const floorValues = [];
+    for (let bin = 0; bin < row.length && bin * frequencyStep <= maxFrequency; bin++) {
+      if (bin < lowBin || bin > highBin) floorValues.push(row[bin]);
+    }
+    if (floorValues.length < 8) for (let bin = 0; bin < row.length; bin++) floorValues.push(row[bin]);
+    floorValues.sort((a, b) => a - b);
+    const noiseFloor = floorValues[Math.floor((floorValues.length - 1) * 0.2)] ?? -100;
+    let signalPeak = -Infinity;
+    for (let bin = lowBin; bin <= highBin; bin++) signalPeak = Math.max(signalPeak, row[bin]);
+    // The annotation rectangle can be much wider than the actual carrier. Gate
+    // each row relative to its strongest in-band component so faint side energy
+    // and the empty edges of a loose box do not turn into a broad yellow smear.
+    if (!Number.isFinite(signalPeak) || signalPeak < noiseFloor + 15) continue;
+    const threshold = Math.max(noiseFloor + 20, signalPeak - 10);
+    for (let x = 0; x < width; x++) {
+      const hz = (x / Math.max(1, width - 1)) * maxFrequency;
+      if (hz < lowHz || hz > highHz) continue;
+      const bin = Math.max(0, Math.min(row.length - 1, Math.round(hz / frequencyStep)));
+      const excess = row[bin] - threshold;
+      if (excess < 0) continue;
+      const p = (y * width + x) * 4;
+      image.data[p] = 255; image.data[p + 1] = 231; image.data[p + 2] = 112;
+      image.data[p + 3] = Math.max(80, Math.min(255, Math.round(105 + excess * 7)));
+    }
+  }
+  context.clearRect(0, 0, width, height);
+  context.putImageData(image, 0, 0);
+}
+let libraryPreviewObserver = null;
+function observeLibraryPreview(card) {
+  if (!card._libraryPreview || card._previewLoaded) return;
+  card._previewLoaded = true;
+  const item = card._libraryPreview;
+  const canvas = card.querySelector("canvas");
+  const rate = item.sample_rate;
+  const contextSamples = Math.min(item.sample_count, Math.max(1024, Math.min(rate * 10, item.region.sample_count + rate * 2)));
+  const center = item.region.sample_start + item.region.sample_count / 2;
+  const sampleStart = Math.max(0, Math.min(item.sample_count-contextSamples, Math.floor(center-contextSamples/2)));
+  // The library thumbnails need enough frequency resolution to keep narrow carriers
+  // (especially CW) from being widened by a coarse FFT at 48 kHz capture rates.
+  const params = new URLSearchParams({fft_size:"4096",hop_size:"1024",max_rows:"120",sample_start:String(sampleStart),window_sample_count:String(contextSamples)});
+  request(`/api/captures/${encodeURIComponent(item.capture_id)}/waterfall?${params}`)
+    .then((spectrum) => drawLibrarySignalPreview(canvas, spectrum, item))
+    .catch(() => {
+      const context = canvas.getContext("2d"); context.fillStyle="#182329"; context.fillRect(0,0,canvas.width,canvas.height);
+      context.fillStyle="#aab7b4"; context.font="12px sans-serif"; context.fillText("Preview unavailable",12,canvas.height/2);
+    });
+}
+libraryPreviewObserver = typeof IntersectionObserver === "undefined" ? null : new IntersectionObserver((entries) => {
+  for (const entry of entries) if (entry.isIntersecting) { libraryPreviewObserver.unobserve(entry.target); observeLibraryPreview(entry.target); }
+}, {root: el("library-dialog"), rootMargin:"300px"});
+function snapshotLiveSelectionForReview() {
+  const fields = ["capture", "loadedCapture", "waterfall", "view", "selection", "regions", "tracks", "cvDetections",
+    "cvDismissedCount", "cvRejectedProposals", "decodeRuns", "selectedTrack", "batchBoxes", "batchBoxUndo",
+    "batchBoxMode", "frozen", "liveView", "liveSessionId", "liveWindowStartSample", "liveWindowEndSample",
+    "inspectorMode", "inspectorTab", "outputTab", "textOutputContext", "focusedDecodeAttempt"];
+  const savedState = Object.fromEntries(fields.map((field) => [field, state[field]]));
+  const textIds = ["capture-title", "capture-meta", "selection-summary", "selection-details", "inspector-context",
+    "waterfall-state", "track-status", "time-start", "time-end"];
+  return {
+    state: savedState,
+    text: Object.fromEntries(textIds.map((id) => [id, el(id).textContent])),
+    decodedText: el("decoded-text").textContent,
+    outputContext: el("output-context").textContent,
+    freezeLabel: el("freeze-view").textContent,
+  };
+}
+
+async function returnToLiveSelection() {
+  const snapshot = state.liveReviewReturn;
+  if (!snapshot || !state.liveMonitoring) return;
+  if (!await resolveWindowDraftsBeforeSwitch("returning to live monitoring")) return;
+  Object.assign(state, snapshot.state);
+  state.liveMonitoring = true;
+  state.liveReviewReturn = null;
+  state.liveView = true;
+  el("empty-state").classList.add("hidden");
+  el("workspace").classList.remove("hidden");
+  setInspectorMode(snapshot.state.inspectorMode || "classify");
+  openInspector(snapshot.state.inspectorTab || "label");
+  el("save-annotations-complete").hidden = true;
+  el("defer-review").hidden = true;
+  for (const [id, text] of Object.entries(snapshot.text)) el(id).textContent = text;
+  el("decoded-text").textContent = snapshot.decodedText;
+  el("output-context").textContent = snapshot.outputContext;
+  el("freeze-view").textContent = snapshot.freezeLabel;
+  if (snapshot.state.outputTab) showOutput(snapshot.state.outputTab);
+  renderRegions();
+  renderTracks();
+  renderCvDetections();
+  drawWaterfall();
+  el("live-status").textContent = "Returned to prior live selection · the short live analysis ring may no longer contain its audio.";
+  updateLiveReviewControls();
+}
+
+el("return-to-live").addEventListener("click", returnToLiveSelection);
+
 async function reviewQueuedCapture(capture) {
+  if (state.liveMonitoring && state.liveView) state.liveReviewReturn = snapshotLiveSelectionForReview();
   el("review-queue-dialog").close();
   state.capture = capture;
   try {
-    const loaded = await loadCapture();
+    const reviewStart = capture.source_metadata?.review_window_start_sample || 0;
+    const loadPromise = loadCapture({windowIndex: Math.floor(reviewStart / (capture.sample_rate * ANNOTATION_WINDOW_SECONDS)), focusedWindow: true});
+    if (state.liveReviewReturn && state.liveMonitoring) {
+      updateLiveReviewControls();
+      el("live-status").textContent = "Reviewing a saved clip · live monitoring continues; the analysis ring remains short.";
+    }
+    const loaded = await loadPromise;
     if (!loaded) {
       el("review-queue-dialog").showModal();
       return;
     }
-    openInspector("signals");
-    if (state.cvAvailable && !restoreCachedCvDetection(capture)) {
+    state.reviewDeferredIds ||= new Set();
+    setInspectorMode("annotate");
+    if (state.liveReviewReturn && state.liveMonitoring) {
+      updateLiveReviewControls();
+      el("live-status").textContent = "Reviewing a saved clip · live monitoring continues; the analysis ring remains short.";
+    }
+    if (state.cvAvailable && !state.regions.length && !restoreCachedCvDetection(capture)) {
       try {
         const result = await request(`/api/captures/${encodeURIComponent(capture.id)}/cv-detections`, { method: "POST" });
         if (state.capture !== capture) return;
@@ -6653,11 +7466,36 @@ async function reviewQueuedCapture(capture) {
         el("cv-status").textContent = `Could not scan queued sample · ${error.message}`;
       }
     }
-    el("box-draw-status").textContent = "Sample ready · draw a box around each signal, or use multiple selections. Use Advanced → Window coverage when you need to review a specific time/frequency window.";
+    el("box-draw-status").textContent = "Review collected sample · draw, refine and label signals. Save progress stays here; Complete & next confirms detection coverage for this window.";
   } catch (error) {
     showError(`Could not open queued sample · ${error.message}`);
   }
 }
+
+async function advanceReviewSession(completedId = null) {
+  const result = await request("/api/live/review-queue");
+  const deferred = state.reviewDeferredIds || new Set();
+  const next = result.pending.find((capture) => capture.id !== completedId && !deferred.has(capture.id));
+  await refreshLiveReviewQueue();
+  if (next) {
+    await reviewQueuedCapture(next);
+  } else {
+    el("label-state").textContent = deferred.size
+      ? "Review session finished · deferred samples remain in the queue."
+      : "Review session finished · no more pending samples.";
+    el("save-annotations-complete").hidden = true;
+    el("defer-review").hidden = true;
+  }
+}
+
+el("defer-review").addEventListener("click", async () => {
+  if (!state.capture || state.liveView || state.batchSaving) return;
+  if (!await resolveWindowDraftsBeforeSwitch("deferring this sample")) return;
+  state.reviewDeferredIds ||= new Set();
+  state.reviewDeferredIds.add(state.capture.id);
+  try { await advanceReviewSession(state.capture.id); }
+  catch (error) { showError(`Could not open the next sample · ${error.message}`); }
+});
 
 async function reviewRandomDatasetWindow() {
   if (state.liveView) {
@@ -6725,7 +7563,11 @@ async function refreshLiveReviewQueue() {
         : capture.source_metadata.review_trigger === "periodic_noise"
           ? "Periodic noise candidate"
           : capture.source_metadata.created_from_live_annotation ? "Classify sample" : "Live sample";
-      title.textContent = `${capture.source_metadata.device_name || "Live input"} · ${trigger} · ${(capture.source_metadata.window_start_sample / capture.sample_rate).toFixed(1)} s${capture.source_metadata.re_review_due ? " · re-review due" : ""}`;
+      const receiverFrequency = Number.isFinite(capture.source_metadata.receiver_frequency_hz)
+        ? ` · ${formatRigFrequency(capture.source_metadata.receiver_frequency_hz)}` : "";
+      const hopNumber = Number.isInteger(capture.source_metadata.band_hop_index)
+        ? ` · band ${capture.source_metadata.band_hop_index + 1}/${capture.source_metadata.band_hop_count}` : "";
+      title.textContent = `${capture.source_metadata.device_name || "Live input"} · ${trigger}${receiverFrequency}${hopNumber} · ${(capture.source_metadata.window_start_sample / capture.sample_rate).toFixed(1)} s${capture.source_metadata.re_review_due ? " · re-review due" : ""}`;
       const detail = document.createElement("div");
       detail.className = "muted";
       const detection = capture.source_metadata.detection_summary || {};
@@ -6737,8 +7579,10 @@ async function refreshLiveReviewQueue() {
       const open = document.createElement("button");
       open.type = "button";
       open.textContent = "Review";
-      open.disabled = state.liveView;
-      open.title = state.liveView ? "Stop live capture before opening a queued sample" : "Open sample to annotate signals";
+      open.disabled = false;
+      open.title = state.liveMonitoring
+        ? "Review this saved clip while live monitoring continues."
+        : "Open sample to annotate signals";
       open.addEventListener("click", () => reviewQueuedCapture(capture));
       const markReviewed = document.createElement("button");
       markReviewed.type = "button";
@@ -6880,6 +7724,7 @@ async function refreshHubReviewQueue() {
   }
 }
 
+localizeAdvancedControls();
 for (const button of document.querySelectorAll("[data-review-source]")) {
   button.addEventListener("click", () => {
     const hub = button.dataset.reviewSource === "hub";
@@ -6892,8 +7737,15 @@ for (const button of document.querySelectorAll("[data-review-source]")) {
   });
 }
 for (const button of document.querySelectorAll("[data-inspector-mode]")) button.addEventListener("click", () => setInspectorMode(button.dataset.inspectorMode));
-for (const button of document.querySelectorAll("[data-detail-level]")) button.addEventListener("click", () => setInspectorDetailLevel(button.dataset.detailLevel));
 for (const button of document.querySelectorAll("[data-inspector-tab]")) button.addEventListener("click", () => openInspector(button.dataset.inspectorTab));
+for (const button of document.querySelectorAll("[data-investigation-tool]")) button.addEventListener("click", () => {
+  if (state.inspectorMode !== "classify") return;
+  saveSelectedBatchLabelDraft();
+  state.inspectorTab = button.dataset.investigationTool === "raw" ? "raw" : "decode";
+  try { localStorage.setItem("sig-id-inspector-tab", state.inspectorTab); } catch {}
+  syncInspectorModeUI();
+  updateDecoderSelectionControls();
+});
 for (const button of document.querySelectorAll("[data-output-tab]")) button.addEventListener("click", () => showOutput(button.dataset.outputTab));
 for (const button of document.querySelectorAll("[data-close-dialog]")) button.addEventListener("click", () => button.closest("dialog").close());
 el("show-signals").addEventListener("click", () => openInspector("signals"));
@@ -6902,14 +7754,530 @@ el("show-settings").addEventListener("click", () => el("settings-dialog").showMo
 for (const id of ["show-library", "open-recording"]) el(id).addEventListener("click", () => { refreshLibrary(); el("library-dialog").showModal(); });
 el("show-review-queue").addEventListener("click", () => { refreshLiveReviewQueue(); el("review-queue-dialog").showModal(); });
 el("review-random-dataset").addEventListener("click", reviewRandomDatasetWindow);
+let fieldGuideEntries = [];
+let fieldGuideCompareId = null;
+let fieldGuideExamples = [];
+let fieldGuideQuickMatches = null;
+let fieldGuideCompareCandidates = [];
+let fieldGuideCompareIndex = 0;
+let fieldGuideCompareOriginalStyle = null;
+let fieldGuideCompareDragOffset = {x:0,y:0};
+const fieldGuideSpectrumCache = new Map();
+const FIELD_GUIDE_COMPARE_MAX_SECONDS = 20;
+const fieldGuideWikiImageCache = new Map();
+function loadFieldGuideWikiImage(entry) {
+  if (!entry?.wiki_image) return Promise.reject(new Error("no wiki image"));
+  if (!fieldGuideWikiImageCache.has(entry.id)) {
+    fieldGuideWikiImageCache.set(entry.id, new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error("wiki image unavailable"));
+      image.src = entry.wiki_image;
+    }));
+  }
+  return fieldGuideWikiImageCache.get(entry.id);
+}
+function drawFieldGuideWikiImage(canvas, image) {
+  const axes=fieldGuideCompareAxes();
+  canvas.style.clipPath="";
+  if (!axes) {
+    const card=fieldGuideCompareCardSize();
+    const previewScale=Math.min(1,(card.width-24)/image.naturalWidth,(card.height-40)/image.naturalHeight);
+    const width=Math.max(1,image.naturalWidth*previewScale), height=Math.max(1,image.naturalHeight*previewScale);
+    canvas.width=image.naturalWidth; canvas.height=image.naturalHeight;
+    canvas.style.left=`${(card.width-width)/2}px`; canvas.style.top=`${(card.height-height)/2}px`;
+    canvas.style.width=`${width}px`; canvas.style.height=`${height}px`;
+    const context=canvas.getContext("2d");
+    context.clearRect(0,0,canvas.width,canvas.height);
+    context.drawImage(image,0,0);
+    return;
+  }
+  const entry=fieldGuideEntries.find((candidate) => candidate.id === fieldGuideCompareId);
+  const scale=entry?.overlay_scale || (entry?.id === "ft8" ? {bandwidth_hz:50,duration_seconds:12.64} : null);
+  if (scale && Number.isFinite(scale.bandwidth_hz) && Number.isFinite(scale.duration_seconds)) {
+    const card=fieldGuideCompareCardSize();
+    const width=axes.plot.width*scale.bandwidth_hz/(axes.frequencyHigh-axes.frequencyLow);
+    const height=axes.plot.height*scale.duration_seconds/axes.durationSeconds;
+    canvas.width=image.naturalWidth; canvas.height=image.naturalHeight;
+    canvas.style.left=`${(card.width-width)/2}px`; canvas.style.top=`${(card.height-height)/2}px`;
+    canvas.style.width=`${width}px`; canvas.style.height=`${height}px`;
+    clipFieldGuideCanvasToPlot(canvas, axes.plot);
+    const context=canvas.getContext("2d");
+    context.clearRect(0,0,canvas.width,canvas.height);
+    context.drawImage(image,0,0);
+    return;
+  }
+  // Wiki crops have no retained axes. Keep the reference contained in the
+  // fixed-size comparison card rather than implying a physical scale.
+  const card=fieldGuideCompareCardSize();
+  const previewScale=Math.min(1,(card.width-24)/image.naturalWidth,(card.height-40)/image.naturalHeight);
+  const width=Math.max(1,image.naturalWidth*previewScale), height=Math.max(1,image.naturalHeight*previewScale);
+  canvas.style.left=`${(card.width-width)/2}px`; canvas.style.top=`${(card.height-height)/2}px`;
+  canvas.style.width=`${width}px`; canvas.style.height=`${height}px`;
+  canvas.width=image.naturalWidth; canvas.height=image.naturalHeight;
+  const context = canvas.getContext("2d");
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(image,0,0);
+}
+function fieldGuideCompareAxes() {
+  const data=state.waterfall;
+  if (!data || !state.view) return null;
+  const visible=waterfallViewBounds(), plot=baseCanvas.getBoundingClientRect();
+  const frequencyLow=data.frequency_hz[visible.frequencyStart];
+  const frequencyHigh=data.frequency_hz[visible.frequencyEnd-1];
+  const timeStart=state.view.timeStartSample, timeEnd=state.view.timeEndSample;
+  if (!plot.width || !plot.height || frequencyHigh<=frequencyLow || timeEnd<=timeStart) return null;
+  const selection=state.selection;
+  const anchorFrequency=selection && Number.isFinite(selection.frequency_low_hz) && Number.isFinite(selection.frequency_high_hz)
+    ? (selection.frequency_low_hz+selection.frequency_high_hz)/2 : (frequencyLow+frequencyHigh)/2;
+  const anchorSample=selection && Number.isFinite(selection.sample_start) && Number.isFinite(selection.sample_count)
+    ? selection.sample_start+selection.sample_count/2 : (timeStart+timeEnd)/2;
+  return {
+    plot, frequencyLow, frequencyHigh, timeStart, timeEnd,
+    durationSeconds:(timeEnd-timeStart)/data.sample_rate,
+    anchorX:plot.left+(anchorFrequency-frequencyLow)/(frequencyHigh-frequencyLow)*plot.width,
+    anchorY:plot.top+(timeEnd-anchorSample)/(timeEnd-timeStart)*plot.height,
+  };
+}
+function fieldGuideCompareCardSize() {
+  return {width:Math.min(420,Math.max(240,window.innerWidth-24)),height:154};
+}
+function positionFieldGuideCompareCard() {
+  const card=fieldGuideCompareCardSize(), axes=fieldGuideCompareAxes();
+  const anchorX=axes?.anchorX ?? window.innerWidth/2;
+  const anchorY=axes?.anchorY ?? window.innerHeight/2;
+  fieldGuideDialog.style.left=`${anchorX-card.width/2+fieldGuideCompareDragOffset.x}px`;
+  fieldGuideDialog.style.top=`${anchorY-card.height/2+fieldGuideCompareDragOffset.y}px`;
+  fieldGuideDialog.style.right="auto"; fieldGuideDialog.style.bottom="auto";
+  fieldGuideDialog.style.width=`${card.width}px`; fieldGuideDialog.style.height=`${card.height}px`;
+  const canvas=el("field-guide-overlay-canvas");
+  canvas.style.left=`${card.width/2}px`; canvas.style.top=`${card.height/2}px`;
+  canvas.style.width="0px"; canvas.style.height="0px";
+}
+function positionFieldGuideCompare(item, sourceStart, sourceEnd, sourceFrequencyLow, sourceFrequencyHigh) {
+  const axes=fieldGuideCompareAxes();
+  if (!axes || sourceEnd<=sourceStart || sourceFrequencyHigh<=sourceFrequencyLow) return false;
+  const canvas=el("field-guide-overlay-canvas");
+  const durationSeconds=(sourceEnd-sourceStart)/item.sample_rate;
+  const width=axes.plot.width*(sourceFrequencyHigh-sourceFrequencyLow)/(axes.frequencyHigh-axes.frequencyLow);
+  const height=axes.plot.height*durationSeconds/axes.durationSeconds;
+  const card=fieldGuideCompareCardSize();
+  const region=item.region || {};
+  const signalFrequency=Number.isFinite(region.frequency_low_hz) && Number.isFinite(region.frequency_high_hz)
+    ? (region.frequency_low_hz+region.frequency_high_hz)/2 : (sourceFrequencyLow+sourceFrequencyHigh)/2;
+  const signalSample=Number.isFinite(region.sample_start) && Number.isFinite(region.sample_count)
+    ? region.sample_start+region.sample_count/2 : (sourceStart+sourceEnd)/2;
+  const signalX=(signalFrequency-sourceFrequencyLow)/(sourceFrequencyHigh-sourceFrequencyLow)*width;
+  // Canvas time runs downwards while waterfall time runs upwards.
+  const signalY=(sourceEnd-signalSample)/(sourceEnd-sourceStart)*height;
+  fieldGuideDialog.style.left=`${axes.anchorX-card.width/2+fieldGuideCompareDragOffset.x}px`;
+  fieldGuideDialog.style.top=`${axes.anchorY-card.height/2+fieldGuideCompareDragOffset.y}px`;
+  fieldGuideDialog.style.right="auto"; fieldGuideDialog.style.bottom="auto";
+  fieldGuideDialog.style.width=`${card.width}px`; fieldGuideDialog.style.height=`${card.height}px`;
+  canvas.width=640; canvas.height=224;
+  canvas.style.left=`${card.width/2-signalX}px`; canvas.style.top=`${card.height/2-signalY}px`;
+  canvas.style.width=`${width}px`; canvas.style.height=`${height}px`;
+  clipFieldGuideCanvasToPlot(canvas, axes.plot);
+  return true;
+}
+function clipFieldGuideCanvasToPlot(canvas, plot) {
+  const image=canvas.getBoundingClientRect();
+  const top=Math.max(0,plot.top-image.top), right=Math.max(0,image.right-plot.right);
+  const bottom=Math.max(0,image.bottom-plot.bottom), left=Math.max(0,plot.left-image.left);
+  canvas.style.clipPath=`inset(${top}px ${right}px ${bottom}px ${left}px)`;
+}
+function drawFieldGuideSpectrumAtScale(canvas, spectrum, item) {
+  canvas.style.clipPath="";
+  const preview=document.createElement("canvas"); preview.width=640; preview.height=224;
+  drawSignalOnlyPreview(preview,spectrum,item);
+  const window=fieldGuideSpectrumWindow(item, FIELD_GUIDE_COMPARE_MAX_SECONDS);
+  const sourceEnd=Math.min(window.start+window.count, (spectrum.sample_starts?.at(-1) || window.start)+spectrum.fft_size);
+  const sourceHigh=Math.min(3000,spectrum.frequency_hz?.at(-1) || spectrum.sample_rate/2);
+  if (sourceEnd<=window.start || sourceHigh<=0) return false;
+  const card=fieldGuideCompareCardSize();
+  if(!fieldGuideCompareAxes()) {
+    // No displayed waterfall means there is no physical Hz/time scale to map.
+    // Show the stored render at its original aspect ratio in the fixed card.
+    const scale=Math.min(1,(card.width-36)/preview.width,(card.height-30)/preview.height);
+    canvas.width=preview.width; canvas.height=preview.height;
+    canvas.style.left=`${(card.width-preview.width*scale)/2}px`;
+    canvas.style.top=`${(card.height-preview.height*scale)/2}px`;
+    canvas.style.width=`${preview.width*scale}px`; canvas.style.height=`${preview.height*scale}px`;
+    const context=canvas.getContext("2d");
+    context.clearRect(0,0,canvas.width,canvas.height);
+    context.drawImage(preview,0,0);
+    return true;
+  }
+  if (!positionFieldGuideCompare(item,window.start,sourceEnd,0,sourceHigh)) return false;
+  const context=canvas.getContext("2d");
+  context.clearRect(0,0,canvas.width,canvas.height);
+  context.drawImage(preview,0,0,canvas.width,canvas.height);
+  return true;
+}
+function restoreFieldGuideDialogLayout() {
+  if (!fieldGuideCompareOriginalStyle) return;
+  for (const [property,value] of Object.entries(fieldGuideCompareOriginalStyle)) fieldGuideDialog.style[property]=value;
+  fieldGuideCompareOriginalStyle=null;
+}
+function measureSelectedSignalForGuide() {
+  const data = state.waterfall;
+  const selection = state.selection;
+  if (state.liveView || !data?.db?.length || !selection || !Number.isFinite(selection.frequency_low_hz)
+    || !Number.isFinite(selection.frequency_high_hz) || selection.frequency_high_hz <= selection.frequency_low_hz) return null;
+  const bins = data.frequency_hz.map((frequency, index) => ({frequency, index}))
+    .filter((item) => item.frequency >= selection.frequency_low_hz && item.frequency <= selection.frequency_high_hz);
+  if (bins.length < 2) return null;
+  const starts = data.sample_starts || [];
+  const end = selection.sample_start + selection.sample_count;
+  const rows = data.db.filter((row, index) => !starts.length || (starts[index] >= selection.sample_start && starts[index] < end));
+  if (!rows.length) return null;
+  const profile = bins.map(({index}) => {
+    const power = rows.map((row) => 10 ** (Number(row[index]) / 10)).filter(Number.isFinite);
+    power.sort((a,b) => a-b);
+    return power[Math.floor((power.length - 1) * 0.8)] || 0;
+  });
+  const maxPower = Math.max(...profile);
+  if (!(maxPower > 0)) return null;
+  const threshold = maxPower * 0.1;
+  const active = profile.map((value) => value >= threshold);
+  const activeIndices = active.map((value,index) => value ? index : -1).filter((value) => value >= 0);
+  if (!activeIndices.length) return null;
+  const first = bins[activeIndices[0]].frequency, last = bins[activeIndices.at(-1)].frequency;
+  const localPeaks = [];
+  for (let i=1;i<profile.length-1;i++) {
+    if (profile[i] >= threshold && profile[i] >= profile[i-1] && profile[i] > profile[i+1]) localPeaks.push(i);
+  }
+  const binHz = Math.abs(data.frequency_hz[1] - data.frequency_hz[0]);
+  const mergeBins = Math.max(1, Math.round(15 / Math.max(binHz, 0.01)));
+  const peaks = [];
+  for (const index of localPeaks.sort((a,b)=>profile[b]-profile[a])) {
+    if (!peaks.some((existing) => Math.abs(existing-index) <= mergeBins)) peaks.push(index);
+  }
+  return {bandwidth_hz: Math.max(binHz,last-first+binHz), tone_count: peaks.length || 1, bin_hz: binHz,
+    sample_seconds: selection.sample_count / data.sample_rate,
+    resolution_limited: binHz > 10};
+}
+function rankFieldGuideMatches(measurement) {
+  const withProfiles = fieldGuideEntries.filter((entry) => entry.lookup);
+  return withProfiles.map((entry) => {
+    const bw=entry.lookup.bandwidth_hz, tones=entry.lookup.tone_count;
+    const bwDistance = measurement.bandwidth_hz < bw[0] ? Math.log(bw[0]/measurement.bandwidth_hz)
+      : measurement.bandwidth_hz > bw[1] ? Math.log(measurement.bandwidth_hz/bw[1]) : 0;
+    const toneDistance = measurement.tone_count < tones[0] ? tones[0]-measurement.tone_count
+      : measurement.tone_count > tones[1] ? measurement.tone_count-tones[1] : 0;
+    return {...entry, _lookupScore: bwDistance + toneDistance * 0.7};
+  }).sort((a,b)=>a._lookupScore-b._lookupScore).slice(0,8);
+}
+function normalizedGuideText(value) {
+  return String(value || "").toLocaleLowerCase().replace(/^fldigi-/, "").replace(/[^a-z0-9]+/g, "");
+}
+function fieldGuideExample(entry) {
+  const guideKeys = [entry.id, entry.name, entry.variant, ...(entry.aliases || [])].map(normalizedGuideText).filter(Boolean);
+  const exact = fieldGuideExamples.filter((item) => {
+    const region = item.region || {};
+    const fields = [region.mode_id, region.variant, region.protocol, region.method, region.family].map(normalizedGuideText).filter(Boolean);
+    return guideKeys.some((key) => fields.includes(key));
+  });
+  const selected = exact.slice().sort((a, b) => {
+    const reviewed = Number(b.region?.review_state === "accepted") - Number(a.region?.review_state === "accepted");
+    if (reviewed) return reviewed;
+    const live = Number(b.source_kind === "live") - Number(a.source_kind === "live");
+    if (live) return live;
+    return Number(b.region?.sample_count || 0) - Number(a.region?.sample_count || 0);
+  })[0] || null;
+  return selected ? {...selected, _guideMatch: "mode"} : null;
+}
+function loadFieldGuideSpectrum(item, maxDurationSeconds = null) {
+  const window=fieldGuideSpectrumWindow(item, maxDurationSeconds);
+  const params = new URLSearchParams({fft_size:"1024",hop_size:"256",max_rows:"180",sample_start:String(window.start),window_sample_count:String(window.count)});
+  const cacheKey = `${item.capture_id}:${window.start}:${window.count}`;
+  let spectrumPromise = fieldGuideSpectrumCache.get(cacheKey);
+  if (!spectrumPromise) {
+    spectrumPromise = request(`/api/field-guide/examples/${encodeURIComponent(item.capture_id)}/waterfall?${params}`);
+    fieldGuideSpectrumCache.set(cacheKey, spectrumPromise);
+  }
+  return spectrumPromise;
+}
+function fieldGuideSpectrumWindow(item, maxDurationSeconds = null) {
+  const rate = item.sample_rate;
+  const contextSamples = Math.min(item.sample_count, Math.max(1024, item.region.sample_count + rate * 2),
+    Number.isFinite(maxDurationSeconds) ? Math.max(1024, Math.floor(rate * maxDurationSeconds)) : item.sample_count);
+  const center = item.region.sample_start + item.region.sample_count / 2;
+  const sampleStart = Math.max(0, Math.min(item.sample_count-contextSamples, Math.floor(center-contextSamples/2)));
+  return {start:sampleStart,count:contextSamples};
+}
+function observeFieldGuideExample(canvas) {
+  const item = canvas._fieldGuideExample;
+  if (!item || canvas._previewLoaded) return;
+  canvas._previewLoaded = true;
+  loadFieldGuideSpectrum(item).then((spectrum) => drawSignalOnlyPreview(canvas, spectrum, item)).catch(() => {
+    const context = canvas.getContext("2d"); context.clearRect(0,0,canvas.width,canvas.height);
+    context.fillStyle="#aab7b4"; context.font="12px sans-serif"; context.fillText("Example unavailable",12,canvas.height/2);
+  });
+}
+let fieldGuideExampleObserver = null;
+function watchFieldGuideExample(canvas) {
+  if (fieldGuideExampleObserver) fieldGuideExampleObserver.observe(canvas);
+  else observeFieldGuideExample(canvas);
+}
+fieldGuideExampleObserver = typeof IntersectionObserver === "undefined" ? null : new IntersectionObserver((entries) => {
+  for (const item of entries) if (item.isIntersecting) { fieldGuideExampleObserver.unobserve(item.target); observeFieldGuideExample(item.target); }
+}, {root: el("field-guide-dialog"), rootMargin:"300px"});
+
+function fieldGuideElement(tag, className, value) {
+  const item = document.createElement(tag);
+  if (className) item.className = className;
+  if (value !== undefined) item.textContent = value;
+  return item;
+}
+function exitFieldGuideCompare() {
+  fieldGuideCompareId = null;
+  fieldGuideCompareCandidates = [];
+  fieldGuideCompareIndex = 0;
+  fieldGuideCompareDragOffset = {x:0,y:0};
+  restoreFieldGuideDialogLayout();
+  const canvas=el("field-guide-overlay-canvas");
+  canvas.style.left=""; canvas.style.top=""; canvas.style.width=""; canvas.style.height=""; canvas.style.clipPath="";
+  fieldGuideDialog.classList.remove("overlay-compare");
+  el("field-guide-overlay-preview").hidden = true;
+  el("field-guide-exit-compare").hidden = true;
+  renderFieldGuide();
+}
+function compareCandidatesFor(entry) {
+  const pool = fieldGuideQuickMatches?.length
+    ? fieldGuideQuickMatches
+    : fieldGuideEntries.filter((candidate) => candidate.family === entry.family);
+  return pool.length ? pool : [entry];
+}
+function enterFieldGuideCompare(entry) {
+  if (fieldGuideCompareId === entry.id) return exitFieldGuideCompare();
+  const enteringCompare = !fieldGuideDialog.classList.contains("overlay-compare");
+  if (enteringCompare) {
+    fieldGuideCompareOriginalStyle = Object.fromEntries(["left","top","right","bottom","width","height"]
+      .map((property) => [property,fieldGuideDialog.style[property]]));
+    fieldGuideCompareDragOffset = {x:0,y:0};
+  }
+  fieldGuideCompareId = entry.id;
+  fieldGuideCompareCandidates = compareCandidatesFor(entry);
+  fieldGuideCompareIndex = Math.max(0, fieldGuideCompareCandidates.findIndex((item) => item.id === entry.id));
+  el("field-guide-previous").disabled = fieldGuideCompareCandidates.length < 2;
+  el("field-guide-next").disabled = fieldGuideCompareCandidates.length < 2;
+  el("field-guide-previous").setAttribute("aria-label", `Previous likely mode · ${fieldGuideCompareCandidates[(fieldGuideCompareIndex - 1 + fieldGuideCompareCandidates.length) % fieldGuideCompareCandidates.length]?.name || "none"}`);
+  el("field-guide-next").setAttribute("aria-label", `Next likely mode · ${fieldGuideCompareCandidates[(fieldGuideCompareIndex + 1) % fieldGuideCompareCandidates.length]?.name || "none"}`);
+  fieldGuideDialog.classList.add("overlay-compare");
+  positionFieldGuideCompareCard();
+  const overlay = el("field-guide-overlay-preview");
+  const canvas = el("field-guide-overlay-canvas");
+  const label = el("field-guide-overlay-label");
+  overlay.hidden = false;
+  el("field-guide-exit-compare").hidden = false;
+  const example = fieldGuideExample(entry);
+  canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
+  if (example) {
+    canvas.hidden = false;
+    label.textContent = `${entry.name} · ${fieldGuideCompareIndex + 1}/${fieldGuideCompareCandidates.length} · mode example`;
+    loadFieldGuideSpectrum(example, FIELD_GUIDE_COMPARE_MAX_SECONDS).then((spectrum) => {
+      if (fieldGuideCompareId === entry.id && !drawFieldGuideSpectrumAtScale(canvas, spectrum, example)) {
+        label.textContent = `${entry.name} · no clear signal in stored sample`;
+      } else if (fieldGuideCompareId === entry.id && !fieldGuideCompareAxes()) {
+        label.textContent = `${entry.name} · preview only · open a waterfall for 1:1 scale`;
+      }
+    }).catch(() => {
+      label.textContent = `${entry.name} · sample unavailable`;
+    });
+  } else if (entry.wiki_image) {
+    canvas.hidden = false;
+    label.textContent = `${entry.name} · SigIDWiki reference${entry.overlay_scale ? " · calibrated scale" : " · unscaled"}`;
+    loadFieldGuideWikiImage(entry).then((image) => {
+      if (fieldGuideCompareId === entry.id) {
+        drawFieldGuideWikiImage(canvas, image);
+        if (!fieldGuideCompareAxes()) label.textContent = `${entry.name} · SigIDWiki reference · preview only`;
+      }
+    }).catch(() => {
+      label.textContent = `${entry.name} · wiki image unavailable`;
+    });
+  } else {
+    label.textContent = `No stored Fldigi example for ${entry.name} yet`;
+    canvas.hidden = true;
+  }
+  renderFieldGuide();
+}
+function stepFieldGuideCompare(delta) {
+  if (!fieldGuideCompareCandidates.length) return;
+  fieldGuideCompareIndex = (fieldGuideCompareIndex + delta + fieldGuideCompareCandidates.length) % fieldGuideCompareCandidates.length;
+  const entry = fieldGuideCompareCandidates[fieldGuideCompareIndex];
+  fieldGuideCompareId = null;
+  enterFieldGuideCompare(entry);
+}
+function makeFieldGuideCard(entry) {
+  const card = fieldGuideElement("article", "field-guide-card");
+  const art = fieldGuideElement("div", "field-guide-art");
+  const example = fieldGuideExample(entry);
+  const makePreviewCanvas = () => {
+    const preview=document.createElement("canvas"); preview.className="field-guide-example";
+    preview.width=640; preview.height=224; preview.setAttribute("role","img");
+    preview.setAttribute("aria-label",`Waterfall example for ${entry.name}`);
+    preview._fieldGuideExample=example;
+    return preview;
+  };
+  if (example) {
+    const preview=makePreviewCanvas(); art.append(preview); watchFieldGuideExample(preview);
+    const label = [example.region.protocol, example.region.mode_id, example.region.family].find((v) => typeof v === "string" && v.trim()) || entry.name;
+    art.append(fieldGuideElement("span", "field-guide-example-caption", `Fldigi-generated · ${label}`));
+  } else if (entry.wiki_image) {
+    const preview = document.createElement("img");
+    preview.className = "field-guide-wiki-example";
+    preview.src = entry.wiki_image;
+    preview.alt = `Signal render for ${entry.name}`;
+    preview.loading = "lazy";
+    preview.addEventListener("error", () => {
+      if (example) {
+        const fallback=makePreviewCanvas(); preview.replaceWith(fallback); watchFieldGuideExample(fallback);
+      } else {
+        preview.replaceWith(fieldGuideElement("span","field-guide-missing-image","Reference image unavailable"));
+      }
+    }, {once:true});
+    art.append(preview);
+  } else {
+    art.classList.add("field-guide-no-example");
+    art.append(fieldGuideElement("span", "field-guide-missing-image", "No example image available yet"));
+  }
+  const heading = fieldGuideElement("div", "field-guide-card-heading");
+  const title = fieldGuideElement("h3", "", entry.name); const family = fieldGuideElement("span", "field-guide-family", entry.family);
+  heading.append(title, family);
+  const meta = fieldGuideElement("p", "field-guide-meta", `${entry.scope} · ${entry.modulation}`);
+  const clue = fieldGuideElement("p", "", entry.look_for);
+  const details = fieldGuideElement("details", "field-guide-details");
+  const summary = fieldGuideElement("summary", "", "Field notes");
+  const context = fieldGuideElement("p", "", entry.context);
+  const pitfall = fieldGuideElement("p", "", `Easy to confuse: ${entry.pitfall}`);
+  const frequency = fieldGuideElement("p", "", entry.frequency_note || "Frequency depends on region and service.");
+  details.append(summary, context, pitfall, frequency);
+  const actions = fieldGuideElement("div", "field-guide-card-actions");
+  const exactExample = example?._guideMatch === "mode";
+  const hasSample = Boolean(entry.wiki_image || example);
+  const compare = fieldGuideElement("button", "", fieldGuideCompareId === entry.id ? "Exit compare" : hasSample ? "Compare" : "No sample");
+  compare.type = "button"; compare.disabled = !hasSample;
+  compare.title = exactExample ? "Overlay this mode-specific isolated signal on the waterfall" : entry.wiki_image ? "Overlay the mode-specific SigIDWiki reference; physical scale is shown only when calibrated" : "No mode-specific example is available yet";
+  compare.addEventListener("click", () => enterFieldGuideCompare(entry));
+  actions.append(compare);
+  if (entry.wiki && /^https:\/\/(www\.)?sigidwiki\.com\//i.test(entry.wiki)) {
+    const link = fieldGuideElement("a", "", "Signal page"); link.href = entry.wiki; link.target = "_blank"; link.rel = "noopener noreferrer"; actions.append(link);
+  }
+  if (entry.wiki_image_source && /^https:\/\/(www\.)?sigidwiki\.com\//i.test(entry.wiki_image_source)) {
+    const link = fieldGuideElement("a", "", "Image source"); link.href = entry.wiki_image_source; link.target = "_blank"; link.rel = "noopener noreferrer"; actions.append(link);
+  }
+  if (entry.decoder_status) actions.append(fieldGuideElement("span", "field-guide-status", entry.decoder_status));
+  card.append(art, heading, meta, clue, details, actions);
+  return card;
+}
+function renderFieldGuide() {
+  const query = el("field-guide-search").value.trim().toLocaleLowerCase();
+  const family = el("field-guide-family").value;
+  const source = fieldGuideQuickMatches || fieldGuideEntries;
+  const entries = source.filter((item) => (!family || item.family === family)
+    && (!query || [item.name,item.family,item.scope,item.modulation,item.look_for,item.pitfall,item.context,...(item.aliases||[])].join(" ").toLocaleLowerCase().includes(query)));
+  el("field-guide-count").textContent = fieldGuideQuickMatches
+    ? `${entries.length} likely matches · sort uses bandwidth and visible tone count`
+    : `${entries.length} entries · overlay a reference on the waterfall`;
+  const cards = el("field-guide-cards"); cards.replaceChildren();
+  for(const entry of entries)cards.append(makeFieldGuideCard(entry));
+  if(!entries.length)cards.append(fieldGuideElement("p","field-guide-empty","No entries match those filters."));
+}
+async function openFieldGuide() {
+  const dialog = el("field-guide-dialog");
+  if(!fieldGuideEntries.length){
+    el("field-guide-cards").textContent = "Loading guide…";
+    try {
+      const [data, examples] = await Promise.all([request("/api/field-guide"), request("/api/field-guide/examples")]);
+      fieldGuideEntries = data.entries; fieldGuideExamples = examples;
+      const select = el("field-guide-family");
+      for(const family of data.families){const option=document.createElement("option");option.value=family;option.textContent=family;select.append(option);}
+      renderFieldGuide();
+    } catch(error) { el("field-guide-cards").textContent = `Could not load the field guide: ${error.message}`; }
+  }
+  if(!dialog.open) dialog.show();
+}
+el("show-field-guide").addEventListener("click", openFieldGuide);
+el("field-guide-search").addEventListener("input", renderFieldGuide);
+el("field-guide-family").addEventListener("change", renderFieldGuide);
+const fieldGuideDialog = el("field-guide-dialog");
+fieldGuideDialog.addEventListener("close", () => {
+  if (fieldGuideDialog.classList.contains("overlay-compare")) exitFieldGuideCompare();
+});
+el("field-guide-exit-compare").addEventListener("click", exitFieldGuideCompare);
+el("field-guide-previous").addEventListener("pointerdown", (event) => event.stopPropagation());
+el("field-guide-next").addEventListener("pointerdown", (event) => event.stopPropagation());
+el("field-guide-previous").addEventListener("click", () => stepFieldGuideCompare(-1));
+el("field-guide-next").addEventListener("click", () => stepFieldGuideCompare(1));
+el("field-guide-match-selection").addEventListener("click", () => {
+  const status = el("field-guide-match-status");
+  const measurement = measureSelectedSignalForGuide();
+  if (!measurement) {
+    status.textContent = "Select a saved signal box first. The quick lookup needs its waterfall and frequency bounds.";
+    return;
+  }
+  fieldGuideQuickMatches = rankFieldGuideMatches(measurement);
+  status.textContent = `Measured about ${measurement.bandwidth_hz.toFixed(0)} Hz and ${measurement.tone_count} visible tone peak${measurement.tone_count === 1 ? "" : "s"} in ${(measurement.sample_seconds).toFixed(1)} s${measurement.resolution_limited ? ` · FFT resolution ${measurement.bin_hz.toFixed(1)} Hz may merge close tones` : ""}. Ranked candidates are rough visual matches.`;
+  renderFieldGuide();
+});
+el("field-guide-dock").addEventListener("click", () => {
+  const docked = fieldGuideDialog.classList.toggle("is-docked");
+  el("field-guide-dock").textContent = docked ? "Float window" : "Dock left";
+  el("field-guide-dock").setAttribute("aria-pressed", String(docked));
+  if(docked){fieldGuideDialog.style.left="12px";fieldGuideDialog.style.top="78px";}
+  else {fieldGuideDialog.style.left="";fieldGuideDialog.style.top="";}
+});
+let fieldGuidePointer = null;
+el("field-guide-title").closest("header").addEventListener("pointerdown", (event) => {
+  if(event.target.closest("button") || fieldGuideDialog.classList.contains("is-docked"))return;
+  const rect=fieldGuideDialog.getBoundingClientRect();fieldGuidePointer={x:event.clientX-rect.left,y:event.clientY-rect.top};
+  event.currentTarget.setPointerCapture?.(event.pointerId);
+});
+el("field-guide-title").closest("header").addEventListener("pointermove", (event) => {
+  if(!fieldGuidePointer)return;
+  const left=Math.max(0,Math.min(window.innerWidth-fieldGuideDialog.offsetWidth,event.clientX-fieldGuidePointer.x));
+  const top=Math.max(0,Math.min(window.innerHeight-70,event.clientY-fieldGuidePointer.y));
+  fieldGuideDialog.style.left=`${left}px`;fieldGuideDialog.style.top=`${top}px`;
+});
+for(const type of ["pointerup","pointercancel"])el("field-guide-title").closest("header").addEventListener(type,()=>{fieldGuidePointer=null;});
+el("field-guide-overlay-preview").addEventListener("pointerdown", (event) => {
+  if (event.target.closest("button")) return;
+  const rect = fieldGuideDialog.getBoundingClientRect();
+  fieldGuidePointer = {x:event.clientX-rect.left,y:event.clientY-rect.top,lastLeft:rect.left,lastTop:rect.top};
+  event.currentTarget.setPointerCapture?.(event.pointerId);
+});
+el("field-guide-overlay-preview").addEventListener("pointermove", (event) => {
+  if (!fieldGuidePointer) return;
+  const left=Math.max(0,Math.min(window.innerWidth-fieldGuideDialog.offsetWidth,event.clientX-fieldGuidePointer.x));
+  const top=Math.max(0,Math.min(window.innerHeight-fieldGuideDialog.offsetHeight,event.clientY-fieldGuidePointer.y));
+  fieldGuideCompareDragOffset.x+=left-fieldGuidePointer.lastLeft;
+  fieldGuideCompareDragOffset.y+=top-fieldGuidePointer.lastTop;
+  fieldGuidePointer.lastLeft=left; fieldGuidePointer.lastTop=top;
+  fieldGuideDialog.style.left=`${left}px`;fieldGuideDialog.style.top=`${top}px`;
+});
+for(const type of ["pointerup","pointercancel"])el("field-guide-overlay-preview").addEventListener(type,()=>{fieldGuidePointer=null;});
 if (state.inspectorMode === "annotate") state.batchBoxMode = true;
 syncInspectorModeUI();
-setInspectorDetailLevel(state.inspectorDetailLevel);
 refreshLiveReviewQueue();
 setInterval(refreshLiveReviewQueue, 15000);
 refreshNativeDecoderStatus();
 setInterval(refreshNativeDecoderStatus, 3000);
 el("raw-tool").addEventListener("change", () => showRawTool(el("raw-tool").value));
+el("compare-raw-attempts").addEventListener("click", renderRawAttemptComparison);
+el("clear-raw-attempt-comparison").addEventListener("click", () => {
+  state.comparedRawAttemptIds.clear();
+  updateRawAttemptComparisonControls();
+  renderRawDemodAttempts();
+});
+el("compare-raw-attempts").addEventListener("click", renderRawAttemptComparison);
+el("clear-raw-attempt-comparison").addEventListener("click", () => {
+  state.comparedRawAttemptIds.clear();
+  el("raw-attempt-comparison").replaceChildren();
+  el("raw-attempt-comparison").hidden = true;
+  el("clear-raw-attempt-comparison").hidden = true;
+  renderRawDemodAttempts();
+});
 el("toggle-output").addEventListener("click", () => {
   const collapsed = el("output-dock").classList.toggle("collapsed");
   el("toggle-output").textContent = collapsed ? "Expand" : "Collapse";
@@ -7175,21 +8543,22 @@ function startSpectrumStream(generation,sessionId) {
       const response=await fetch(`/api/live/spectrum?after_sample=${after}&session_id=${encodeURIComponent(sessionId)}`, {signal:AbortSignal.timeout(5000)});
       if (!response.ok) throw new Error(`Spectrum request ${response.status}`);
       const packet=decodeSpectrumPacket(await response.arrayBuffer());
-      if (generation!==state.liveGeneration || !state.liveView) return;
+      if (generation!==state.liveGeneration || !state.liveMonitoring) return;
       if (packet.session_id!==sessionId) throw new Error("Live source changed; stop and reopen capture");
       liveDisplay.append(packet);
       applyLiveDisplay();
     } catch(error) {
       delay=1000;
-      if (generation===state.liveGeneration && state.liveView) el("waterfall-state").textContent=`Spectrum update delayed · ${error.message}`;
+      if (generation===state.liveGeneration && state.liveMonitoring) el("waterfall-state").textContent=`Spectrum update delayed · ${error.message}`;
     } finally {
-      if(generation===state.liveGeneration && state.liveView) spectrumPoll=setTimeout(update,delay);
+      if(generation===state.liveGeneration && state.liveMonitoring) spectrumPoll=setTimeout(update,delay);
     }
   };
   update();
 }
 
 function beginNewRegion() {
+  renderCollectedAttempt();
   if (!state.cvCoverageQueue) el("cv-coverage-queue-label-status").hidden = true;
   state.selectedTrack = null;
   state.batchReviewBox = null;

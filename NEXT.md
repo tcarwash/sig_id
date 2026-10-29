@@ -1,5 +1,30 @@
 # Next checkpoint
 
+Latest UX slice: collect → review remains explicit. Annotate now supports Save
+progress, Complete & next, and session-local Defer with dirty-draft protection.
+Selected-region context survives workflow switches and existing-region saves.
+Finished exact-source decoder attempts can be collected into pending review with
+their source audio, bounds and run evidence; an explicit suggestion action fills
+the label draft. Late results and shared receiver text do not steal/contaminate
+the selected isolated output. Focused API/browser tests exercise the flows; the
+larger UX roadmap and remaining live-retention work are tracked
+in `LIVE_FIRST_UX_PLAN.md`. The queue can now open a saved clip over an active
+live session and return to the saved selection; live monitoring continues, but the
+short ring still does not pin the old sample interval. Existing per-source
+decoder-run APIs already expose enough persisted data for attempt comparison.
+Classify now has one Investigate
+tab with local Decoder/Raw symbols tools; receive attempts can be compared side by
+side in groups of up to three, and Fldigi carrier settings live in a local Parameters
+disclosure. Raw-symbol runs now persist settings, the exact capture sample interval,
+and bounded result previews; reopened captures list prior attempts, compare up to three,
+and retry a selected attempt with its saved settings and exact input interval. Full raw
+vectors remain available from analysis exports while database history stays compact.
+The global Simple/Advanced switch is gone; optional controls are under panel-local
+“More…” disclosures, with live statuses kept visible.
+Decoder replay records now carry whether the request was manual or auto-identify;
+older rows remain explicitly unknown. The migration was checked on a temporary SQLite
+backup of the existing schema-21 database; the source database was not changed.
+
 Status: local WAV upload/replay workbench, spectrogram, manual region labels,
 sample-indexed replay, live audio capture, FSK fixtures and SQLite dataset index
 are implemented. Receive-only Fldigi catalog selection and decoded-text display are
@@ -53,7 +78,9 @@ is resizable by pointer or keyboard, remembers its height, and stays within the 
 - Waterfall-centered UI: viewport workspace, source toolbar, settings/library drawers,
   selected-signal inspector, one raw-demodulator selector and a collapsible output dock.
   Readable track/annotation labels select signals in place, with collision overflow,
-  keyboard access and provisional evidence text. Library reopens saved recordings.
+  keyboard access and provisional evidence text. Library leads with classified-signal
+  waterfall previews that open the matching source capture at that labeled region;
+  unclassified recordings remain in a collapsed secondary list.
   Chromium workflow checks cover five demodulator exports, partial labels, saved-region
   selection and explicit decoder-mode activation at desktop/mobile sizes. The first
   layout checkpoint is followed by incremental binary spectrum transport at a 200 ms
@@ -312,6 +339,27 @@ is resizable by pointer or keyboard, remembers its height, and stays within the 
   hash, source sample range and protocol-unknown status for reproducible manual analysis.
 
 ## Next action
+
+Next validate local disclosures and raw-attempt persistence/comparison/retry in the
+browser/API, then address retained live-source history. The field guide prefers
+curated SigIDWiki signal images cleaned to yellow-on-transparent renders, with
+mode-specific Fldigi captures as fallback. Compare can overlay either source on the
+waterfall. The Wiki image importer keeps source-file provenance in the user's
+`field-guide/wiki-images` data directory; asset reuse rights are unassessed, so do
+not bundle these cached files for distribution until cleared. Preserve real signal
+features such as CW key clicks when cleaning images. Reference transmissions remain
+in a dedicated `field-guide` store, separate from live captures and training data.
+The library groups captures by their saved signal classification and displays
+unboxed waterfalls. Add curated image mappings only after checking that each page's
+selected image actually shows the named mode. A selected-box lookup now ranks the
+initial curated set by approximate occupied bandwidth and visible tone peaks; close
+tones can merge at the current waterfall FFT resolution, so it is a visual hint.
+Compare arrows step through these ranked candidates (or same-family modes) while the
+transparent preview remains draggable. To derive a broader guide from SigIDWiki,
+prefer a versioned local metadata snapshot plus on-demand per-user image caching;
+serve cached media offline after import, and package only assets with reuse rights
+cleared. Keep the Hub peer-review integration and clean-source classifier coverage
+investigation below as separate priorities.
 
 The staged near-live product sequence is in
 [NEAR_LIVE_PRODUCT_PLAN.md](NEAR_LIVE_PRODUCT_PLAN.md). Canonical mode resolution,

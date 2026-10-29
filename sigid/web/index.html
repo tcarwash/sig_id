@@ -29,9 +29,14 @@
         ><button id="live-stop" type="button" disabled>Stop and review</button
         ><button id="freeze-view" type="button" disabled>Freeze view</button>
       </div>
+      <div id="live-review-banner" class="live-review-banner" role="status" hidden>
+        <span>Reviewing a saved clip · live monitoring continues; the live analysis ring stays short.</span>
+        <button id="return-to-live" type="button">Return to live selection</button>
+      </div>
       <div class="toolbar-spacer"></div>
       <button id="open-recording" type="button">Open recording</button
       ><button id="show-signals" type="button">Signals</button>
+      <button id="show-field-guide" type="button">Field guide</button>
       <button id="show-library" type="button">Library</button
       ><button id="show-review-queue" type="button">Review queue <span id="review-queue-badge" class="count-badge" hidden>0</span></button
       ><button id="review-random-dataset" type="button">Review random from dataset</button
@@ -118,16 +123,14 @@
             <button data-inspector-mode="classify" type="button">Classify</button>
             <button data-inspector-mode="annotate" type="button">Annotate</button>
           </nav>
-          <nav class="inspector-detail-modes" aria-label="View detail">
-            <span>View</span>
-            <button data-detail-level="simple" type="button">Simple</button>
-            <button data-detail-level="advanced" type="button">Advanced</button>
-          </nav>
           <nav id="inspector-tabs" class="inspector-tabs" aria-label="Signal workflow">
             <button data-inspector-tab="label" type="button">Label</button
-            ><button data-inspector-tab="decode" type="button">Decode</button
-            ><button data-inspector-tab="raw" type="button" title="Recover raw symbols and bits without assuming a protocol">Raw symbols</button
+            ><button data-inspector-tab="investigate" type="button">Investigate</button
             ><button data-inspector-tab="signals" type="button">Signals</button>
+          </nav>
+          <nav id="investigation-tools" class="investigation-tools" aria-label="Investigation tool" hidden>
+            <button data-investigation-tool="decoder" type="button">Decoder</button>
+            <button data-investigation-tool="raw" type="button">Raw symbols</button>
           </nav>
           <p id="inspector-context" class="inspector-context">
             Select a signal on the waterfall to inspect it.
@@ -158,6 +161,13 @@
                   <p id="selection-merge-status" class="muted" aria-live="polite"></p>
                 </div>
                 <p class="workflow-hint">Choose the closest known mode. You can label signals even when they cannot yet be classified or decoded.</p>
+                <section id="collected-attempt" class="decoder-evidence" hidden aria-label="Collected investigation evidence">
+                  <strong>Collected investigation · tentative</strong>
+                  <p id="collected-attempt-summary" class="subhead"></p>
+                  <pre id="collected-attempt-output" class="decoded-text"></pre>
+                  <button id="use-collected-mode" type="button">Use suggested mode</button>
+                  <p class="muted">This edits the label draft only. Review the identity before saving; decoded text alone does not verify a protocol.</p>
+                </section>
                 <button id="same-signal-current" type="button" disabled>Same signal as…</button>
                 <button id="report-window-pdf" type="button" disabled>Window report (PDF)</button>
 
@@ -223,6 +233,7 @@
                   >Notes<textarea
                     id="notes"
                     rows="2"
+                    maxlength="2000"
                     placeholder="What supports this label? What remains uncertain?"
                   ></textarea>
                 </label>
@@ -243,6 +254,7 @@
                 </div>
                 <div id="cv-similar-results" class="track-list advanced-only"></div>
                 <div id="annotation-save-row" class="save-row annotation-save-row">
+                  <p id="review-completion-claim" class="muted" hidden></p>
                   <span id="label-state" class="muted"
                     >Partial labels are welcome.</span
                   ><div class="region-save-actions">
@@ -252,12 +264,13 @@
                     <button id="save-region" class="advanced-only" type="button" disabled>
                       Save region label
                     </button>
-                    <button id="save-annotations-close" class="primary" type="button" disabled>
+                    <button id="save-annotations-close" class="advanced-only" type="button" disabled>
                       Save annotations and close
                     </button>
-                    <button id="save-annotations-complete" class="primary finish-review-button" type="button" disabled hidden>
-                      Save and finish
+                    <button id="save-annotations-complete" class="finish-review-button" type="button" disabled hidden>
+                      Save &amp; complete
                     </button>
+                    <button id="defer-review" type="button" hidden>Defer</button>
                   </div>
                 </div>
                 <section id="feedback-panel" class="panel advanced-only" hidden>
@@ -273,7 +286,7 @@
               </div>
               </section>
             </div>
-            <div data-inspector-view="decode" hidden>
+            <div data-inspector-view="investigate" data-investigation-pane="decode" hidden>
               <section class="panel decoder-panel">
                 <p class="eyebrow">DECODER</p>
                 <h2>Fldigi receive decoder</h2>
@@ -291,17 +304,20 @@
                   <div id="decoder-recommendation-list" class="save-row"></div>
                   <p class="subhead">Suggestions reflect modulation compatibility only. Choose a mode, select it explicitly, then start decoding.</p>
                 </section>
-                <label class="fldigi-carrier-label advanced-only"
-                  >Audio carrier (Hz)<input
-                    id="fldigi-carrier-hz"
-                    type="number"
-                    min="1"
-                    max="20000"
-                    step="1"
-                    placeholder="Selected band midpoint"
-                  />
-                </label>
-                <p class="subhead advanced-only">Prefilled from the selected frequency band midpoint. Adjust to the signal’s actual audio center if needed.</p>
+                <details id="fldigi-parameters" class="investigation-parameters">
+                  <summary>Parameters</summary>
+                  <label class="fldigi-carrier-label"
+                    >Audio carrier (Hz)<input
+                      id="fldigi-carrier-hz"
+                      type="number"
+                      min="1"
+                      max="20000"
+                      step="1"
+                      placeholder="Selected band midpoint"
+                    />
+                  </label>
+                  <p class="subhead">Prefilled from the selected band midpoint. Adjust to the signal’s actual audio center if needed.</p>
+                </details>
                 <button id="fldigi-select" type="button" disabled>
                   Select receive mode
                 </button>
@@ -329,14 +345,21 @@
                   <p class="subhead">WSJT-X can decode a saved FT8 selection through its installed jt9 tool. It can also send live results over loopback UDP when configured; that link does not control WSJT-X audio or the radio. Data2G modes are annotation candidates until a native audio-window adapter is installed.</p>
                   <div id="native-decoder-results" class="decode-runs"><p class="muted">No native decoder results received yet.</p></div>
                 </section>
-                <div class="advanced-only">
-                  <h3>Saved receive runs</h3>
-                  <p class="subhead">Saved runs retain their exact input range and whether they used isolated clip replay or the shared live audio input.</p>
+                <p id="collection-status" class="subhead" role="status" aria-live="polite"></p>
+                <div>
+                  <h3>Receive attempts</h3>
+                  <p class="subhead">Compare earlier attempts or collect one for dataset review. Collection keeps its exact input and evidence; it does not confirm the identity.</p>
+                  <div class="decode-attempt-compare-controls">
+                    <span id="decode-attempt-selection-status" class="muted">Select two or three attempts to compare.</span>
+                    <button id="compare-decode-runs" type="button" disabled>Compare selected</button>
+                    <button id="clear-decode-run-comparison" type="button" hidden>Clear comparison</button>
+                  </div>
+                  <div id="decode-run-comparison" class="decode-run-comparison" hidden aria-live="polite"></div>
                   <div id="decode-runs" class="decode-runs"><p class="muted">Open a saved capture to review its receive runs.</p></div>
                 </div>
               </section>
             </div>
-            <div data-inspector-view="raw" hidden>
+            <div data-inspector-view="investigate" data-investigation-pane="raw" hidden>
               <section class="panel raw-demod-panel">
                 <h2>Raw symbols</h2>
                 <p class="subhead">
@@ -671,6 +694,17 @@ Select a saved capture or region to analyze.</div>
                     Export QPSK analysis JSON
                   </button>
                 </div>
+                <details id="raw-attempt-history" class="panel" open>
+                  <summary><strong>Saved raw analysis attempts</strong></summary>
+                  <p class="subhead">Settings and bounded result previews are saved with the exact capture window. Open multiple entries to compare them.</p>
+                  <div class="save-row">
+                    <span id="raw-attempt-selection-status" class="muted">Select two or three attempts to compare.</span>
+                    <button id="compare-raw-attempts" type="button" disabled>Compare selected</button>
+                    <button id="clear-raw-attempt-comparison" type="button" hidden>Clear comparison</button>
+                  </div>
+                  <div id="raw-attempt-comparison" class="decode-run-comparison" hidden aria-live="polite"></div>
+                  <div id="raw-attempt-list" class="decode-runs"><p class="muted">No saved raw analysis attempts.</p></div>
+                </details>
               </section>
             </div>
             <div data-inspector-view="signals" hidden>
@@ -808,7 +842,7 @@ Select a saved capture or region to analyze.</div>
                 </details>
                 <button id="cv-scan" type="button" disabled>Scan capture with CV</button>
                 <p id="cv-status" class="subhead" aria-live="polite">Checking optional CV detector…</p>
-                <div class="save-row advanced-only">
+                <div class="save-row">
                   <button id="train-models" type="button" disabled>Train both models from new reviews</button>
                   <span id="train-models-status" class="muted" aria-live="polite">Checking model training readiness…</span>
                   <progress id="model-training-progress" class="model-training-progress" max="100" value="0" aria-label="Model training progress" hidden></progress>
@@ -890,6 +924,36 @@ Decoded text will appear here.</pre>
       <p id="error" class="error hidden" role="alert"></p>
     </main>
     <dialog
+      id="field-guide-dialog"
+      class="field-guide-dialog"
+      aria-labelledby="field-guide-title"
+    >
+      <header class="field-guide-header">
+        <div><p class="eyebrow">SIGNAL IDENTIFICATION FIELD GUIDE</p><h2 id="field-guide-title">Field guide</h2></div>
+        <div class="field-guide-window-actions"><button id="field-guide-dock" type="button" aria-pressed="false">Dock left</button><button data-close-dialog type="button" aria-label="Close field guide">×</button></div>
+      </header>
+      <div class="field-guide-layout">
+        <aside class="field-guide-filters">
+          <label>Find a signal<input id="field-guide-search" type="search" placeholder="Name, family, clue…" /></label>
+          <label>Browse by family<select id="field-guide-family"><option value="">All families</option></select></label>
+          <button id="field-guide-match-selection" type="button">Find matches for selected signal</button>
+          <p id="field-guide-match-status" class="field-guide-note">Use a saved signal box to rank rough matches by occupied bandwidth and visible tone count. Results are clues, not identifications.</p>
+          <p class="field-guide-note">Stored Fldigi examples compare at matching bandwidth and time scales. SigIDWiki crops are visual references without calibrated axes. Confirm candidates with timing, audio, and a decoder where possible.</p>
+          <p id="field-guide-count" class="muted"></p>
+        </aside>
+        <section class="field-guide-results" aria-label="Signal guide entries">
+          <div id="field-guide-cards" class="field-guide-cards"></div>
+        </section>
+      </div>
+      <div id="field-guide-overlay-preview" class="field-guide-overlay-preview" hidden>
+        <button id="field-guide-previous" class="field-guide-step previous" type="button" aria-label="Previous likely mode">‹</button>
+        <canvas id="field-guide-overlay-canvas" width="640" height="224" aria-label="Signal-only comparison overlay"></canvas>
+        <span id="field-guide-overlay-label"></span>
+        <button id="field-guide-next" class="field-guide-step next" type="button" aria-label="Next likely mode">›</button>
+      </div>
+      <button id="field-guide-exit-compare" class="field-guide-exit-compare" type="button" hidden>Exit compare</button>
+    </dialog>
+    <dialog
       id="library-dialog"
       class="drawer-dialog"
       aria-labelledby="library-title"
@@ -909,9 +973,14 @@ Decoded text will appear here.</pre>
         </form>
       </section>
       <section class="panel">
-        <h3>Saved recordings</h3>
-        <div id="capture-list"><p class="subhead">Loading recordings…</p></div>
+        <h3>Classified signals</h3>
+        <p class="subhead">Browse recordings by signal classification. Select a preview to open its source recording at the labeled signal.</p>
+        <div id="library-signal-grid" class="library-signal-grid"><p class="subhead">Loading classified signals…</p></div>
       </section>
+      <details class="panel library-other-recordings">
+        <summary>Other recordings</summary>
+        <div id="capture-list"><p class="subhead">Loading recordings…</p></div>
+      </details>
       <section class="synthetic-import panel">
         <div>
           <p class="eyebrow">SYNTHETIC DATASET</p>
@@ -1027,6 +1096,34 @@ Decoded text will appear here.</pre>
         <p class="subhead">
           Input sample rate is independent of the fixed 0–3 kHz display.
         </p>
+      </section>
+      <section class="panel">
+        <h3>Radio frequency (Hamlib)</h3>
+        <label class="auto-trial-toggle" title="Read the receiver's current tuned frequency when creating a report.">
+          <span>Include rigctld frequency in reports</span><input id="rigctl-enabled" type="checkbox" />
+        </label>
+        <div class="live-controls">
+          <label>rigctld host<input id="rigctl-host" value="127.0.0.1" maxlength="253" autocomplete="off" /></label>
+          <label>TCP port<input id="rigctl-port" type="number" min="1" max="65535" step="1" value="4532" /></label>
+        </div>
+        <button id="rigctl-check" type="button">Read frequency now</button>
+        <p id="rigctl-status" class="subhead" aria-live="polite">Connects to an existing Hamlib rigctld service. Frequency reports are read-only. Unattended band hopping can tune the receiver to your listed frequencies; it never transmits.</p>
+      </section>
+      <section class="panel">
+        <h3>Unattended band hopping</h3>
+        <label class="auto-trial-toggle" title="Tune the receiver through your frequency list while unattended capture continues.">
+          <span>Hop between receiver frequencies</span><input id="band-hop-enabled" type="checkbox" disabled />
+        </label>
+        <label>Receiver frequencies (MHz, in order)<textarea id="band-hop-frequencies" rows="2" placeholder="7.074, 14.074" disabled></textarea></label>
+        <label>Stay on each frequency
+          <select id="band-hop-dwell-minutes" disabled>
+            <option value="1">1 minute</option><option value="2">2 minutes</option>
+            <option value="5" selected>5 minutes</option><option value="10">10 minutes</option>
+            <option value="15">15 minutes</option>
+          </select>
+        </label>
+        <p id="band-hop-capability-status" class="subhead" role="status">Restart the Signal ID server to enable band hopping.</p>
+        <p class="subhead">Used only in unattended mode. Enter at least two receive dial frequencies; detected 10-second clips and periodic noise clips keep the frequency active when they were recorded and go to the review queue. Uses the rigctld host and port above.</p>
       </section>
       <section class="panel">
         <h3>Live signal analysis</h3>

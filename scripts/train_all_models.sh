@@ -92,6 +92,22 @@ uv run --extra api --extra cv sig-id-train-cv-detector \
   --dataset "$CV_EXPORT" --output-model "$CV_MODEL" \
   --base-model "$CV_BASE" --epochs "$CV_EPOCHS" --batch "$CV_BATCH"
 
+# Do not publish a new active pair unless both artifacts pass the same loaders
+# used by the running application. This also verifies the CV metadata/hash.
+uv run --extra api --extra cv python - "$CLASSIFIER_MANIFEST" "$CV_MODEL" <<'PY'
+import sys
+
+from sigid.classifier import load_model
+from sigid.cv_detector import YoloSignalDetector
+
+classifier_metadata, _ = load_model(sys.argv[1])
+if classifier_metadata.get("model_type") != "hierarchical_family_experts":
+    raise SystemExit("trained classifier is not a supported hierarchical bundle")
+detector = YoloSignalDetector(sys.argv[2])
+print(f"Verified classifier: {len(classifier_metadata['classes'])} classes")
+print(f"Verified CV detector: {detector.model_sha256}")
+PY
+
 TEMP_ENV="$(mktemp "${ACTIVE_ENV}.XXXXXX")"
 printf 'export SIG_ID_MODEL_PATH=%q\n' "$CLASSIFIER_MANIFEST" > "$TEMP_ENV"
 printf 'export SIG_ID_CV_MODEL_PATH=%q\n' "$CV_MODEL" >> "$TEMP_ENV"
@@ -114,5 +130,5 @@ with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=target.parent, delet
     temporary = pathlib.Path(stream.name)
 os.replace(temporary, target)
 PY
-echo "Trained classifier and CV detector. Active model paths saved to: $ACTIVE_ENV"
+echo "Trained and verified classifier and CV detector. Active model paths saved to: $ACTIVE_ENV"
 echo "Run the workbench with: $ROOT/scripts/run_sig_id.sh"

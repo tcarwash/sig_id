@@ -5,17 +5,21 @@ from __future__ import annotations
 import os
 import asyncio
 import base64
+import fcntl
 import hashlib
 import json
 import re
 from datetime import datetime, timedelta, timezone
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 import logging
+import math
 from pathlib import Path
 import shutil
+import subprocess
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -72,6 +76,42 @@ WEB_DIR = Path(__file__).resolve().parent / "web"
 MAX_MFSK_RATE_SEARCH_WORK = 200_000_000
 
 
+def _raw_attempt_result(result: dict[str, Any]) -> dict[str, Any]:
+    """Keep a useful, bounded comparison preview without duplicating large vectors."""
+    truncated: list[str] = []
+
+    def compact(value: Any, key: str = "") -> Any:
+        if isinstance(value, dict):
+            return {name: compact(item, name) for name, item in value.items()}
+        if isinstance(value, list):
+            if len(value) > 256:
+                truncated.append(key)
+                return {"preview": [compact(item, key) for item in value[:256]], "total_items": len(value)}
+            return [compact(item, key) for item in value]
+        if isinstance(value, str) and len(value) > 4096:
+            truncated.append(key)
+            return {"preview": value[:4096], "total_characters": len(value)}
+        return value
+
+    compacted = compact(result)
+    if truncated:
+        compacted["comparison_preview_truncated"] = sorted(set(truncated))
+    return compacted
+
+
+def _persist_raw_attempt(
+    store: CaptureStore, capture_id: str, mode: str, settings: BaseModel,
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    attempt = store.add_raw_demod_attempt(
+        capture_id, mode=mode, sample_start=int(result["sample_start"]),
+        sample_count=int(result["sample_count"]), settings=settings.model_dump(),
+        result=_raw_attempt_result(result),
+    )
+    result["attempt_id"] = attempt["id"]
+    return result
+
+
 def _classify_signal_crop(
     classifier: dict[str, Any], samples: np.ndarray, sample_rate: int,
     frequency_low_hz: float, frequency_high_hz: float,
@@ -97,6 +137,25 @@ def default_track_fft_size(sample_rate: int) -> int:
     """Choose a track-analysis window near 42 ms, capped by the API FFT limit."""
     target = max(32, int(np.ceil(sample_rate / 24)))
     return min(8192, 1 << int(np.ceil(np.log2(target))))
+
+
+def tune_rigctl_frequency(host: str, port: int, frequency_hz: int) -> None:
+    """Set only the receiver frequency through an existing rigctld service."""
+    executable = shutil.which(os.environ.get("SIG_ID_RIGCTL", "rigctl"))
+    if not executable:
+        raise RuntimeError("Hamlib rigctl was not found on the server")
+    try:
+        result = subprocess.run(
+            [executable, "-m", "2", "-r", f"{host}:{port}", "F", str(frequency_hz)],
+            capture_output=True, text=True, timeout=5, check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("rigctl timed out while tuning the receiver") from exc
+    except OSError as exc:
+        raise RuntimeError(f"Could not run rigctl: {exc}") from exc
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip() or f"rigctl exited with status {result.returncode}"
+        raise RuntimeError(detail[-500:])
 
 
 class DetectorSourceWindow(BaseModel):
@@ -418,6 +477,10 @@ class WindowAnnotationBatchCreate(BaseModel):
         return self
 
 
+class DecodeRunCollection(BaseModel):
+    notes: str = Field(default="", max_length=20000)
+
+
 class LiveTrainingAnnotation(BaseModel):
     session_id: str = Field(min_length=1, max_length=80)
     sample_start: int = Field(ge=0)
@@ -575,6 +638,36 @@ class LiveCaptureStart(BaseModel):
     max_duration_seconds: int = Field(default=600, ge=1, le=28800)
     capture_mode: Literal["record", "scan_only", "unattended"] = "record"
     noise_interval_seconds: int = Field(default=300, ge=60, le=3600)
+    band_hop_frequencies_hz: list[int] = Field(default_factory=list, max_length=32)
+    band_hop_dwell_seconds: int = Field(default=300, ge=30, le=3600)
+    rigctl_host: str = Field(default="127.0.0.1", min_length=1, max_length=253)
+    rigctl_port: int = Field(default=4532, ge=1, le=65535)
+
+    @model_validator(mode="after")
+    def validate_band_hopping(self) -> "LiveCaptureStart":
+        if self.band_hop_frequencies_hz:
+            if self.capture_mode != "unattended":
+                raise ValueError("band hopping is available only in unattended mode")
+            if len(self.band_hop_frequencies_hz) < 2:
+                raise ValueError("band hopping needs at least two receiver frequencies")
+            if len(set(self.band_hop_frequencies_hz)) != len(self.band_hop_frequencies_hz):
+                raise ValueError("band-hop frequencies must be unique")
+            if any(not 100_000 <= value <= 6_000_000_000 for value in self.band_hop_frequencies_hz):
+                raise ValueError("band-hop frequencies must be between 0.1 MHz and 6000 MHz")
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]{0,252}", self.rigctl_host):
+                raise ValueError("rigctld host must be a hostname or IP address")
+        return self
+
+
+class RigctlFrequencyRequest(BaseModel):
+    host: str = Field(default="127.0.0.1", min_length=1, max_length=253)
+    port: int = Field(default=4532, ge=1, le=65535)
+
+    @model_validator(mode="after")
+    def validate_host(self) -> "RigctlFrequencyRequest":
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]{0,252}", self.host):
+            raise ValueError("host must be a hostname or IP address without a scheme or path")
+        return self
 
 
 class FldigiModeSelect(BaseModel):
@@ -598,6 +691,24 @@ class FldigiReplayRequest(BaseModel):
     carrier_hz: float | None = Field(default=None, ge=0, le=20000)
     region_id: str | None = Field(default=None, max_length=80)
     detector_evidence: DetectorProposalEvidence | None = None
+    frequency_low_hz: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    frequency_high_hz: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def validate_frequency_band(self) -> "FldigiReplayRequest":
+        if (self.frequency_low_hz is None) != (self.frequency_high_hz is None):
+            raise ValueError("supply both selected frequency bounds")
+        if self.frequency_low_hz is not None and self.frequency_high_hz <= self.frequency_low_hz:
+            raise ValueError("selected frequency bounds must increase")
+        return self
+
+    def selection_evidence(self, sample_rate: int) -> dict[str, Any]:
+        if self.frequency_low_hz is None:
+            return {}
+        if self.frequency_high_hz > sample_rate / 2:
+            raise HTTPException(status_code=422, detail="selected frequency bounds exceed source Nyquist range")
+        return {"selection_bounds": {"source": "operator_selection",
+                "frequency_low_hz": self.frequency_low_hz, "frequency_high_hz": self.frequency_high_hz}}
 
 
 def _decode_text_coherence(text: str) -> float:
@@ -743,6 +854,9 @@ def create_app(
     capture_dir = root / "captures"
     capture_dir.mkdir(parents=True, exist_ok=True)
     store = CaptureStore(root / "dataset.sqlite3")
+    # Field-guide reference transmissions are kept in their own store so they
+    # cannot be swept into live review or the normal training dataset.
+    field_guide_store = CaptureStore(root / "field-guide" / "dataset.sqlite3")
     live_capture = LiveCaptureManager(store, capture_dir, audio_backend=audio_backend)
     receive_products = ReceiveProductStore(root / "receive-products")
     fldigi = fldigi_client or FldigiClient(
@@ -817,6 +931,11 @@ def create_app(
         try:
             yield
         finally:
+            with application.state.band_hop_lock:
+                hopping = list(application.state.band_hop_threads.values())
+            for stop_event, thread in hopping:
+                stop_event.set()
+                thread.join(timeout=5)
             application.state.fldigi_trials.cancel()
             decoder_backends_registry.close()
             close_replay = getattr(fldigi_replay, "close", None)
@@ -853,6 +972,8 @@ def create_app(
     app.state.cv_embedding_entries = cv_embedding_entries
     app.state.cv_embedding_index_path = configured_cv_index
     app.state.cv_embedding_error = cv_embedding_error
+    app.state.band_hop_threads = {}
+    app.state.band_hop_lock = Lock()
     app.state.laya_references = load_reference_examples()
     app.state.live_track_registry = None
     app.state.fldigi_trials = FldigiTrialRunner(fldigi, run_store=store)
@@ -890,10 +1011,13 @@ def create_app(
                     "note": ("Checking for receive-side Fldigi RSID/TXID, then testing candidate text decode."
                              if settings.auto_identify and index == 0 else f"Testing {candidate} against the selected audio."),
                 })
-                result = fldigi_replay.decode(
-                    temporary_audio, mode=candidate, carrier_hz=settings.carrier_hz,
-                    detect_rsid=settings.auto_identify and index == 0,
-                )
+                replay_options = {
+                    "mode": candidate,
+                    "carrier_hz": settings.carrier_hz,
+                }
+                if settings.auto_identify:
+                    replay_options["detect_rsid"] = index == 0
+                result = fldigi_replay.decode(temporary_audio, **replay_options)
                 text = str(result.get("text", ""))
                 result_mode = str(result.get("mode") or candidate)
                 attempts.append({
@@ -1101,6 +1225,35 @@ def create_app(
     @app.get("/api/health")
     def health() -> dict[str, str]:
         return {"status": "ok", "release": "0.1"}
+
+    @app.post("/api/rigctl/frequency")
+    def read_rigctl_frequency(settings: RigctlFrequencyRequest) -> dict[str, Any]:
+        executable = shutil.which(os.environ.get("SIG_ID_RIGCTL", "rigctl"))
+        if not executable:
+            return {"available": False, "connected": False, "error": "Hamlib rigctl was not found on the server."}
+        try:
+            result = subprocess.run(
+                [executable, "-m", "2", "-r", f"{settings.host}:{settings.port}", "f"],
+                capture_output=True, text=True, timeout=3, check=False,
+            )
+        except subprocess.TimeoutExpired:
+            return {"available": True, "connected": False, "error": "rigctl timed out while querying rigctld."}
+        except OSError as exc:
+            return {"available": True, "connected": False, "error": f"Could not run rigctl: {exc}"}
+        output = result.stdout.strip().splitlines()
+        if result.returncode != 0 or not output:
+            detail = result.stderr.strip() or result.stdout.strip() or f"rigctl exited with status {result.returncode}"
+            return {"available": True, "connected": False, "error": detail[-500:]}
+        try:
+            frequency_hz = float(output[0].strip())
+        except ValueError:
+            return {"available": True, "connected": False, "error": f"Unexpected rigctl frequency response: {output[0][:120]}"}
+        if not np.isfinite(frequency_hz) or frequency_hz <= 0:
+            return {"available": True, "connected": False, "error": f"rigctl returned an invalid frequency: {output[0][:120]}"}
+        return {
+            "available": True, "connected": True, "frequency_hz": frequency_hz,
+            "host": settings.host, "port": settings.port,
+        }
 
     @app.get("/api/model/status")
     def model_status() -> dict[str, Any]:
@@ -1392,6 +1545,10 @@ def create_app(
     def list_captures() -> list[dict[str, Any]]:
         return store.list_captures()
 
+    @app.get("/api/library/signals")
+    def list_library_signals() -> list[dict[str, Any]]:
+        return store.list_library_signals()
+
     @app.get("/api/audio/devices")
     def input_devices() -> list[dict[str, Any]]:
         try:
@@ -1402,6 +1559,10 @@ def create_app(
     @app.get("/api/live")
     def live_status() -> dict[str, Any]:
         return live_capture.status()
+
+    @app.get("/api/live/capabilities")
+    def live_capabilities() -> dict[str, bool]:
+        return {"band_hopping": True}
 
     @app.get("/api/live/spectrum")
     def live_spectrum(
@@ -1849,6 +2010,14 @@ def create_app(
             }
 
         try:
+            frequencies = data.band_hop_frequencies_hz
+            if frequencies:
+                if live_capture.status().get("active"):
+                    raise HTTPException(status_code=409, detail="a live capture is already active")
+                try:
+                    tune_rigctl_frequency(data.rigctl_host, data.rigctl_port, frequencies[0])
+                except RuntimeError as exc:
+                    raise HTTPException(status_code=503, detail=f"Could not start band hopping: {exc}") from exc
             started = live_capture.start(
                 device_id=data.device_id,
                 sample_rate=data.sample_rate,
@@ -1857,9 +2026,57 @@ def create_app(
                 capture_mode=data.capture_mode,
                 noise_interval_seconds=data.noise_interval_seconds,
                 window_analyzer=analyze_unattended_window if data.capture_mode == "unattended" else None,
+                initial_frequency_hz=frequencies[0] if frequencies else None,
+                band_hop_count=len(frequencies),
+                band_hop_dwell_seconds=data.band_hop_dwell_seconds if frequencies else None,
             )
+            if frequencies:
+                dwell = data.band_hop_dwell_seconds
+                stop_hopping = threading.Event()
+
+                def band_hop_worker() -> None:
+                    index = 0
+                    try:
+                        while not stop_hopping.wait(dwell):
+                            status = live_capture.status()
+                            if not status.get("active") or status.get("session_id") != started["session_id"]:
+                                return
+                            index = (index + 1) % len(frequencies)
+                            frequency_hz = frequencies[index]
+                            try:
+                                tune_rigctl_frequency(data.rigctl_host, data.rigctl_port, frequency_hz)
+                            except RuntimeError as exc:
+                                current = live_capture.status()
+                                live_capture.set_band_hop_frequency(
+                                    started["session_id"], int(current.get("current_frequency_hz") or frequencies[0]),
+                                    int(current.get("band_hop_index") or 0), len(frequencies), dwell, str(exc),
+                                )
+                                logging.getLogger(__name__).warning("Band hop to %s Hz failed: %s", frequency_hz, exc)
+                                continue
+                            if not live_capture.set_band_hop_frequency(
+                                started["session_id"], frequency_hz, index, len(frequencies), dwell,
+                            ):
+                                return
+                    finally:
+                        with app.state.band_hop_lock:
+                            existing = app.state.band_hop_threads.get(started["session_id"])
+                            if existing and existing[0] is stop_hopping:
+                                app.state.band_hop_threads.pop(started["session_id"], None)
+
+                thread = threading.Thread(
+                    target=band_hop_worker, name=f"sig-id-band-hop-{started['session_id'][:8]}", daemon=True,
+                )
+                with app.state.band_hop_lock:
+                    app.state.band_hop_threads[started["session_id"]] = (stop_hopping, thread)
+                thread.start()
+                started["current_frequency_hz"] = frequencies[0]
+                started["band_hop_index"] = 0
+                started["band_hop_count"] = len(frequencies)
+                started["band_hop_dwell_seconds"] = dwell
             app.state.live_track_registry = LiveTrackRegistry(started["session_id"])
             return started
+        except HTTPException:
+            raise
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except RuntimeError as exc:
@@ -1870,6 +2087,12 @@ def create_app(
     @app.post("/api/live/stop")
     def stop_live_capture() -> dict[str, Any]:
         try:
+            status = live_capture.status()
+            with app.state.band_hop_lock:
+                hopping = app.state.band_hop_threads.get(status.get("session_id"))
+            if hopping:
+                hopping[0].set()
+                hopping[1].join(timeout=5)
             result = live_capture.stop()
             app.state.fldigi_trials.cancel()
             if result.get("capture"):
@@ -1889,11 +2112,13 @@ def create_app(
             if not capture["source_metadata"].get("auto_review_queue"):
                 continue
             manual_reviewed_at = capture["source_metadata"].get("auto_review_queue_reviewed_utc")
+            review_start = capture["source_metadata"].get("review_window_start_sample", 0)
+            review_count = capture["source_metadata"].get("review_window_sample_count", capture["sample_count"])
             records = store.scene_coverages(capture["id"])
             valid_reviews = [record for record in records if (
                 not record["is_stale"] and record["task"] == "detection"
-                and record["sample_start"] == 0
-                and record["sample_count"] >= capture["sample_count"]
+                and record["sample_start"] <= review_start
+                and record["sample_start"] + record["sample_count"] >= review_start + review_count
                 and record["state"] in {"complete", "partial"}
                 and (record["frequency_low_hz"] is None
                      or (record["frequency_low_hz"] <= 0 and record["frequency_high_hz"] >= MAX_FREQUENCY_HZ))
@@ -2219,6 +2444,165 @@ def create_app(
             app.state.fldigi_trials.cancel()
             raise HTTPException(status_code=503, detail=f"Fldigi trial failed: {exc}") from exc
 
+    decode_collection_lock = Lock()
+
+    @contextmanager
+    def decode_collection_guard():
+        # Serialize the durable lookup/create pair across workers and app instances.
+        # Keep this inode: unlinking a flock file would let new callers bypass it.
+        with decode_collection_lock, (capture_dir / ".decode-collection.lock").open("a") as handle:
+            fcntl.flock(handle, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle, fcntl.LOCK_UN)
+
+    def validate_collectable_run(run: dict[str, Any], *, live: bool, sample_rate: int) -> None:
+        if run["status"] not in {"completed", "completed_no_text", "completed_empty", "tentative_output", "failed", "cancelled", "exhausted"}:
+            raise HTTPException(status_code=409, detail="decoder attempt is not finished")
+        expected = ({("isolated_live_window_replay", "exact_live_track_window"),
+                     ("isolated_live_mode_sweep", "exact_live_track_window")} if live
+                    else {("isolated_region_replay", "exact_capture_window"),
+                          ("isolated_native_window", "exact_selected_capture_window")})
+        if (run["output_scope"], run["association"]) not in expected:
+            raise HTTPException(status_code=422, detail="decoder attempt does not have an exact source association")
+        if (type(run["sample_start"]) is not int or run["sample_start"] < 0
+                or type(run["sample_count"]) is not int or run["sample_count"] <= 0):
+            raise HTTPException(status_code=422, detail="decoder attempt requires exact positive sample bounds")
+        if run["sample_rate"] != sample_rate or sample_rate <= 0:
+            raise HTTPException(status_code=422, detail="decoder attempt sample rate differs from its source")
+        band = run["detector_evidence"].get("selection_bounds", run["detector_evidence"])
+        low = band.get("frequency_low_hz")
+        high = band.get("frequency_high_hz")
+        if low is not None or high is not None:
+            if (not isinstance(low, (int, float)) or not isinstance(high, (int, float))
+                    or not math.isfinite(low) or not math.isfinite(high)
+                    or not 0 <= low < high <= sample_rate / 2):
+                raise HTTPException(status_code=422, detail="decoder attempt frequency bounds must fit the source Nyquist range")
+
+    def existing_decode_collection(run_id: str) -> dict[str, Any] | None:
+        for capture in store.list_captures():
+            if capture["source_metadata"].get("collected_decoder_run_id") != run_id:
+                continue
+            if not Path(capture["audio_path"]).is_file():
+                raise HTTPException(status_code=409, detail="collected audio is missing; restore or explicitly delete the existing review item")
+            regions = store.regions(capture["id"])
+            region = next((item for item in regions if item["evidence"].get("decoder_run", {}).get("id") == run_id), None)
+            return {"capture_id": capture["id"], "region_id": region["id"] if region else None,
+                    "run_id": run_id, "sample_rate": capture["sample_rate"],
+                    "sample_count": capture["sample_count"], "deduplicated": True,
+                    "message": "This attempt has already been collected."}
+        return None
+
+    def save_decode_collection(
+        run: dict[str, Any], data: DecodeRunCollection,
+        audio_path: Path, *, source_capture_id: str | None, sample_offset: int = 0,
+    ) -> dict[str, Any]:
+        capture_id = None
+        try:
+            metadata = WavSource(audio_path).metadata()
+            validate_collectable_run(run, live=source_capture_id is None, sample_rate=metadata["sample_rate"])
+            review_count = int(metadata["sample_rate"] * WINDOW_SECONDS)
+            review_start = ((run["sample_start"] - sample_offset) // review_count) * review_count
+            capture_id = store.add_wav_capture(
+                audio_path, source_kind="reference" if source_capture_id else "live",
+                source_metadata={
+                    "auto_review_queue": True,
+                    "training_candidate_requires_coverage_review": True,
+                    "collected_decoder_run_id": run["id"],
+                    "decoder_run": run,
+                    "source_capture_id": source_capture_id,
+                    "auto_capture_session_id": run["session_id"],
+                    "window_start_sample": sample_offset,
+                    "review_window_start_sample": review_start,
+                    "review_window_sample_count": min(review_count, metadata["sample_count"] - review_start),
+                },
+            )
+            band = run["detector_evidence"].get("selection_bounds", run["detector_evidence"])
+            region_id = store.add_region(
+                capture_id, sample_start=run["sample_start"] - sample_offset,
+                sample_count=run["sample_count"],
+                frequency_low_hz=band.get("frequency_low_hz"),
+                frequency_high_hz=band.get("frequency_high_hz"),
+                label=SignalLabel(source="decoder", review_state="pending", notes=data.notes,
+                                  evidence={"source": "decoder_run_collection", "decoder_run": run,
+                                            "source_capture_id": source_capture_id,
+                                            "window_start_sample": sample_offset}),
+            )
+            capture = store.capture(capture_id)
+            return {"capture_id": capture_id, "region_id": region_id, "run_id": run["id"],
+                    "sample_rate": capture["sample_rate"], "sample_count": capture["sample_count"], "deduplicated": False,
+                    "message": "Collected a pending candidate. Review labels and coverage before export."}
+        except Exception:
+            if capture_id is not None:
+                store.delete_capture(capture_id)
+            audio_path.unlink(missing_ok=True)
+            raise
+
+    @app.post("/api/captures/{capture_id}/decode-runs/{run_id}/collect", status_code=201)
+    def collect_capture_decode_run(capture_id: str, run_id: str, data: DecodeRunCollection) -> dict[str, Any]:
+        try:
+            capture = store.capture(capture_id)
+            run = next((item for item in store.decoder_runs(capture_id=capture_id) if item["id"] == run_id), None)
+            if run is None:
+                raise HTTPException(status_code=404, detail="decoder run not found for this capture")
+            with decode_collection_guard():
+                existing = existing_decode_collection(run_id)
+                if existing is not None:
+                    return existing
+                validate_collectable_run(run, live=False, sample_rate=capture["sample_rate"])
+                audio_path = capture_dir / f"{uuid4()}.wav"
+                try:
+                    try:
+                        os.link(capture["audio_path"], audio_path)
+                    except OSError:
+                        shutil.copyfile(capture["audio_path"], audio_path)
+                    return save_decode_collection(run, data, audio_path, source_capture_id=capture_id)
+                except Exception:
+                    audio_path.unlink(missing_ok=True)
+                    raise
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="capture not found") from exc
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="source audio not found") from exc
+        except (ValueError, OSError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/live/sessions/{session_id}/decode-runs/{run_id}/collect", status_code=201)
+    def collect_live_decode_run(session_id: str, run_id: str, data: DecodeRunCollection) -> dict[str, Any]:
+        run = next((item for item in store.decoder_runs(session_id=session_id) if item["id"] == run_id), None)
+        if run is None:
+            raise HTTPException(status_code=404, detail="decoder run not found for this session")
+        with decode_collection_guard():
+            existing = existing_decode_collection(run_id)
+            if existing is not None:
+                return existing
+            snapshot = live_capture.analysis_audio()
+            if snapshot is None or not snapshot["active"] or snapshot["session_id"] != session_id:
+                raise HTTPException(status_code=409, detail="that live capture is no longer active")
+            validate_collectable_run(run, live=True, sample_rate=int(snapshot["sample_rate"]))
+            window_start = int(snapshot["sample_offset"])
+            window_count = int(snapshot["window_sample_count"])
+            channels = int(snapshot["channels"])
+            if (window_start < 0 or window_count <= 0 or channels <= 0
+                    or len(snapshot["pcm"]) != window_count * channels * 2):
+                raise HTTPException(status_code=422, detail="live audio snapshot has inconsistent sample bounds")
+            if (run["sample_start"] < window_start
+                    or run["sample_start"] + run["sample_count"] > window_start + window_count):
+                raise HTTPException(status_code=422, detail="decoder attempt samples are no longer in the live buffer")
+            audio_path = capture_dir / f"{uuid4()}.wav"
+            try:
+                with wave.open(str(audio_path), "wb") as wav:
+                    wav.setnchannels(int(snapshot["channels"]))
+                    wav.setsampwidth(2)
+                    wav.setframerate(int(snapshot["sample_rate"]))
+                    wav.writeframes(snapshot["pcm"])
+                return save_decode_collection(run, data, audio_path, source_capture_id=None,
+                                              sample_offset=int(snapshot["sample_offset"]))
+            except (ValueError, OSError) as exc:
+                audio_path.unlink(missing_ok=True)
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     @app.get("/api/captures/{capture_id}/decode-runs")
     def capture_decode_runs(capture_id: str) -> list[dict[str, Any]]:
         try:
@@ -2240,6 +2624,7 @@ def create_app(
         snapshot = live_capture.analysis_audio()
         if snapshot is None or snapshot.get("session_id") != session_id:
             raise HTTPException(status_code=409, detail="live audio window is unavailable")
+        selection_evidence = settings.selection_evidence(int(snapshot["sample_rate"]))
         window_start = int(snapshot["sample_offset"])
         window_end = window_start + int(snapshot["window_sample_count"])
         requested_end = settings.sample_start + settings.sample_count
@@ -2276,6 +2661,8 @@ def create_app(
                 note=("Waiting for isolated RSID-assisted mode identification." if settings.auto_identify
                       else "Waiting to replay the selected live track window in an isolated Fldigi instance."),
                 carrier_hz=settings.carrier_hz,
+                auto_identify=settings.auto_identify,
+                detector_evidence=selection_evidence,
                 output_scope="isolated_live_window_replay", association="exact_live_track_window",
             )
             decode_executor.submit(
@@ -2307,6 +2694,7 @@ def create_app(
         if settings.sample_start + settings.sample_count > int(capture["sample_count"]):
             raise HTTPException(status_code=422, detail="selected region exceeds the saved capture")
         linked_region = None
+        selection_evidence = settings.selection_evidence(int(capture["sample_rate"]))
         if settings.region_id:
             linked_region = next((item for item in store.regions(capture_id) if item["id"] == settings.region_id), None)
             if linked_region is None or linked_region["lineage_state"] != "active":
@@ -2358,9 +2746,10 @@ def create_app(
                 note=("Waiting for isolated RSID-assisted mode identification." if settings.auto_identify
                       else "Waiting to replay the selected saved-capture region."),
                 carrier_hz=settings.carrier_hz,
+                auto_identify=settings.auto_identify,
                 region_id=settings.region_id,
                 classifier_evidence=(linked_region["evidence"].get("classifier_proposal") if linked_region else None),
-                detector_evidence=saved_detector_evidence,
+                detector_evidence={**(saved_detector_evidence or {}), **selection_evidence},
                 output_scope="isolated_region_replay", association="exact_capture_window",
             )
             decode_executor.submit(
@@ -3083,7 +3472,7 @@ def create_app(
             result["sample_start"] = start
             result["sample_count"] = len(values)
             result["protocol"] = None
-            return result
+            return _persist_raw_attempt(store, capture_id, "2fsk", settings, result)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -3123,7 +3512,7 @@ def create_app(
             result["sample_start"] = start
             result["sample_count"] = len(values)
             result["protocol"] = None
-            return result
+            return _persist_raw_attempt(store, capture_id, "ook", settings, result)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -3172,7 +3561,7 @@ def create_app(
             result["capture_id"] = capture_id
             result["sample_start"] = start
             result["sample_count"] = len(values)
-            return result
+            return _persist_raw_attempt(store, capture_id, "mfsk", settings, result)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -3209,7 +3598,7 @@ def create_app(
             result["capture_id"] = capture_id
             result["sample_start"] = start
             result["sample_count"] = len(values)
-            return result
+            return _persist_raw_attempt(store, capture_id, "bpsk", settings, result)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -3246,9 +3635,16 @@ def create_app(
             result["capture_id"] = capture_id
             result["sample_start"] = start
             result["sample_count"] = len(values)
-            return result
+            return _persist_raw_attempt(store, capture_id, "qpsk", settings, result)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/api/captures/{capture_id}/demod-attempts")
+    def get_raw_demod_attempts(capture_id: str) -> list[dict[str, Any]]:
+        try:
+            return store.raw_demod_attempts(capture_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="capture not found") from exc
 
     @app.get("/api/captures/{capture_id}/regions")
     def get_regions(capture_id: str) -> list[dict[str, Any]]:
@@ -3345,6 +3741,65 @@ def create_app(
             else:
                 mode["decoder_status"] = "native decoder registered; this mode is not selectable"
         return {"registry_version": MODE_REGISTRY_VERSION, "modes": modes}
+
+    @app.get("/api/field-guide")
+    def signal_field_guide() -> dict[str, Any]:
+        """Return the curated field guide plus every locally catalogued Fldigi mode."""
+        from .field_guide import build_field_guide
+        from .sigidwiki_images import read_wiki_image_manifest
+
+        guide = build_field_guide()
+        available = read_wiki_image_manifest(root)
+        for entry in guide["entries"]:
+            if entry["id"] in available:
+                entry["wiki_image"] = f"/api/field-guide/wiki-images/{entry['id']}"
+                entry["wiki_image_source"] = available[entry["id"]].get("source_attribution_page")
+        return guide
+
+    @app.get("/api/field-guide/wiki-images/{entry_id}")
+    def get_field_guide_wiki_image(entry_id: str) -> FileResponse:
+        from .sigidwiki_images import read_wiki_image_manifest
+
+        asset = read_wiki_image_manifest(root).get(entry_id)
+        if not asset or not isinstance(asset.get("path"), str):
+            raise HTTPException(status_code=404, detail="No cached SigIDWiki reference image for this entry")
+        image_path = (root / "field-guide" / "wiki-images" / asset["path"]).resolve()
+        asset_root = (root / "field-guide" / "wiki-images").resolve()
+        if image_path.parent != asset_root or image_path.suffix.lower() != ".png" or not image_path.is_file():
+            raise HTTPException(status_code=404, detail="Field-guide image is unavailable")
+        return FileResponse(image_path, media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
+
+    @app.get("/api/field-guide/examples")
+    def list_field_guide_examples() -> list[dict[str, Any]]:
+        """List isolated Fldigi-generated reference signals, separate from live captures."""
+        return [
+            item for item in field_guide_store.list_library_signals()
+            if item["source_metadata"].get("generator") == "sig-id-fldigi"
+        ]
+
+    @app.get("/api/field-guide/examples/{capture_id}/waterfall")
+    def get_field_guide_example_waterfall(
+        capture_id: str,
+        fft_size: int = 4096,
+        hop_size: int = 512,
+        max_rows: int = 512,
+        sample_start: int = 0,
+        window_sample_count: int | None = None,
+    ) -> dict[str, Any]:
+        try:
+            capture = field_guide_store.capture(capture_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="field-guide example not found") from exc
+        if capture["source_metadata"].get("generator") != "sig-id-fldigi":
+            raise HTTPException(status_code=404, detail="capture is not a stored Fldigi reference example")
+        try:
+            return waterfall(
+                capture["audio_path"], fft_size=fft_size, hop_size=hop_size,
+                max_rows=max_rows, sample_start=sample_start,
+                window_sample_count=window_sample_count,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.get("/api/mode-proposals")
     def list_mode_proposals() -> list[dict[str, Any]]:
@@ -3978,6 +4433,10 @@ def create_app(
     @app.get("/signal-overlays.mjs", include_in_schema=False)
     def signal_overlays_module() -> FileResponse:
         return web_asset("signal-overlays.mjs", "text/javascript")
+
+    @app.get("/decode-context.mjs", include_in_schema=False)
+    def decode_context_module() -> FileResponse:
+        return web_asset("decode-context.mjs", "text/javascript")
 
     @app.get("/live-waterfall.mjs", include_in_schema=False)
     def live_waterfall_module() -> FileResponse:

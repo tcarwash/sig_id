@@ -4,7 +4,7 @@ Living project notebook for the eventual methods/results write-up. These notes
 record design decisions, data provenance, measured outcomes, failures, and open
 questions. They are not a claim that the detector is ready for unattended use.
 
-**Last updated:** 2026-10-25  
+**Last updated:** 2026-10-26
 **Scope:** CV signal-region detection and its relationship to the two-second
 classifier.  
 **Update practice:** append dated findings as runs finish; preserve poor or
@@ -88,6 +88,74 @@ can find weak signals with a tolerable false-alarm rate on new recordings.
   validation results.
 
 ## Findings and run ledger
+
+### Signal field guide first slice (2026-10-26)
+
+- Implemented a non-modal, movable field-guide window intended to remain open
+  beside the waterfall, with an optional left dock. It includes text search,
+  family filtering, expandable identification notes, source links, and comparison
+  of up to three entries.
+- The guide currently contains all 166 Fldigi variants from the audited local
+  mode catalog plus 13 hand-curated examples that may appear during ordinary
+  monitoring (including FT8/WSPR, packet and aviation data, maritime modes,
+  paging, CW, and facsimile). It exposes 179 cards across 12 broad families.
+- The first iteration's deterministic SVG schematics and then full noisy waterfall
+  snippets did not meet the identification goal. The image direction is now curated
+  real SigIDWiki waterfall examples, cleaned into yellow signal pixels on a
+  transparent background. The importer preserves pixel geometry and weak spectral
+  skirts while discarding the dark background; it does not redraw the modulation.
+  Real features such as CW key-click sidebands must remain visible. Where no curated
+  wiki image or exact mode recording is available, the guide shows an explicit missing
+  example state instead of substituting a generic family render. Per-file
+  provenance is kept in the local data manifest; reuse rights are not assessed, so
+  cached wiki assets are not bundled for distribution.
+- `Compare` now enters an overlay mode: the Field guide chrome is hidden except
+  for the signal preview, which can be dragged over the workbench waterfall.
+  Stored Fldigi examples use the waterfall's pixels-per-Hz and pixels-per-second,
+  and align the example signal center to the current selection. Long recordings are
+  cropped around the annotated region to at most twenty seconds; the crop is mapped at
+  its real duration and clipped at the visible waterfall edges instead of being
+  squeezed to fit. FT8 uses its specific SigIDWiki render calibrated to 50 Hz by
+  12.64 seconds using the WSJT-X mode parameters; other wiki images without axes
+  remain explicitly unscaled references. Stepping through candidates preserves the
+  drag offset, and exiting restores the guide window's prior geometry. A dedicated
+  guide-reference store keeps generated Fldigi captures separate from live
+  captures and normal training inputs.
+- Curated SigIDWiki waterfall assets can now be imported to the user's
+  `field-guide/wiki-images` cache and cleaned into yellow-on-transparent previews.
+  The manifest records the exact page/file, image URL, retrieval time, and an
+  unassessed reuse status. Seven initial mappings cover FT8, WSPR, AIS, Olivia 16/500,
+  RTTY, POCSAG, and NOAA APT. This is an initial curated slice, not a full Wiki
+  mirror.
+- The field guide has a rough selected-box lookup: it estimates occupied bandwidth
+  and visible tone peaks from the loaded waterfall, then ranks entries with curated
+  bandwidth/tone profiles. The current profiles cover a few familiar modes and the
+  Olivia mode variants. Closely spaced tones can merge at the waterfall's FFT
+  resolution; this is a candidate hint, not an identification.
+- Compare overlays have previous/next controls that step through the ranked
+  candidates (or same-family entries when no quick lookup has run), and the preview
+  remains draggable over the waterfall.
+- Library recordings are grouped under their saved signal-family classifications,
+  and their waterfall previews no longer draw annotation bounding boxes. The guide's
+  isolated render now gates each time row against both its local noise floor and
+  the strongest in-band component. Inspecting the generated CW reference showed
+  its carrier centered at 1500 Hz with no significant energy above 3 kHz; the broad
+  yellow patch came from the old renderer exposing nearly the entire loose 750–2250
+  Hz annotation box, not from a wide carrier. A 10 dB peak-relative cutoff keeps
+  weak side energy out of the yellow trace.
+- The guide now selects only mode-specific examples. The example store had 84
+  isolated Fldigi mode recordings before this update. A fill pass is generating the
+  72 missing selectable Fldigi variants; the seven Hell-family modes that failed to
+  finish transmission within the timeout are left as gaps rather than filled with
+  misleading generic examples. Non-Fldigi signals such as FT8 continue to use their
+  exact cached reference image where available.
+- The curated prose is authored for this project and links to SigIDWiki entries
+  as further reading. A reference link does not mean that the guide imports or
+  reproduces the referenced site's media or establishes decoder compatibility.
+- Static evidence: the guide builder returned 179 entries / 12 families / 166
+  Fldigi variants; `node --check` passed for both guide-related browser modules,
+  `python -m py_compile` passed for the guide and API modules, and
+  `git diff --check` passed. No browser, RF, or decoder validation has been done.
 
 ### Earlier controlled-synthetic experiments
 
@@ -251,6 +319,14 @@ The direct ROCm training command is recorded in `TRAINING.md`.
   no-detection clips are only noise candidates. A person must review the full
   ten-second window before it can qualify as a real noise-only training
   example.
+- Unattended monitoring can optionally band-hop through a user-provided list of
+  receiver dial frequencies using the existing rigctld connection. The server
+  tunes on a configurable dwell (five minutes by default), keeps the audio/CV
+  session running, and stores only the usual detected or periodic ten-second
+  clips. Each clip records its receiver frequency; windows that straddle a
+  tuning boundary are skipped to avoid tagging mixed-band audio as one band.
+  This uses receive-frequency commands only and has not been validated against
+  a physical rig in this environment.
 - Live and saved-capture CV boxes now receive classifier proposals from
   centered two-second crops inside the detected interval and frequency bounds.
   The highest-confidence 32 boxes are scored; results and abstentions are shown

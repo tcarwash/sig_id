@@ -49,11 +49,19 @@ class _Session:
     review_queue_cursor: int = 0
     review_queue_buffer: bytearray = field(default_factory=bytearray)
     worker_error: str | None = None
-    analysis_windows: queue.Queue[tuple[int, bytes]] = field(default_factory=lambda: queue.Queue(maxsize=4))
+    analysis_windows: queue.Queue[tuple[int, bytes, int | None, int | None]] = field(default_factory=lambda: queue.Queue(maxsize=4))
     stop_analyzer: threading.Event = field(default_factory=threading.Event)
     analyzer_thread: threading.Thread | None = None
     saved_review_clips: int = 0
     last_noise_clip_monotonic: float = 0.0
+    current_frequency_hz: int | None = None
+    band_hop_index: int | None = None
+    band_hop_count: int = 0
+    band_hop_dwell_seconds: int | None = None
+    band_hop_started_monotonic: float = 0.0
+    band_hop_error: str | None = None
+    callback_frames: int = 0
+    band_hop_boundaries: list[tuple[int, int, int]] = field(default_factory=list)
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
@@ -110,6 +118,15 @@ class LiveCaptureManager:
                 "device_name": session.device_name,
                 "capture_mode": session.capture_mode,
                 "saved_review_clips": session.saved_review_clips,
+                "current_frequency_hz": session.current_frequency_hz,
+                "band_hop_index": session.band_hop_index,
+                "band_hop_count": session.band_hop_count,
+                "band_hop_dwell_seconds": session.band_hop_dwell_seconds,
+                "band_hop_seconds_remaining": (
+                    max(0, round(session.band_hop_dwell_seconds - (time.monotonic() - session.band_hop_started_monotonic)))
+                    if session.band_hop_dwell_seconds is not None and session.band_hop_started_monotonic else None
+                ),
+                "band_hop_error": session.band_hop_error,
                 "state": session.state,
                 "sample_rate": session.sample_rate,
                 "channels": session.channels,
@@ -147,6 +164,9 @@ class LiveCaptureManager:
         capture_mode: str = "record",
         noise_interval_seconds: int = 300,
         window_analyzer: Any = None,
+        initial_frequency_hz: int | None = None,
+        band_hop_count: int = 0,
+        band_hop_dwell_seconds: int | None = None,
     ) -> dict[str, Any]:
         if sample_rate < 4000 or sample_rate > 192000:
             raise ValueError("sample_rate must be between 4000 and 192000 Hz")
@@ -192,9 +212,16 @@ class LiveCaptureManager:
                 capture_mode=capture_mode,
                 noise_interval_seconds=noise_interval_seconds,
                 window_analyzer=window_analyzer,
+                current_frequency_hz=initial_frequency_hz,
+                band_hop_count=band_hop_count,
+                band_hop_dwell_seconds=band_hop_dwell_seconds,
             )
             session.started_at_monotonic = time.monotonic()
             session.last_noise_clip_monotonic = session.started_at_monotonic
+            if initial_frequency_hz is not None:
+                session.band_hop_index = 0
+                session.band_hop_started_monotonic = session.started_at_monotonic
+                session.band_hop_boundaries.append((0, initial_frequency_hz, 0))
             self._session = session
 
         session.writer_thread = threading.Thread(
@@ -219,7 +246,9 @@ class LiveCaptureManager:
                     session.truncated_reason = "maximum_duration"
                 raise backend.CallbackStop
             try:
-                session.blocks.put_nowait(memoryview(indata).tobytes())
+                with session.lock:
+                    session.blocks.put_nowait(memoryview(indata).tobytes())
+                    session.callback_frames += frames
             except queue.Full:
                 with session.lock:
                     session.state = "overrun"
@@ -285,7 +314,7 @@ class LiveCaptureManager:
                         continue
                     if wav is not None:
                         wav.writeframesraw(block)
-                    review_windows: list[tuple[int, bytes]] = []
+                    review_windows: list[tuple[int, bytes, int | None, int | None]] = []
                     with session.lock:
                         frames = len(block) // (2 * session.channels)
                         session.frames_written += frames
@@ -310,15 +339,22 @@ class LiveCaptureManager:
                             session.review_queue_buffer.extend(block)
                             while len(session.review_queue_buffer) >= window_bytes:
                                 window_start = session.review_queue_cursor
-                                review_windows.append((window_start, bytes(session.review_queue_buffer[:window_bytes])))
+                                band = self._band_hop_window(session, window_start, window_frames)
+                                if session.band_hop_count == 0 or band is not None:
+                                    frequency_hz, hop_index = band if band is not None else (None, None)
+                                    review_windows.append((
+                                        window_start, bytes(session.review_queue_buffer[:window_bytes]),
+                                        frequency_hz, hop_index,
+                                    ))
                                 del session.review_queue_buffer[:window_bytes]
                                 session.review_queue_cursor += window_frames
                     if session.capture_mode == "record":
-                        for window_start, window_audio in review_windows:
+                        for window_start, window_audio, frequency_hz, hop_index in review_windows:
                             try:
                                 self._save_review_window(
                                     session, window_start, window_audio,
-                                    trigger_type="continuous_recording",
+                                    trigger_type="continuous_recording", frequency_hz=frequency_hz,
+                                    band_hop_index=hop_index,
                                 )
                             except Exception as exc:
                                 with session.lock:
@@ -341,7 +377,7 @@ class LiveCaptureManager:
     def _analyze_review_windows(self, session: _Session) -> None:
         while not session.stop_analyzer.is_set() or not session.analysis_windows.empty():
             try:
-                sample_start, audio = session.analysis_windows.get(timeout=0.1)
+                sample_start, audio, frequency_hz, hop_index = session.analysis_windows.get(timeout=0.1)
             except queue.Empty:
                 continue
             try:
@@ -367,6 +403,7 @@ class LiveCaptureManager:
                     continue
                 self._save_review_window(
                     session, sample_start, audio, trigger_type=trigger_type, analysis=summary,
+                    frequency_hz=frequency_hz, band_hop_index=hop_index,
                 )
             except Exception as exc:
                 with session.lock:
@@ -375,6 +412,7 @@ class LiveCaptureManager:
     def _save_review_window(
         self, session: _Session, sample_start: int, audio: bytes, *,
         trigger_type: str, analysis: dict[str, Any] | None = None,
+        frequency_hz: int | None = None, band_hop_index: int | None = None,
     ) -> None:
         path = self.capture_dir / f"review-{session.id}-{sample_start}.wav"
         with wave.open(str(path), "wb") as wav:
@@ -395,6 +433,10 @@ class LiveCaptureManager:
                     "unattended_capture": session.capture_mode == "unattended",
                     "review_trigger": trigger_type,
                     "detection_summary": analysis or {},
+                    "receiver_frequency_hz": frequency_hz,
+                    "band_hop_index": band_hop_index,
+                    "band_hop_count": session.band_hop_count or None,
+                    "band_hop_dwell_seconds": session.band_hop_dwell_seconds,
                 },
             )
             with session.lock:
@@ -402,6 +444,38 @@ class LiveCaptureManager:
         except Exception:
             path.unlink(missing_ok=True)
             raise
+
+    def set_band_hop_frequency(
+        self, session_id: str, frequency_hz: int, index: int, count: int,
+        dwell_seconds: int, error: str | None = None,
+    ) -> bool:
+        with self._lock:
+            session = self._session
+        if session is None or session.id != session_id:
+            return False
+        with session.lock:
+            session.band_hop_count = count
+            session.band_hop_dwell_seconds = dwell_seconds
+            session.band_hop_started_monotonic = time.monotonic()
+            session.band_hop_error = error
+            if error is None:
+                session.current_frequency_hz = frequency_hz
+                session.band_hop_index = index
+                boundary = (session.callback_frames, frequency_hz, index)
+                if not session.band_hop_boundaries or session.band_hop_boundaries[-1][0] != boundary[0]:
+                    session.band_hop_boundaries.append(boundary)
+                else:
+                    session.band_hop_boundaries[-1] = boundary
+        return True
+
+    @staticmethod
+    def _band_hop_window(session: _Session, sample_start: int, sample_count: int) -> tuple[int, int] | None:
+        sample_end = sample_start + sample_count
+        active = [item for item in session.band_hop_boundaries if item[0] <= sample_start]
+        if not active or any(sample_start < position < sample_end for position, _, _ in session.band_hop_boundaries):
+            return None
+        _, frequency_hz, index = active[-1]
+        return frequency_hz, index
 
     def stop(self) -> dict[str, Any]:
         with self._stop_lock:

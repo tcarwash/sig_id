@@ -150,10 +150,15 @@ def _set_signal_gains_for_snr(
     for recipe, signal_rms, unscaled_noise_rms, noise_low, noise_high, target_ratio, target_snr_db in intervals:
         background_rms = unscaled_noise_rms * noise_gain
         gain = background_rms * target_ratio / signal_rms
-        if not np.isfinite(gain) or gain <= 0 or gain > 4:
+        if not np.isfinite(gain) or gain <= 0 or gain > 4.0 + 1e-9:
             raise ValueError(
                 f"required signal gain {gain:.4g} is outside the supported range for {target_snr_db:g} dB SNR"
             )
+        # The preceding noise-gain clamp caps the theoretical component gain at
+        # 4.0. Floating-point rounding can put the recomputed value a few ULPs
+        # above that cap, so clamp that harmless excess instead of aborting a
+        # large deterministic scene build.
+        gain = min(gain, 4.0)
         recipe["gain"] = float(gain)
         measured.append({
             "capture_id": recipe["capture_id"],
