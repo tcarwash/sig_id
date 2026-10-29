@@ -1,0 +1,654 @@
+# Engineering and dataset reference
+
+This document collects detailed implementation notes, research workflows, and reproducible commands that support the workbench. For the product overview and quick start, see the [project README](../README.md).
+
+Current code includes WAV upload/playback with a fixed 0–3 kHz browser waterfall
+(4096-point FFT at the default 48 kHz capture rate, about 11.7 Hz per bin), manual
+time/frequency selection and label export; blockwise PCM replay; deterministic
+2-FSK and generic MFSK fixture generators; verified synthetic import into the SQLite
+capture/label dataset; and a receive-only Fldigi XML-RPC probe. Local device capture
+and the Fldigi path from audio input to recovered text are represented in the
+workbench: when a running Fldigi XML-RPC service is available, users can select a
+catalog mode and view its receive-text output. RF-free loopback tests decode BPSK31,
+BPSK63/F/125/250/500/1000, QPSK31/63/125/250/500, 8PSK125/250/500, RTTY, THOR8, THOR16, MFSK16, MFSK32,
+OLIVIA-8/250 and MT63-500S/1KS payloads through
+temporary virtual audio into the workbench API and isolated saved-region replay.
+Routing actual radio input
+to Fldigi remains an external setup and is not yet validated. The workbench also
+offers bounded Fldigi mode trials for live candidates. The “Auto-try accepted model IDs”
+checkbox opts into starting a sweep only after a track persists and the loaded model
+accepts a method; abstentions never start trials. Automatic and manual live-track
+sweeps replay the candidate's exact buffered samples through isolated Fldigi instances,
+trying up to three tested modes. Recovered text stays tentative until reviewed. In the
+inspector, a selected live track can also be replayed in one chosen mode from its exact
+sample window in the bounded live buffer; stale windows are rejected and output is
+attached to the live session, then linked to the saved capture when recording stops.
+Saved recordings let you play the selected time range in the browser with “Replay
+selected region.” “Decode selected region” sends that same exact sample window to an
+isolated Fldigi instance through a temporary PulseAudio/PipeWire loopback; the running
+Fldigi receiver is left alone. The audio-carrier field starts at the selected frequency
+band's midpoint and can be adjusted manually when that is not the signal's tone-bank
+center. The chosen carrier and exact sample window are saved with the receive run for
+review. The selected mode's output is stored with the exact capture window.
+“Tag region as selected mode” saves a human-reviewed label as a
+separate explicit action. This native-host feature requires Fldigi, its configured
+profile, `xvfb-run`, `pactl`, and `paplay`; it does not change the running receiver or
+transmit. It is not available in the default Compose container, which has no host audio
+server or Fldigi profile mounted. Saved recordings
+have a manual, protocol-independent 2-FSK demodulator that exposes uncoded bits,
+symbol timing and soft tone metrics; symbol rate and tone mapping are operator-supplied,
+with an optional 32-phase timing search. A corresponding M-FSK analyzer returns hard tone indices,
+soft margins and natural-binary bits only for power-of-two tone counts, with the same
+optional 32-phase timing search. It can also rank a bounded logarithmic symbol-rate
+grid while searching timing phase at each candidate rate. The OOK analyzer estimates
+two noncoherent carrier-amplitude levels, returns raw bits and soft metrics, and offers
+timing search; it leaves bits undecided when there is no measurable two-level contrast.
+BPSK analysis
+returns both global polarity hypotheses, while QPSK analysis returns four possible
+90-degree rotation hypotheses because an unknown capture has no inherent absolute
+phase reference. These are protocol-independent symbol/bit observations, not complete
+protocol decoders. Each demodulator can export a JSON artifact containing the capture
+hash, sample bounds, settings, raw decisions, ambiguity/soft metrics and protocol-unknown
+status so a manual analysis can be reproduced or used as training evidence. The raw-bit
+view offers all eight byte-start offsets, MSB/LSB byte interpretations, and optional
+polarity inversion or differential/NRZI conventions with both transition mappings and
+initial states. Per-view diagnostics report bit/byte entropy, balance, transition rate,
+run length, and printable-byte fractions; these are descriptive clues, not a decoder
+confidence score or protocol identification. Pattern matches are grouped with their
+occurrence offsets, while remaining explicitly tentative. The receiver output pane can
+be dragged taller or shorter, resized from the keyboard, and remembers its chosen height.
+Operators can select byte ranges, add colored interpretation tags, and include the exact
+transform/alignment settings in the saved annotation and JSON export. A bit-stencil
+matcher can check exact or masked patterns and report the possible field, candidate
+protocol families and offset as tentative evidence. Its initial `01111110` stencil
+marks a common HDLC-like flag; this is only a framing clue, not a mode or protocol ID.
+The raw view also filters a small, loopback-reviewed Fldigi mode shortlist by the
+selected modulation hypothesis and shows why each mode remains a candidate. The list
+is intentionally labeled partial; it is not the full decoder catalog.
+Operator bit-range tags are saved immediately with their capture, demodulator settings,
+bit hypothesis and recovered stream. They remain available when the capture is reopened
+and can be exported as JSONL from `/api/exports/bit-annotations.jsonl` for dataset work.
+Operators can also save reusable exact or wildcard bit stencils from a selected bit
+range, name the field and possible protocol families, and match them against later
+bitstreams as tentative evidence.
+
+## Run with Docker Compose on Linux
+
+```sh
+docker compose up --build -d
+```
+
+Open <http://127.0.0.1:8010>. If the native app already uses that port, prefix the
+command with `SIG_ID_PORT=8012` and open port 8012 instead. Recordings and labels
+persist in a named volume. The default listener is local; host networking reaches
+the separately running host Fldigi XML-RPC service. Direct host audio-device routing
+into the container is not configured automatically; use the native audio setup for it.
+See [OPERATIONS.md](../OPERATIONS.md) for updates, models, tested backup/restore and
+repeatable container checks.
+
+## Distributed contribution and peer review
+
+An opt-in contribution/review hub is available as a separate Compose project. It
+accepts bounded PCM WAV submissions with sample-indexed annotations and requires two
+distinct reviewers to confirm signal extent. Start-up, credentials and current limits
+are documented in [hub/README.md](../hub/README.md); see
+[DISTRIBUTED_COLLECTION_PLAN.md](../DISTRIBUTED_COLLECTION_PLAN.md) for the broader
+architecture and staged rollout. The local workbench does not yet provide the upload
+outbox/sync UI, and hub review is not yet a trusted training-data release process.
+
+## Development
+
+Requires Python 3.11 or newer and pytest. From the repository root:
+
+```sh
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -e '.[dev,audio]'
+pytest
+sig-id-serve
+```
+
+Local audio capture also needs the platform PortAudio runtime (`libportaudio2` on
+Debian/Ubuntu). Select the radio input in Settings before starting live capture.
+
+The opt-in, RF-free Fldigi audio loopback tests exercise BPSK31/63/F/125/250/500/1000, QPSK31/63/125/250/500,
+8PSK125/250/500, RTTY, THOR8, THOR16, MFSK16, MFSK32, OLIVIA-8/250, MT63-500S and MT63-1KS using isolated profiles and a temporary
+PulseAudio/PipeWire null sink.
+They require a configured `~/.fldigi`, `xvfb-run`, and `pactl`:
+
+```sh
+SIGID_TEST_FLDIGI_AUDIO=1 pytest tests/test_fldigi_audio_integration.py
+```
+
+The saved-region replay worker has a separate end-to-end check. It captures a known
+transmission from a temporary null sink, then decodes that WAV through the same
+isolated replay path used by the inspector. BPSK31/63/F/125/250/500/1000, QPSK31/63/125/250/500,
+8PSK125/250/500, RTTY, THOR8, THOR16, MFSK16, MFSK32, OLIVIA-8/250, MT63-500S and MT63-1KS are covered:
+
+```sh
+SIGID_TEST_FLDIGI_REGION_REPLAY=1 pytest -s tests/test_fldigi_audio_integration.py -k known_fldigi_transmission
+```
+
+The reference per-mode capability registry distinguishes catalog presence, successful
+selection and verified decoding. Its generated evidence for Fldigi 4.2.13 is in
+[`reports/fldigi-4.2.13-capabilities.json`](../reports/fldigi-4.2.13-capabilities.json).
+
+To audit selection of every mode in an isolated Fldigi profile (without changing
+the operator's running Fldigi mode), run:
+
+```sh
+SIGID_TEST_FLDIGI_CATALOG=1 pytest -s tests/test_fldigi_audio_integration.py -k every_installed_catalog_entry
+```
+
+The reference Fldigi 4.2.13 selection results are in
+[`reports/fldigi-4.2.13-catalog-selection.json`](../reports/fldigi-4.2.13-catalog-selection.json).
+Of the 168 actual modem entries, 165 select through XML-RPC. The three OFDM entries
+are documented Fldigi modes, but this installed backend stays on BPSK31 when asked to
+select them; see the [Fldigi OFDM manual](https://www.w1hkj.org/files/fldigi/fldigi_help.pdf).
+`RSID_EOT` is a catalog marker, not a receive mode, and is omitted from the workbench's
+selectable list. The audit tests selection only; it does not establish audio routing or
+decode support.
+
+The Fldigi modem is also available as an audio-generation capability in the native
+backend plugin contract. The corpus builder starts a separate Fldigi profile with
+radio control and PTT disabled, transmits through a temporary PulseAudio/PipeWire null
+sink, and stores the captured audio with its canonical mode label and provenance.
+It attempts each selectable registry mode and records per-mode transmit failures in
+`fldigi-corpus.json` (some receive-selectable modes may not support transmit):
+
+```sh
+uv run --extra api --extra cv sig-id-build-fldigi-corpus --data-dir data/cv-seed/store --output-dir data/cv-seed/fldigi --mode all --examples-per-mode 1
+```
+
+The command prints per-mode and per-example progress to stderr while it runs;
+the final JSON summary is printed to stdout and saved as `fldigi-corpus.json`.
+
+This requires a configured `~/.fldigi`, `fldigi`, `xvfb-run`, `pactl`, `parecord`,
+and the SciPy audio extra. Use `--mode bpsk31` to generate one mode first. The native
+backend plugin interface exposes this as an optional `generate()` capability, so
+other modem applications can provide equivalent native-mode sample generation.
+
+The label mode registry includes the 595 [SigIDWiki database](https://www.sigidwiki.com/wiki/Database)
+entries, audited Fldigi labels, WSJT-X modes (including FT8), all 50 modes in the
+Data2G native mode catalog, sideband/phone labels, and other collection labels. A
+catalog entry is available for labeling and data collection; it does not claim that
+the workbench can detect or decode that mode. Optional decoder adapters use the
+`sigid.decoder_backends` entry-point interface. Fldigi remains available through its
+isolated replay adapter. WSJT-X uses the separately installed `jt9` command for saved
+FT8 windows when available and can receive live decode notifications over its
+loopback UDP reporting interface. Data2G entries remain annotation candidates until
+a native audio-window adapter is available; the workbench bundles neither decoder.
+
+Then open <http://127.0.0.1:8010>, choose a PCM WAV, and mark a signal region on
+the waterfall. The local service stores audio under `~/.local/share/sig-id` by
+default. Set `SIG_ID_DATA_DIR` before starting it to use another data directory.
+
+The installed Fldigi process can be inspected with:
+
+```sh
+sig-id-probe-fldigi --url http://127.0.0.1:7362/RPC2
+```
+
+Enable Fldigi's XML-RPC server on loopback before launching the workbench. Set
+`SIG_ID_FLDIGI_URL` if it listens on a different local URL. The decoder panel lists
+the installed catalog, selects a receive mode, and polls incremental receive text.
+Completed Fldigi WEFAX images can also be imported into the workbench's managed
+receive-products store and viewed in its received-image gallery.
+Route the radio passband audio to Fldigi's input using the audio system configuration;
+the application does not silently create an audio route or claim decode validation.
+When starting Fldigi from a terminal, its XML-RPC method allow-list can be limited to
+the calls the application uses:
+
+```sh
+fldigi --xmlrpc-server-address 127.0.0.1 \
+  --xmlrpc-allow='^(fldigi\.(name|version)|modem\.(get_names|get_name|set_by_name)|text\.(get_rx|get_rx_length)|wefax\.get_received_file)$'
+```
+
+Restrict its XML-RPC method allow-list to the receive and inspection methods needed
+by the application. Do not expose Fldigi's control endpoint outside loopback.
+
+Create a clean binary-FSK fixture with a sidecar manifest containing the exact
+reference bits and modulation parameters:
+
+```sh
+sig-id-generate-2fsk data/fixtures/fsk.wav 001101101001
+```
+
+Generate a protocol-independent 4-FSK/MFSK fixture with exact source symbols,
+binary tone mapping, modulation-method labels, and no invented protocol label:
+
+```sh
+sig-id-generate-mfsk data/fixtures/mfsk4.wav 0,1,3,2 --symbol-rate 100
+```
+
+Generate an uncoded BPSK fixture with its exact reference bits and carrier parameters:
+
+```sh
+sig-id-generate-bpsk data/fixtures/bpsk.wav 001101101001 --carrier-hz 1500
+```
+
+Generate an uncoded Gray-mapped QPSK fixture with its exact reference bits and carrier
+parameters:
+
+```sh
+sig-id-generate-qpsk data/fixtures/qpsk.wav 001101101001 --carrier-hz 1500
+```
+
+Generate a synthetic OOK/ASK fixture. OOK is deliberately outside the current model's
+FSK/PSK taxonomy and can be used as a held-out unknown-family example:
+
+```sh
+sig-id-generate-ook data/fixtures/ook.wav 001101101001 --carrier-hz 1500
+```
+
+Generate a generic four-level ASK waveform with exact level symbols and natural-binary
+bits, while leaving its protocol unknown:
+
+```sh
+sig-id-generate-ask data/fixtures/ask4.wav 0,1,3,2 --level-count 4 --symbol-rate 100
+sig-id-generate-ppm data/fixtures/ppm.wav 01011010 --symbol-rate 100 --pulse-fraction 0.2
+```
+
+Register the waveform and validated sidecar in the local dataset from the command
+line, or choose both files in the workbench's **Synthetic Dataset** panel:
+
+```sh
+sig-id-import-synthetic data/fixtures/mfsk4.wav
+```
+
+The importer verifies that the WAV exactly matches a deterministic 2-FSK, M-FSK,
+BPSK, QPSK, OOK, M-ASK or PPM generator manifest, then stores a full-capture modulation label and the source
+manifest. It does not invent a named protocol.
+
+Combine already imported, accepted synthetic captures into a deterministic scene.
+Put their capture IDs in a JSON recipe; offsets and lengths are in samples at the
+source sample rate, and overlapping components retain separate labels on import.
+Optional `frequency_offset_hz` and `drift_hz_per_second` values shift each signal
+before mixing, with drift measured across that component's duration. `lowpass_hz`
+adds a deterministic smooth low-pass rolloff to model receiver/audio bandwidth, and
+`clock_error_ppm` changes the rendered symbol/audio clock by resampling the component.
+The manifest records the original source length and the rendered region length:
+
+```json
+{
+  "components": [
+    {"capture_id": "CAPTURE_ID_A", "sample_count": 48000, "scene_start_sample": 0, "gain": 0.7, "frequency_offset_hz": 125, "drift_hz_per_second": 2, "clock_error_ppm": 2500},
+    {"capture_id": "CAPTURE_ID_B", "sample_count": 48000, "scene_start_sample": 24000, "gain": 0.4, "lowpass_hz": 2700}
+  ]
+}
+```
+
+```sh
+sig-id-mix-scene --data-dir ~/.local/share/sig-id scene-recipe.json data/scenes/mix.wav
+sig-id-import-scene --data-dir ~/.local/share/sig-id data/scenes/mix.wav data/scenes/mix.wav.json
+```
+
+Measure provisional spectral candidate detection on all imported mixed scenes and
+noise-only examples in the dataset. The method classifier learns a separate noise
+class from those split-safe corpus examples; this does not identify unseen modulated
+modes. The report includes per-capture matches, component
+recall, candidate precision, and false candidates per hour:
+
+```sh
+sig-id-evaluate-detector --data-dir ~/.local/share/sig-id --output data/reports/detector-scenes.json
+```
+
+This benchmark measures temporal candidate coverage for deterministic synthetic
+scenes; it does not establish real-radio performance or classification accuracy.
+
+Scene imports re-render against the original accepted synthetic captures before
+storing, so edited samples or recipe fields cannot pass as synthetic ground truth.
+The split command keeps every component lineage used by an indexed scene in one
+partition and reports scenes whose sources are absent from the corpus. Scene regions
+are not classifier training examples. The model evaluation report separately scores
+scene constituent regions whose source lineages were assigned to the held-out test
+partition, with overlapping signals present in the audio crop.
+
+Create a deterministic noisy child from an imported clean source. Import the clean
+source first; the child manifest records its hashes and recipe, and the importer checks
+the parent lineage and regenerates the samples before accepting inherited labels:
+
+```sh
+sig-id-augment-awgn data/fixtures/bpsk.wav data/fixtures/bpsk-10db.wav --snr-db 10 --seed 42
+sig-id-import-synthetic data/fixtures/bpsk-10db.wav
+```
+
+Build a small resumable corpus across six modulation methods. Each clean source and
+its AWGN descendants share a `lineage_group` in the index so they can be kept in one
+train/validation/test split:
+
+```sh
+sig-id-build-corpus --output-dir data/corpus --examples-per-mode 12 --snr-db 0 10 20 --seed 42
+sig-id-split-corpus --corpus data/corpus/corpus.json --output data/corpus/splits.json --seed 42
+sig-id-build-ood-corpus --output-dir data/ood/unknown --examples 30 --seed 42
+sig-id-train-method-model --split data/corpus/splits.json --ood-corpus data/ood/unknown/ood-corpus.json \
+  --output-model data/models/method.npz
+```
+
+This creates 288 labeled modulation captures (six methods × twelve source examples ×
+one clean plus three SNR variants) and twelve independent noise-only negative captures.
+The negatives retain null modulation/protocol labels and are used for rejection
+calibration/evaluation, not as a seventh modulation class. The index and generated
+audio stay in `data/corpus`; imported
+captures and labels are stored under `SIG_ID_DATA_DIR` or the normal application data
+directory. Re-running the same command resumes without duplicating captures; changing
+the recipe requires a new output directory.
+The split command validates each dataset capture and label, requires at least three
+independent source groups per method and for noise negatives, and assigns every clean
+waveform and all derived impairments to one train, validation or test split.
+The training command fits a small NumPy logistic-regression baseline, calibrates
+separate method and family rejection thresholds on known validation groups and, when
+`--ood-corpus` is supplied, includes its unknown-family validation sources as negatives only for
+threshold calibration. It evaluates once on the held-out known-mode groups and separate
+unknown-family test sources, then writes weight, metadata and evaluation files. The corpus
+assigns independent source indices 3:2 to threshold-validation:test; none enters model
+fitting. To load
+the exported proposal model in the workbench, set `SIG_ID_MODEL_PATH` to the `.npz`
+file before starting `sig-id-serve`. Proposals never save labels automatically.
+The model uses zero-false-accept validation constraints for noise and supplied unknown families
+negatives, and reports held-out rates separately. If the constraints and known-mode
+precision target cannot both be met, it abstains on every example; small corpora can
+therefore yield zero useful coverage. The current reproducible mixed ASK experiment,
+including corpus, split, model and waveform hashes, is saved in
+[`reports/ask-ood-benchmark-2026-10-21.json`](../reports/ask-ood-benchmark-2026-10-21.json).
+Its method threshold accepted only 9/26 known test examples (100% accuracy among
+accepted), while its family threshold rejected every family proposal. The held-out ASK
+test had 0/12 method and family false accepts. This is one synthetic split only; other
+unknown modes and radio performance remain unvalidated.
+
+### Train and run the current model set
+
+For the complete native Fldigi → ten-second CV scene → spectrogram export →
+detector training workflow, see [TRAINING.md](../TRAINING.md).
+
+The mode registry is a collection inventory. Classifier outputs come only from modes
+with labeled examples in the classifier training split. The classifier is hierarchical:
+it predicts a represented family, then uses that family's mode expert; low-confidence
+predictions are returned as unclassified. The single training entry point also exports
+the locally reviewed 10-second windows and trains the CV detector:
+
+```sh
+scripts/train_all_models.sh
+scripts/run_sig_id.sh
+```
+
+By default, classifier training uses the checked-in known synthetic split and OOD
+calibration corpus, plus accepted signal labels from fresh, complete 10-second
+reviews in the local application dataset and compiled reviewed corpus. If
+`data/cv-seed/store` contains samples from `sig-id-build-fldigi-corpus`, those
+native-mode examples are included too; set `SIGID_FLDIGI_DATA_DIR` to another
+Fldigi corpus store. The trainer prints the imported mode counts; registry entries
+alone are not imported as classes. Fldigi examples are assigned to training, with
+one validation and one test source held out for a mode only when at least three
+independent examples for that mode exist.
+CV training compiles that reviewed corpus, the normal application dataset at
+`SIG_ID_DATA_DIR` or `~/.local/share/sig-id`, and `data/cv-seed/store` when present;
+it needs at least seven independent
+capture groups and at least three usable lineages in each held-out split. Point
+`SIGID_CV_DATA_DIR` at another local dataset or `SIGID_REVIEWED_CORPUS_DIR` at another
+compiled corpus when needed. Set
+`SIGID_CLASSIFIER_SPLIT`, `SIGID_CLASSIFIER_DATA_DIR`, and `SIGID_OOD_CORPUS` to use
+other classifier inputs. Each run writes a timestamped release under `data/models`
+and publishes `data/models/active-models.json` as the canonical model-path pointer;
+`active-models.env` remains available for shell compatibility. CV training options can be adjusted with `SIGID_CV_EPOCHS`,
+`SIGID_CV_BATCH`, and `SIGID_CV_BASE_MODEL`.
+
+The advanced annotation panel also has **Train both models from new reviews**.
+It adds previously unused, fully reviewed live captures to classifier training,
+rebuilds the CV export from the configured reviewed stores and app data, and
+warm-starts the classifier and CV detector from their active checkpoints. The app stages both artifacts in a new
+release and updates the shared model-path JSON only after both models load
+successfully. Use `scripts/train_all_models.sh` to build a fresh synthetic and
+collected-data base release.
+
+To reproduce that report in a fresh workspace, run the following commands (the
+generated corpus, database and model are written under `/tmp`):
+
+```sh
+export SIG_ID_DATA_DIR=/tmp/sig-id-ask-benchmark-data
+sig-id-build-corpus --output-dir /tmp/sig-id-ask-benchmark/known --data-dir "$SIG_ID_DATA_DIR" \
+  --examples-per-mode 12 --snr-db 10 --seed 20261021
+sig-id-split-corpus --corpus /tmp/sig-id-ask-benchmark/known/corpus.json \
+  --data-dir "$SIG_ID_DATA_DIR" --output /tmp/sig-id-ask-benchmark/known/splits.json --seed 27
+sig-id-build-ood-corpus --output-dir /tmp/sig-id-ask-benchmark/ask --examples 30 --seed 1717 --generator-version 0.2.0
+sig-id-train-method-model --split /tmp/sig-id-ask-benchmark/known/splits.json \
+  --data-dir "$SIG_ID_DATA_DIR" --ood-corpus /tmp/sig-id-ask-benchmark/ask/ood-corpus.json \
+  --output-model /tmp/sig-id-ask-benchmark/model/method.npz --epochs 1200 \
+  --feature-version passband-log-spectrum-v1
+```
+
+The initial diverse benchmark above uses spectral features only and reproduces the
+zero-coverage result with feature version `passband-log-spectrum-v1`. The current model
+adds six temporal envelope features and a novelty gate based on distance to trained
+modulation centroids. The default OOD generator adds binary PPM alongside OOK and 4-ASK.
+To reproduce the current result, use the new benchmark output paths and train against
+that index:
+
+```sh
+sig-id-build-ood-corpus --output-dir /tmp/sig-id-ask-benchmark/diverse --examples 30 --seed 1717
+sig-id-train-method-model --split /tmp/sig-id-ask-benchmark/known/splits.json \
+  --data-dir "$SIG_ID_DATA_DIR" --ood-corpus /tmp/sig-id-ask-benchmark/diverse/ood-corpus.json \
+  --output-model /tmp/sig-id-ask-benchmark/model/ask-ppm.npz --epochs 1200 \
+  --feature-version passband-log-spectrum-envelope-v2
+```
+
+For an ROI-aware classifier experiment, train a separate artifact with
+`--feature-version passband-log-spectrum-envelope-roi-v3`. Training uses verified
+synthetic region frequency bounds, applies the same expanded bandpass used at
+inference, and samples deterministic narrow bands for noise negatives. At
+inference, CV selections supply detector box bounds; manual selections without
+frequency bounds use the full supported classifier range. The fixed-window ROI
+version (`passband-log-spectrum-envelope-roi-fixed-window-v4`) takes one
+model-metadata-defined center crop from each selected bbox for classification; the
+result is attached to the bbox's full time and frequency area. Set
+`--classifier-window-seconds` to train comparable artifacts at different crop
+durations. Keep these artifacts separate until held-out results justify replacing
+a full-passband model.
+
+The measured result is preserved in
+[`reports/ask-ppm-novelty-benchmark-2026-10-21.json`](../reports/ask-ppm-novelty-benchmark-2026-10-21.json).
+On this split it retains 84.6% known test coverage at 86.4% accepted accuracy, while
+rejecting 12/12 held-out OOK, 4-ASK and PPM sources. These are synthetic recipe results;
+independent recordings and radio captures remain untested.
+
+To measure split-seed sensitivity, use the lineage-safe multi-seed runner. It creates
+one model per distinct source-group assignment and excludes duplicate assignments from
+aggregate statistics:
+
+```sh
+sig-id-build-corpus --output-dir /tmp/sig-id-multiseed/known --data-dir "$SIG_ID_DATA_DIR" \
+  --examples-per-mode 12 --snr-db 10 --seed 20261021
+sig-id-build-ood-corpus --output-dir /tmp/sig-id-multiseed/unknown --examples 30 --seed 1717
+sig-id-evaluate-split-seeds --corpus /tmp/sig-id-multiseed/known/corpus.json \
+  --data-dir "$SIG_ID_DATA_DIR" --output-dir /tmp/sig-id-multiseed/runs \
+  --seeds 11 23 37 51 79 --epochs 1200 \
+  --ood-corpus /tmp/sig-id-multiseed/unknown/ood-corpus.json
+```
+
+Split assignment version 2 makes seed variation affect lineage ordering; the default
+split command retains version 1 for exact historical reproduction. The five-seed result
+is archived in [`reports/multiseed-ask-ppm-2026-10-21.json`](../reports/multiseed-ask-ppm-2026-10-21.json).
+Across five distinct splits, mean known test coverage was 64.6%, mean accepted accuracy
+79.8%, and method/family false accepts were 0/12 on every split. Accepted accuracy ranged
+from 58.8% to 93.8%, showing that the earlier single-split estimate was optimistic. This
+remains synthetic-only evidence.
+
+The runner also reports held-out metrics by clean, noise and AWGN SNR. A 444-capture
+corpus with clean sources and 0, 3, 6, 10 and 20 dB AWGN siblings produced five distinct
+test splits. Mean coverage ranged from 78.3% to 85.0% across noisy conditions, but clean-
+source coverage was only 13.3% (76.7% accuracy among the few accepted clean examples).
+That is a weakness in the current rejection behavior; all per-SNR results and provenance
+hashes are in [`reports/channel-snr-multiseed-2026-10-21.json`](../reports/channel-snr-multiseed-2026-10-21.json).
+This sweep tests AWGN only, not fading, multipath or impulsive interference.
+
+To reproduce the SNR sweep, point both corpus builders at the same data directory so
+the split tool can verify the indexed captures:
+
+```sh
+export SIG_ID_DATA_DIR=/tmp/sig-id-channel-benchmark/data
+sig-id-build-corpus --output-dir /tmp/sig-id-channel-benchmark/known --data-dir "$SIG_ID_DATA_DIR" \
+  --examples-per-mode 12 --snr-db 0 3 6 10 20 --seed 20261021
+sig-id-build-ood-corpus --output-dir /tmp/sig-id-channel-benchmark/unknown --examples 30 --seed 1717
+sig-id-evaluate-split-seeds --corpus /tmp/sig-id-channel-benchmark/known/corpus.json \
+  --data-dir "$SIG_ID_DATA_DIR" --output-dir /tmp/sig-id-channel-benchmark/runs \
+  --seeds 11 23 37 51 79 --epochs 1200 \
+  --ood-corpus /tmp/sig-id-channel-benchmark/unknown/ood-corpus.json
+```
+
+Build independent synthetic OOK, 4-ASK and pulse-position sources with varied payload,
+baud rate, carrier, amplitude, phase and pulse width. This diverse corpus is separate
+from the six-class training index and is passed separately to the trainer above. Version
+0.2.0 remains available for exact regeneration of the historical ASK-only experiment.
+To build the diverse benchmark and re-run post-hoc scoring on an already trained model:
+
+```sh
+sig-id-build-ood-corpus --output-dir data/ood/unknown --examples 30 --seed 42
+sig-id-evaluate-ood --model data/models/method.npz data/ood/unknown/waveforms/*.wav \
+  --output data/ood/unknown/evaluation.json
+```
+
+The JSON report records per-waveform hashes and method/family false-accept rates. The
+standalone evaluator does not alter a model threshold; use `--ood-corpus` during
+training when unknown-family rejection should affect calibration. This measures only the supplied
+synthetic ASK and PPM conditions; it does not establish general unknown-mode or field
+performance.
+
+Replay it blockwise from Python with `sigid.wav.WavSource`; blocks carry exact sample
+offsets and normalized mono samples. This is a modulation fixture, not a named
+protocol waveform.
+
+## Data sources
+
+Generated waveforms, saved captures, and curated external reference examples will
+remain distinguishable in provenance and label confidence. See the dataset and
+Signal Identification Wiki guidance in [DESIGN.md](../DESIGN.md).
+
+Create a bounded metadata catalog from [Signal Identification Wiki](https://www.sigidwiki.com/wiki/Signal_Identification_Guide) pages without
+downloading their audio or images:
+
+```sh
+sig-id-import-sigidwiki --output data/references/sigidwiki.json --limit-per-category 25
+```
+
+The catalog preserves the page URL, revision, source-reported fields and media links.
+Wiki labels remain unreviewed references, not accepted training labels; media stays
+link-only until reuse rights are reviewed per asset. Use `--categories Signal` to
+catalog only identified entries, or add a different category explicitly.
+
+## Optional spectrogram CV detector
+
+The class-agnostic YOLO detector augments the existing classifier and manual
+selection flow. It proposes signal boxes on completed captures; review a box to
+use the normal selection, classification, and decoding workflow. Proposals do
+not identify a signal type by themselves. CV is disabled when no model path is
+configured, and the default Compose image omits the CV runtime dependencies.
+Dismissed proposals are remembered for that capture and model and can be restored
+from the review panel. A dismissal is review feedback only, not a no-signal label
+or training example. The complete dismissal/restoration event history can be
+downloaded from `/api/exports/cv-proposal-decisions.jsonl`; exported rows explicitly
+mark themselves as review feedback rather than training labels.
+
+For CPU inference, the CV-enabled image installs CPU-only PyTorch and the OpenCV
+runtime libraries. Build it and configure a trained model stored in the persistent
+`/data` volume:
+
+```sh
+SIG_ID_INSTALL_CV=1 SIG_ID_CV_MODEL_PATH=/data/cv/signal.pt docker compose up --build -d
+```
+
+To export reviewed windows and train inside the running container, provide fresh,
+complete detection coverage reviews and accepted signal-region annotations across
+at least seven independent capture/lineage groups. The exporter reserves at least
+three groups each for validation and test, leaving at least one training group.
+Coverage reviews expire after 90 days: due windows return to the local review queue
+and are excluded from CV export until they are reviewed again. Classify is the live
+listening workflow; saving a selection snapshots the current full 10-second live
+buffer as a local candidate, which must still receive full-window coverage review.
+
+The review dialog can also show and submit Hub extent reviews when the local workbench
+process has `SIG_ID_HUB_URL` and `SIG_ID_HUB_REVIEWER_TOKEN` configured. These values
+stay server-side. For example, point the local workbench at a loopback Hub using
+`SIG_ID_HUB_URL=http://127.0.0.1:8020` and a reviewer token from the Hub's `.env`.
+Hub extent reviews are separate from local dataset admission and do not create local
+training examples.
+In the Signals sidebar, use the CV scan and manual selection tools to save accepted
+boxes for every signal that should be labeled. Saved boxes are clipped into each
+overlapping training window during export. Then choose **Review all 10-second windows**
+in Advanced → Boxes. The queue steps through the capture's complete, non-overlapping
+10-second windows and opens a detection-coverage review for the full 0–3 kHz detector
+band. A shorter final remainder is skipped so every training example is exactly
+10 seconds. Complete synthetic windows with no accepted boxes are exported as
+negatives. A real negative is exported only from a saved 10-second review sample
+with fresh complete full-band coverage and no active annotations. Empty windows
+cut from longer real recordings are skipped; the saved review sample is the
+canonical source for real noise. Adding or changing boxes makes overlapping
+coverage reviews stale; restart the queue afterward so those windows are reviewed
+again. Only fresh complete reviews are exported. Export and train into `/data` so
+outputs survive container rebuilds:
+
+```sh
+docker compose exec workbench sig-id-export-cv-dataset --output /data/cv/dataset
+docker compose exec workbench sig-id-train-cv-detector --dataset /data/cv/dataset --output-model /data/cv/signal.pt
+```
+
+For a reproducible controlled-synthetic starting corpus, use a separate data
+directory. The standard corpus covers six FSK/PSK methods. The CV-only source
+builder adds deterministic OOK, 4-ASK, and PPM examples without adding those
+types to the application's known-modulation classifier classes. The scene builder
+places short portions of accepted synthetic signals at varied positions over
+independently generated 10-second noise backgrounds, sometimes with two signals
+in separate, non-overlapping time intervals. It records complete detection coverage from the validated
+synthetic component manifests and keeps each source lineage within one split:
+
+```sh
+sig-id-build-corpus --output-dir data/cv-seed/corpus --data-dir data/cv-seed/store --examples-per-mode 20 --snr-db --seed 4192026
+sig-id-build-cv-signal-corpus --output-dir data/cv-seed/cv-signals --data-dir data/cv-seed/store --examples-per-type 20 --seed 4192026
+uv run --extra api --extra cv sig-id-build-cv-scene-corpus --data-dir data/cv-seed/store --noise-data-dir ~/.local/share/sig-id --output-dir data/cv-seed/scenes --seed 4192026 --overlap-rate 0.25 --noise-only-examples 360
+sig-id-export-cv-dataset --data-dir data/cv-seed/store --output data/cv-seed/export --seed 4192026
+sig-id-train-cv-detector --dataset data/cv-seed/export --output-model data/cv-seed/signal.pt --epochs 100
+```
+
+The scene builder reports its scan, eligible signal/noise counts, and progress
+for each ten-second scene and requested noise-only window to stderr. Its final
+JSON summary is printed to stdout and stored in `cv-scenes.json`.
+
+These generated scenes broaden synthetic burst timing, overlap, and background
+coverage. By default, each scene uses five two-second slices from saved recordings
+that do not intersect active annotated boxes, resampled and stitched into a ten-second
+background. Use `--noise-data-dir` for the saved-recording database when it is separate
+from the synthetic corpus store, and include that same root with `--also-data-dir`
+during CV export (or set `SIGID_NOISE_DATA_DIR` for `scripts/train_all_models.sh`).
+Source capture IDs, hashes, and sample bounds are retained for provenance and split
+grouping. If the selected datasets have no eligible slices, the builder records
+an explicit fallback to seeded uniform noise. These scenes remain synthetic evidence
+and do not replace reviewed real recordings. `--noise-only-examples` optionally adds that many independent,
+manifest-backed 10-second uniform-noise windows as reviewed negatives; lineage
+splitting keeps each negative capture in one partition. Increase the count when
+you need more held-out negative audio to estimate false detections, and preserve
+the generated count and seeds with the dataset recipe.
+
+The exporter requires signal windows and completely reviewed no-signal windows in
+train, validation, and test splits. It fails when the reviewed data does not meet
+those requirements. After training, set `SIG_ID_CV_MODEL_PATH=/data/cv/signal.pt`
+for the service and recreate it so the detector loads the new artifact.
+
+Build the model-bound nearest-region index from the current accepted regions with
+`sig-id-build-cv-embedding-index --data-dir /data --model /data/cv/signal.pt --output /data/cv/regions.npz`, then configure `SIG_ID_CV_EMBEDDING_INDEX=/data/cv/regions.npz`. Rebuild it after retraining the detector; stale label or geometry revisions are skipped during retrieval, and older index formats need rebuilding.
+
+For AMD ROCm, use the supplied PyTorch ROCm image and device override. Set the
+video and render group IDs to the host values (inspect them with
+`getent group video render`), then build and start the service:
+
+```sh
+SIG_ID_ROCM_VIDEO_GID=44 SIG_ID_ROCM_RENDER_GID=110 SIG_ID_INSTALL_CV=1 SIG_ID_CV_MODEL_PATH=/data/cv/signal.pt docker compose -f compose.yaml -f compose.rocm.yaml up --build -d
+```
+
+Replace the example group IDs with the host values. The override passes `/dev/kfd`
+and `/dev/dri` through to the container. ROCm availability depends on a compatible
+host driver, GPU, and PyTorch ROCm image; successful startup alone does not verify
+GPU inference. `SIG_ID_INSTALL_CV=1` opts into installing Ultralytics and its image
+runtime dependencies in the ROCm image; with the setting omitted or `0`, the image
+keeps ROCm PyTorch but does not install the CV stack. Training can use the same
+Compose file pair when CV is enabled. Keep detector weights, exported datasets,
+and run artifacts in the persistent volume, not the image. See
+[`CV_FLOW_PLAN.md`](../CV_FLOW_PLAN.md) for architecture and validation limits.
