@@ -2349,7 +2349,7 @@ class CaptureStore:
                     output_scope, association, classifier_evidence_json, detector_evidence_json, created_utc, updated_utc)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '', ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (run_id, session_id, capture_id, region_id, track_id, sample_start, sample_count, sample_rate, carrier_hz,
-                 int(auto_identify),
+                 int(auto_identify) if auto_identify is not None else None,
                  modulation_hypothesis, backend, json.dumps(modes),
                  json.dumps(attempted_modes), current_mode, output_offset, status,
                  note, output_scope, association, json.dumps(classifier_evidence or {}, sort_keys=True),
