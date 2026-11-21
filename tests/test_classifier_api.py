@@ -121,6 +121,10 @@ def test_classifier_api_returns_proposals_without_saving_labels(tmp_path):
             assert proposal["novelty_rejected"] is False
             assert proposal["novelty_distance"] is not None
             assert proposal["protocol"] is None
+            assert proposal["ranked_candidates"][0]["mode_id"] == "2fsk"
+            assert proposal["dsp_evidence"]["source"] == "bounded_audio_roi"
+            assert proposal["dsp_evidence"]["available"] is True
+            assert proposal["decoder_shortlist"][0] == "RTTY"
             assert proposal["capture_sha256"] == uploaded.json()["sha256"]
             assert (await client.get(f"/api/captures/{capture_id}/regions")).json() == []
 
@@ -301,6 +305,8 @@ def test_live_candidate_gets_bounded_model_proposal_and_model_ranking(tmp_path, 
             assert proposal["sample_start"] == len(samples) - 2 * sample_rate
             assert proposal["sample_count"] == 2 * sample_rate
             assert proposal["model_sha256"] == app.state.classifier["metadata"]["model_sha256"]
+            assert proposal["dsp_evidence"]["available"] is True
+            assert proposal["decoder_shortlist"][0] == "RTTY"
             assert tracks[1]["model_proposal"]["available"] is False
             assert "less than 1024" in tracks[1]["model_proposal"]["reason"]
 
