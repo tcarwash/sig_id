@@ -1379,7 +1379,11 @@ function mergeLiveCvDetections(incoming) {
     match.frequency_low_hz = Math.min(match.frequency_low_hz, detection.frequency_low_hz);
     match.frequency_high_hz = Math.max(match.frequency_high_hz, detection.frequency_high_hz);
     match.confidence = Math.max(match.confidence || 0, detection.confidence || 0);
-    if (detection.track_id) {
+    if (detection.track_state === "historical") {
+      match.track_id = null;
+      match.track_state = "historical";
+      match.track_observations = 0;
+    } else if (detection.track_id) {
       match.track_id = detection.track_id;
       match.track_state = detection.track_state;
       match.track_observations = detection.track_observations;
@@ -3099,17 +3103,17 @@ el("live-start").addEventListener("click", async () => {
         }
         const showHeuristicTracks = useHeuristicTracks;
         state.tracks = showHeuristicTracks ? analysis.tracks : [];
-        state.liveTrackModeMessage = cvEnabled
-          ? (state.cvAvailable
-            ? "CV boxes are active above; heuristic track boxes are hidden. Turn CV off to inspect classifier-only track candidates."
-            : "CV is selected but unavailable. Turn CV off to inspect classifier-only track candidates.")
+        state.liveTrackModeMessage = preferCvTracks
+          ? "CV boxes are active above; heuristic tracks are hidden. Turn CV off to inspect them."
+          : cvEnabled && !state.cvAvailable && classifierEnabled
+            ? "CV is unavailable; showing heuristic track candidates instead."
+            : classifierEnabled
+              ? null
+              : "Candidate analysis is paused. Turn on CV signal boxes or classifier suggestions to show candidates.";
+        el("track-status").textContent = preferCvTracks
+          ? "CV detection mode · persistent CV boxes can enter evidence-guided decoder trials"
           : classifierEnabled
-            ? null
-            : "Candidate analysis is paused. Turn on CV signal boxes or classifier suggestions to show candidates.";
-        el("track-status").textContent = cvEnabled
-          ? "CV detection mode · classifier suggestions are attached to CV boxes when enabled"
-          : classifierEnabled
-            ? "Classifier-only mode · heuristic candidate bounds are provisional"
+            ? cvEnabled ? "CV unavailable · heuristic detector fallback" : "Classifier-only mode · heuristic bounds are provisional"
             : "Candidate analysis paused";
         drawWaterfall();
         renderTracks();
@@ -4435,7 +4439,7 @@ function drawOverlays() {
     const pendingMerge = pendingWindowMergeSources().proposals.has(detection.cv_proposal_id || detection.proposal_id);
     const candidate = state.selectionMergeRegions.some((item) => item.kind === "cv" && item.detection === detection);
     const excluded = candidate && state.excludedMergeCandidates.has(`cv:${detection.cv_proposal_id || detection.proposal_id}`);
-    ctx.strokeStyle = pendingMerge ? "#a18cb7" : "#bd8cff";
+    ctx.strokeStyle = pendingMerge ? "#a18cb7" : detection.track_state === "persistent" ? "#52d6d0" : "#bd8cff";
     if (candidate) ctx.strokeStyle = excluded ? "#727784" : "#ffe27a";
     ctx.lineWidth = candidate ? 3 : 2;
     ctx.globalAlpha = pendingMerge || excluded ? 0.45 : 1;
