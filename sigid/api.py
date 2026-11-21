@@ -54,6 +54,7 @@ from .cv_detector import (
 from .cv_embeddings import load_embedding_index, read_audio_range, region_image
 from .laya import LayaError, classify as classify_with_laya, configured as laya_configured, load_reference_examples
 from .demod import demodulate_2fsk, demodulate_bpsk, demodulate_mfsk, demodulate_ook, demodulate_qpsk
+from .identification import decoder_shortlist, measure_audio_evidence
 from .detection import detect_tracks
 from .fldigi import FldigiClient
 from .fldigi_backend import FldigiNativeBackend
@@ -127,9 +128,14 @@ def _classify_signal_crop(
             if metadata.get("feature_version") in ROI_FEATURE_VERSIONS else None
         ),
     )
+    proposal = propose_loaded(features, metadata, classifier["parameters"])
     return {
         "available": True,
-        **propose_loaded(features, metadata, classifier["parameters"]),
+        **proposal,
+        "dsp_evidence": measure_audio_evidence(
+            samples, sample_rate, frequency_low_hz, frequency_high_hz,
+        ),
+        "decoder_shortlist": decoder_shortlist(proposal),
     }
 
 
@@ -759,6 +765,7 @@ class NativeDecoderRequestBody(BaseModel):
 class FldigiTrackTrialRequest(BaseModel):
     track_id: str = Field(min_length=1, max_length=128)
     modulation_hypothesis: str = Field(default="unknown", max_length=80)
+    candidate_modes: list[str] = Field(default_factory=list, max_length=3)
     sample_start: int = Field(ge=0)
     sample_count: int = Field(gt=0, le=192_000 * 10)
     carrier_hz: float | None = Field(default=None, ge=0, le=20000)
@@ -1166,8 +1173,14 @@ def create_app(
             catalog = set(fldigi.mode_names())
         except Exception as exc:
             raise RuntimeError(f"Fldigi mode catalog unavailable: {exc}") from exc
-        proposed = MODULATION_TRIAL_ORDER.get(settings.modulation_hypothesis, VALIDATED_TRIAL_MODES)
-        modes = [mode for mode in proposed if mode in catalog]
+        proposed = settings.candidate_modes or MODULATION_TRIAL_ORDER.get(
+            settings.modulation_hypothesis, VALIDATED_TRIAL_MODES,
+        )
+        # Never let a classifier score bypass the proven automatic-trial catalog.
+        modes = [
+            mode for mode in dict.fromkeys(proposed)
+            if mode in VALIDATED_TRIAL_MODES and mode in catalog
+        ]
         if not modes:
             raise ValueError("no loopback-tested trial modes are present in the Fldigi catalog")
 
@@ -1814,6 +1827,14 @@ def create_app(
                             {key: result.get(key) for key in ("sample_start", "sample_count", "method", "method_id", "family", "confidence", "top_candidate", "novelty_rejected")}
                             for result in crop_results
                         ]
+                        evidence_crop = selected[
+                            crop_offsets[-1] : crop_offsets[-1] + target_count
+                        ]
+                        proposal["dsp_evidence"] = measure_audio_evidence(
+                            evidence_crop, sample_rate,
+                            track.get("frequency_low_hz"), track.get("frequency_high_hz"),
+                        )
+                        proposal["decoder_shortlist"] = decoder_shortlist(proposal)
                         track["model_proposal"] = {
                             "available": True,
                             **proposal,
@@ -1854,6 +1875,7 @@ def create_app(
                             FldigiTrackTrialRequest(
                             track_id=track["track_id"],
                                 modulation_hypothesis=hypothesis,
+                                candidate_modes=proposal.get("decoder_shortlist", []),
                                 sample_start=int(proposal.get("sample_start", track["sample_start"])),
                                 sample_count=int(proposal.get("sample_count", track["sample_count"])),
                                 carrier_hz=float(track["center_hz"]),
@@ -3324,6 +3346,12 @@ def create_app(
             for crop in crop_results
         ]
         result["consensus"] = bool(result.get("method") or result.get("family"))
+        evidence_offset = max(0, int(result.get("sample_start", sample_start)) - sample_start)
+        result["dsp_evidence"] = measure_audio_evidence(
+            selected_values[evidence_offset : evidence_offset + target_count],
+            sample_rate, frequency_low_hz, frequency_high_hz,
+        )
+        result["decoder_shortlist"] = decoder_shortlist(result)
         return {
             **result,
             "model_sha256": model["metadata"]["model_sha256"],
