@@ -325,7 +325,7 @@ def test_live_candidate_gets_bounded_model_proposal_and_model_ranking(tmp_path, 
             )
             result = response.json()
             assert result["tracks"][0]["track_state"] == "persistent"
-            assert result["automatic_trial"]["status"] == "running"
+            assert result["automatic_trial"]["status"] == "running", result["automatic_trial"]
             assert result["automatic_trial"]["trigger"] == "accepted_model_proposal"
             assert result["automatic_trial"]["current_mode"] == "RTTY"
             assert result["automatic_trial"]["output_scope"] == "isolated_live_mode_sweep"
