@@ -188,6 +188,15 @@ h3 {
 .toolbar-spacer {
   flex: 1;
 }
+.topbar-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.topbar-nav > button {
+  flex-shrink: 0;
+}
 #live-start,
 .primary {
   border-color: #3c9f88;
@@ -438,9 +447,26 @@ h3 {
   font-size: 22px;
 }
 .empty-state p {
-  max-width: 330px;
+  max-width: 430px;
   color: var(--muted);
   line-height: 1.7;
+}
+.empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  max-width: 490px;
+}
+.empty-actions button {
+  padding: 9px 12px;
+  font-size: 12px;
+}
+.empty-state .empty-model-readiness {
+  font-size: 11px;
+  color: #98b8b8;
+  max-width: 490px;
 }
 .empty-icon {
   font:
@@ -1412,16 +1438,25 @@ textarea {
     order: 2;
     flex: 1 1 100%;
   }
-  .topbar > :is(#open-recording, #show-signals, #show-library, #show-review-queue, #review-random-dataset, #show-settings) {
+  .transport > :is(#live-stop, #freeze-view):disabled {
+    display: none;
+  }
+  .topbar-nav {
     order: 3;
+    flex: 1 1 100%;
+    gap: 6px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+    padding-bottom: 3px;
+  }
+  .topbar-nav > button {
+    flex: 0 0 auto;
   }
   .app-shell {
     height: auto;
     flex: 1 1 auto;
     min-height: 0;
-  }
-  .topbar #open-recording {
-    margin-left: auto;
   }
   .inspector {
     position: absolute;
@@ -1456,7 +1491,14 @@ textarea {
     grid-template-columns: 1fr 1fr;
   }
   .empty-state {
-    padding: 20px;
+    padding: 16px;
+    gap: 12px;
+  }
+  .empty-actions {
+    max-width: 340px;
+  }
+  .empty-state h2 {
+    font-size: 19px;
   }
   .waterfall-layout {
     grid-template-columns: 38px minmax(0, 1fr);
