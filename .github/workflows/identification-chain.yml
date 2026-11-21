@@ -6,6 +6,7 @@ on:
       - "sigid/identification.py"
       - "sigid/classifier.py"
       - "sigid/api.py"
+      - "sigid/dataset.py"
       - "tests/test_identification.py"
       - "tests/test_classifier_api.py"
       - ".github/workflows/identification-chain.yml"
