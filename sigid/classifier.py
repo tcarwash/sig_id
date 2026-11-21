@@ -400,12 +400,21 @@ def load_model(path: str | Path) -> tuple[dict[str, Any], dict[str, np.ndarray]]
 def propose_loaded(features: np.ndarray, metadata: dict[str, Any], parameters: dict[str, Any]) -> dict[str, Any]:
     """Score with either the legacy flat model or the family/expert bundle."""
     if metadata.get("model_type") != "hierarchical_family_experts":
-        return propose(
+        result = propose(
             features, parameters, metadata["classes"],
             threshold=float(metadata["abstention_threshold"]),
             family_threshold=float(metadata["family_abstention_threshold"]),
             novelty_threshold=metadata.get("novelty_distance_threshold"),
         )
+        # Retain plausible alternatives even if the top class abstains.
+        probabilities = predict_probabilities(features, parameters)[0]
+        classes = metadata["classes"]
+        result["ranked_candidates"] = [
+            {"mode_id": classes[i], "family": FAMILY_BY_MODE.get(classes[i]),
+             "relative_model_score": float(probabilities[i])}
+            for i in np.argsort(-probabilities) if classes[i] != NOISE_CLASS
+        ][:6]
+        return result
     family_names = metadata["families"]
     family_probs = predict_probabilities(features, parameters["family"])[0]
     family_idx = int(np.argmax(family_probs))
@@ -429,6 +438,28 @@ def propose_loaded(features: np.ndarray, metadata: dict[str, Any], parameters: d
     protocol = mode_details.get("protocol")
     variant = mode_details.get("variant")
     candidate_path = f"{family} → {mode_name}"
+
+    # Score each family's expert, not only the winning family. Joint
+    # family/expert scores are ranking evidence, not calibrated probabilities
+    # of protocol identity, and must not bypass the abstention gates above.
+    ranked_candidates: list[dict[str, Any]] = []
+    for family_index, candidate_family in enumerate(family_names):
+        spec = metadata["mode_classes_by_family"].get(candidate_family, [])
+        if not spec:
+            continue
+        conditional = predict_probabilities(
+            features, parameters["experts"][candidate_family],
+        )[0]
+        for candidate_index, candidate_id in enumerate(spec):
+            ranked_candidates.append({
+                "mode_id": candidate_id,
+                "family": candidate_family,
+                "relative_model_score": float(family_probs[family_index] * conditional[candidate_index]),
+                "family_score": float(family_probs[family_index]),
+                "expert_score": float(conditional[candidate_index]),
+            })
+    ranked_candidates.sort(key=lambda item: (-item["relative_model_score"], item["mode_id"]))
+
     return {"method": METHOD_BY_MODE.get(mode_id) if accepted else None,
             "method_id": mode_id if accepted else None,
             "mode_name": mode_name if accepted else None,
@@ -444,4 +475,5 @@ def propose_loaded(features: np.ndarray, metadata: dict[str, Any], parameters: d
             "variant": variant if accepted else None,
             "top_candidate": candidate_path, "noise_detected": False, "confidence": confidence,
             "threshold": threshold, "abstained": not accepted,
+            "ranked_candidates": ranked_candidates[:6],
             "evidence": "hierarchical classifier proposal; low certainty"}
