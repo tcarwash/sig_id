@@ -353,7 +353,7 @@ def test_live_cv_boxes_persist_and_enter_evidence_guided_receive_only_trials(tmp
     )
     sample_rate = 12_000
     path = tmp_path / "signal.wav"
-    generate_bpsk_wav(path, "00110101" * 32, sample_rate=sample_rate)
+    generate_bpsk_wav(path, "00110101" * 128, sample_rate=sample_rate)
     with wave.open(str(path), "rb") as audio:
         samples = np.frombuffer(audio.readframes(audio.getnframes()), dtype="<i2")
     assert len(samples) > sample_rate * 6
