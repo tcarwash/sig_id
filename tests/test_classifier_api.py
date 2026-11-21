@@ -340,3 +340,164 @@ def test_live_candidate_gets_bounded_model_proposal_and_model_ranking(tmp_path, 
             assert replay.modes == ["RTTY", "THOR16", "BPSK31"]
 
     asyncio.run(exercise())
+
+
+
+def test_live_cv_boxes_persist_and_enter_evidence_guided_receive_only_trials(tmp_path, monkeypatch):
+    model_path = tmp_path / "cv-method.npz"
+    make_model(model_path)
+    replay = FakeReplayBackend()
+    app = create_app(
+        tmp_path / "data", classifier_model_path=model_path,
+        fldigi_client=FakeReceiveBackend(), fldigi_replay_backend=replay,
+    )
+    sample_rate = 12_000
+    path = tmp_path / "signal.wav"
+    generate_bpsk_wav(path, "00110101" * 32, sample_rate=sample_rate)
+    with wave.open(str(path), "rb") as audio:
+        samples = np.frombuffer(audio.readframes(audio.getnframes()), dtype="<i2")
+    assert len(samples) > sample_rate * 6
+
+    class FakeCvDetector:
+        model_sha256 = "a" * 64
+        model_version = "sha256:" + model_sha256
+
+        def detect_live_partial(self, audio, *, sample_start, total_sample_count,
+                                sample_rate, confidence=None):
+            assert total_sample_count == len(audio)
+            return [{
+                "sample_start": total_sample_count - 2 * sample_rate,
+                "sample_count": 2 * sample_rate,
+                "frequency_low_hz": 1300.0,
+                "frequency_high_hz": 1700.0,
+                "model_sha256": self.model_sha256,
+                "model_version": self.model_version,
+                "confidence": 0.96,
+                "preprocessing_version": "test-preprocessing",
+            }]
+
+    app.state.cv_detector = FakeCvDetector()
+    first_count = 5 * sample_rate
+    snapshot = {
+        "pcm": samples[:first_count].tobytes(), "sample_rate": sample_rate,
+        "channels": 1, "sample_offset": 0, "sample_count": first_count,
+        "window_sample_count": first_count, "session_id": "cv-session", "active": True,
+    }
+    app.state.live_capture.analysis_audio = lambda: snapshot
+    monkeypatch.setattr(app.state.live_capture, "status", lambda: {
+        "active": True, "session_id": "cv-session",
+    })
+
+    async def exercise():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test",
+        ) as client:
+            first = await client.get("/api/live/cv-detections", params={
+                "session_id": "cv-session", "auto_trial": True,
+            })
+            assert first.status_code == 200, first.text
+            one = first.json()
+            assert one["automatic_trial"] is None
+            [first_box] = one["detections"]
+            assert first_box["track_id"].startswith("cv-session:cv:")
+            assert first_box["track_state"] == "provisional"
+            assert first_box["classifier_proposal"]["available"] is True
+            assert first_box["classifier_proposal"]["dsp_evidence"]["available"] is True
+            assert first_box["classifier_proposal"]["decoder_shortlist"][0] == "RTTY"
+
+            # A second independent sample position confirms the same CV
+            # region, without touching the heuristic track registry.
+            second_count = first_count + sample_rate // 2
+            snapshot.update({
+                "pcm": samples[:second_count].tobytes(),
+                "sample_count": second_count, "window_sample_count": second_count,
+            })
+            second = await client.get("/api/live/cv-detections", params={
+                "session_id": "cv-session", "auto_trial": True,
+            })
+            assert second.status_code == 200, second.text
+            two = second.json()
+            [second_box] = two["detections"]
+            assert second_box["track_id"] == first_box["track_id"]
+            assert second_box["track_state"] == "persistent"
+            trial = two["automatic_trial"]
+            assert trial["trigger"] == "accepted_cv_model_proposal"
+            assert trial["track_id"] == first_box["track_id"]
+            assert trial["modes"] == ["RTTY", "THOR16", "BPSK31"]
+            assert second_box["decoder_trial"]["run_id"] == trial["run_id"]
+
+            # Replaying the same frame cannot trigger another automatic trial.
+            repeated = await client.get("/api/live/cv-detections", params={
+                "session_id": "cv-session", "auto_trial": True,
+            })
+            assert repeated.status_code == 200, repeated.text
+            assert repeated.json()["automatic_trial"] is None
+            assert repeated.json()["detections"][0]["track_observations"] == 2
+            runs = app.state.capture_store.decoder_runs(session_id="cv-session")
+            assert len(runs) == 1
+            assert runs[0]["detector_evidence"]["source"] == "live_cv"
+            assert runs[0]["detector_evidence"]["model_sha256"] == "a" * 64
+            assert runs[0]["classifier_evidence"]["source"] == "live_cv_classifier"
+            assert runs[0]["classifier_evidence"]["ranked_candidates"]
+            assert runs[0]["association"] == "exact_live_track_window"
+
+            # Detection remains useful when the model is disabled.
+            app.state.classifier = None
+            without_model = await client.get("/api/live/cv-detections", params={
+                "session_id": "cv-session", "auto_trial": True,
+            })
+            assert without_model.status_code == 200
+            assert without_model.json()["automatic_trial"] is None
+            assert without_model.json()["detections"][0]["track_id"] == first_box["track_id"]
+
+    asyncio.run(exercise())
+
+
+def test_live_cv_model_abstention_prevents_auto_trial(tmp_path, monkeypatch):
+    model_path = tmp_path / "method.npz"
+    make_model(model_path)
+    app = create_app(tmp_path / "data", classifier_model_path=model_path)
+    # This tests the gate without loading Ultralytics or accessing radio hardware.
+    app.state.classifier["metadata"]["abstention_threshold"] = 1.0
+    class FakeCv:
+        model_sha256 = "b" * 64
+        def detect_live_partial(self, audio, *, sample_start, total_sample_count,
+                                sample_rate, confidence=None):
+            return [{
+                "sample_start": 0, "sample_count": len(audio),
+                "frequency_low_hz": 950.0, "frequency_high_hz": 1200.0,
+                "confidence": 0.9,
+            }]
+    app.state.cv_detector = FakeCv()
+    t = np.arange(24_000) / 12_000
+    audio = (np.sin(2 * np.pi * 1050 * t) * 10000).astype("<i2")
+    snapshot = {
+        "pcm": audio.tobytes(), "sample_rate": 12_000, "channels": 1,
+        "sample_offset": 0, "sample_count": len(audio),
+        "window_sample_count": len(audio), "session_id": "cv-abstain", "active": True,
+    }
+    app.state.live_capture.analysis_audio = lambda: snapshot
+    monkeypatch.setattr(app.state.live_capture, "status", lambda: {
+        "active": True, "session_id": "cv-abstain",
+    })
+
+    async def exercise():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test",
+        ) as client:
+            first = await client.get("/api/live/cv-detections", params={
+                "session_id": "cv-abstain", "auto_trial": True,
+            })
+            assert first.status_code == 200
+            assert first.json()["automatic_trial"] is None
+            snapshot["sample_count"] += 1
+            second = await client.get("/api/live/cv-detections", params={
+                "session_id": "cv-abstain", "auto_trial": True,
+            })
+            assert second.status_code == 200
+            assert second.json()["detections"][0]["track_state"] == "persistent"
+            assert second.json()["detections"][0]["classifier_proposal"]["abstained"] is True
+            assert second.json()["automatic_trial"] is None
+            assert app.state.capture_store.decoder_runs(session_id="cv-abstain") == []
+
+    asyncio.run(exercise())
