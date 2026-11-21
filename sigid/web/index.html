@@ -34,6 +34,7 @@
         <button id="return-to-live" type="button">Return to live selection</button>
       </div>
       <div class="toolbar-spacer"></div>
+      <nav class="topbar-nav" aria-label="Workspace navigation">
       <button id="open-recording" type="button">Open recording</button
       ><button id="show-signals" type="button">Signals</button>
       <button id="show-field-guide" type="button">Field guide</button>
@@ -41,17 +42,24 @@
       ><button id="show-review-queue" type="button">Review queue <span id="review-queue-badge" class="count-badge" hidden>0</span></button
       ><button id="review-random-dataset" type="button">Review random from dataset</button
       ><button id="show-settings" type="button">Settings</button>
+      </nav>
     </header>
     <main class="app-shell">
       <div class="receive-layout">
         <div class="waterfall-stage">
           <section id="empty-state" class="empty-state">
             <div class="empty-icon">∿</div>
-            <h2>Start with a recording</h2>
+            <h2>Find signals live or open a recording</h2>
             <p>
-              Upload a PCM WAV passband recording to see its time and
-              audio-frequency spectrum.
+              Choose your radio's audio input, then start live capture to watch the waterfall.
+              Or open a WAV recording to inspect signals you've already heard.
             </p>
+            <div class="empty-actions" aria-label="Get started">
+              <button id="empty-settings" type="button">1. Choose audio input</button>
+              <button id="empty-live-start" class="primary" type="button">2. Start live capture</button>
+              <button id="empty-open-recording" type="button">Open a recording instead</button>
+            </div>
+            <p id="empty-model-readiness" class="empty-model-readiness" role="status">Checking CV detector and classifier…</p>
           </section>
           <section id="workspace" class="workspace hidden">
             <div class="panel spectrum-panel">
@@ -1072,6 +1080,7 @@ Decoded text will appear here.</pre>
       </header>
       <section class="panel">
         <h3>Audio input</h3>
+        <p class="subhead">Select your radio's USB audio interface, not the computer microphone. “Default input” may change when devices are reconnected.</p>
         <div class="live-controls">
           <label
             >Audio input<select id="audio-device">
