@@ -3375,6 +3375,10 @@ def create_app(
 
     @app.post("/api/captures/{capture_id}/classify")
     def classify_capture_region(capture_id: str, settings: ClassifyRequest) -> dict[str, Any]:
+        # Report a missing optional classifier even if the requested capture is
+        # unknown: callers can still use detection and manual annotation.
+        if app.state.classifier is None:
+            raise HTTPException(status_code=503, detail="no valid modulation model is configured")
         try:
             capture = store.capture(capture_id)
         except KeyError as exc:
