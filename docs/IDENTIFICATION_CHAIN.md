@@ -47,7 +47,7 @@ model is unavailable.
 ## Tests and next gates
 
 \`\`\`bash
-python -m pytest -q tests/test_identification.py tests/test_classifier_api.py
+python -m pytest -q tests/test_identification.py tests/test_classifier_api.py tests/test_tracking.py tests/test_api.py
 \`\`\`
 
 Before widening automatic identification, benchmark the whole chain on
@@ -59,7 +59,8 @@ cannot establish independent on-air accuracy.
 
 Next engineering slices:
 
-- Link CV box identities to the persistent live track/replay lifecycle.
+- Improve CV track association for simultaneous same-frequency bursts and
+  interrupted receptions; benchmark real on-air tracking failure cases.
 - Aggregate ranked model alternatives across multiple independent crops,
   with uncertainty rather than committing to one cropped sample.
 - Add independently measured audio symbol-clock and cadence features,
