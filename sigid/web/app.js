@@ -526,7 +526,7 @@ async function refreshFldigiStatus() {
     const label = el("fldigi-status");
     if (!status.connected) {
       label.textContent = `Fldigi disconnected · ${status.error || "start Fldigi with its XML-RPC server enabled"}`;
-      el("connection").lastChild.textContent = " Decoder offline";
+      el("connection").lastChild.textContent = " Fldigi offline";
       el("fldigi-mode").disabled = true;
       state.fldigiModes = [];
       el("fldigi-select").disabled = true;
@@ -1092,10 +1092,20 @@ async function watchFldigi() {
 }
 watchFldigi();
 
+function updateEmptyModelReadiness() {
+  const cv = state.cvAvailable === true
+    ? "CV detector ready" : state.cvAvailable === false ? "CV detector unavailable" : "Checking CV detector";
+  const model = state.modelAvailable === true
+    ? "Classifier ready" : state.modelAvailable === false ? "Classifier unavailable" : "Checking classifier";
+  el("empty-model-readiness").textContent = `${cv} · ${model} · identifications remain tentative`;
+}
+updateEmptyModelReadiness();
+
 async function refreshModelStatus() {
   try {
     const model = await request("/api/model/status");
     state.modelAvailable = model.available;
+    updateEmptyModelReadiness();
     el("auto-trial").disabled = !model.available;
     const unknownStatus = model.unknown_rejection_validated
       ? ` · held-out ${model.unknown_rejection_scope} rejection`
@@ -1117,6 +1127,8 @@ async function refreshModelStatus() {
     updateTrainingButton();
     renderBatchBoxes();
   } catch (error) {
+    state.modelAvailable = false;
+    updateEmptyModelReadiness();
     el("auto-trial").disabled = true;
     el("model-status").textContent = `Model status unavailable · ${error.message}`;
   }
@@ -1127,6 +1139,7 @@ async function refreshCvStatus() {
   try {
     const status = await request("/api/cv/status");
     state.cvAvailable = Boolean(status.available);
+    updateEmptyModelReadiness();
     state.cvSimilarAvailable = Boolean(status.similarity_search_available);
     state.cvReviewWindowSeconds = status.window_seconds;
     state.cvReviewMinSamples = status.fft_size;
@@ -1161,6 +1174,7 @@ async function refreshCvStatus() {
     updateCvSimilarButton();
   } catch (error) {
     state.cvAvailable = false;
+    updateEmptyModelReadiness();
     state.cvSimilarAvailable = false;
     el("cv-status").textContent = `CV status unavailable · ${error.message}`;
     el("cv-model-details").textContent = "Detector information is unavailable.";
@@ -7781,6 +7795,9 @@ for (const button of document.querySelectorAll("[data-close-dialog]")) button.ad
 el("show-signals").addEventListener("click", () => openInspector("signals"));
 el("close-inspector").addEventListener("click", () => el("inspector").classList.add("hidden"));
 el("show-settings").addEventListener("click", () => el("settings-dialog").showModal());
+el("empty-settings").addEventListener("click", () => el("show-settings").click());
+el("empty-live-start").addEventListener("click", () => el("live-start").click());
+el("empty-open-recording").addEventListener("click", () => el("open-recording").click());
 for (const id of ["show-library", "open-recording"]) el(id).addEventListener("click", () => { refreshLibrary(); el("library-dialog").showModal(); });
 el("show-review-queue").addEventListener("click", () => { refreshLiveReviewQueue(); el("review-queue-dialog").showModal(); });
 el("review-random-dataset").addEventListener("click", reviewRandomDatasetWindow);
@@ -8320,6 +8337,12 @@ el("toggle-output").addEventListener("click", () => {
     setOutputDockHeight(lastExpandedOutputHeight);
   }
 });
+if (window.matchMedia("(max-width: 650px)").matches
+    && !el("empty-state").classList.contains("hidden")) {
+  // Give the waterfall and first-run actions room on narrow screens.
+  // Output will expand on demand when a decode is opened.
+  el("toggle-output").click();
+}
 {
   const handle = el("output-resize");
   let dragStart = null;
