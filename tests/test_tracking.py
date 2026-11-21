@@ -47,3 +47,41 @@ def test_live_registry_separates_tracks_expires_stale_and_caps_count():
         [candidate(1010)], sample_position=5000, sample_rate=1000
     )
     assert after_expiry[0]["track_id"] != moved[0]["track_id"]
+
+
+def test_cv_registry_has_separate_ids_and_requires_fresh_observations():
+    registry = LiveTrackRegistry(
+        "session-c", namespace="cv", confirmation_observations=2,
+        match_temporal_regions=True, expiry_seconds=3,
+    )
+    burst = {
+        **candidate(1500.0), "sample_start": 1000, "sample_count": 1000,
+    }
+    first = registry.update([burst], sample_position=2000, sample_rate=1000)
+    same_sample = registry.update([burst], sample_position=2000, sample_rate=1000)
+    confirmed = registry.update([burst], sample_position=2500, sample_rate=1000)
+    assert first[0]["track_id"] == same_sample[0]["track_id"] == confirmed[0]["track_id"]
+    assert first[0]["track_id"].startswith("session-c:cv:")
+    assert same_sample[0]["track_observations"] == 1
+    assert confirmed[0]["track_state"] == "persistent"
+
+    # A historical box remains visible, but does not restart a live track.
+    stale = registry.update([burst], sample_position=6000, sample_rate=1000)
+    assert stale[0]["track_state"] == "historical"
+    assert stale[0]["track_id"] is None
+
+
+def test_cv_registry_does_not_merge_disjoint_temporal_bursts():
+    registry = LiveTrackRegistry(
+        "session-d", namespace="cv", confirmation_observations=2,
+        match_temporal_regions=True, expiry_seconds=8,
+    )
+    first = registry.update(
+        [{**candidate(1000), "sample_start": 1000, "sample_count": 1000}],
+        sample_position=2500, sample_rate=1000,
+    )
+    second = registry.update(
+        [{**candidate(1010), "sample_start": 4200, "sample_count": 1000}],
+        sample_position=5200, sample_rate=1000,
+    )
+    assert first[0]["track_id"] != second[0]["track_id"]
