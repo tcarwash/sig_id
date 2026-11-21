@@ -983,6 +983,7 @@ def create_app(
     app.state.band_hop_lock = Lock()
     app.state.laya_references = load_reference_examples()
     app.state.live_track_registry = None
+    app.state.live_cv_track_registry = None
     app.state.fldigi_trials = FldigiTrialRunner(fldigi, run_store=store)
 
     def run_region_replay(
@@ -1155,6 +1156,8 @@ def create_app(
 
     def queue_live_mode_sweep(
         session_id: str, settings: FldigiTrackTrialRequest,
+        *, classifier_evidence: dict[str, Any] | None = None,
+        detector_evidence: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         status = live_capture.status()
         if not status.get("active") or status.get("session_id") != session_id:
@@ -1215,6 +1218,7 @@ def create_app(
                 note="Waiting to run the bounded isolated tested-mode sweep on this live track window.",
                 carrier_hz=settings.carrier_hz,
                 output_scope="isolated_live_mode_sweep", association="exact_live_track_window",
+                classifier_evidence=classifier_evidence, detector_evidence=detector_evidence,
             )
             decode_executor.submit(
                 run_live_mode_sweep, run_id, samples, int(snapshot["sample_rate"]), settings, modes,
@@ -1599,6 +1603,7 @@ def create_app(
         session_id: str = Query(min_length=1, max_length=128),
         confidence: float | None = Query(default=None, ge=0.0, le=1.0),
         include_classifier: bool = Query(default=True),
+        auto_trial: bool = Query(default=False),
     ) -> dict[str, Any]:
         detector = app.state.cv_detector
         if detector is None:
@@ -1620,6 +1625,29 @@ def create_app(
         except Exception as exc:
             logging.getLogger(__name__).exception("Live CV detection failed")
             raise HTTPException(status_code=503, detail=f"live CV detection failed: {exc}") from exc
+        # Keep the CV track registry separate from the heuristic track
+        # registry: the two detectors can be polled at different rates and
+        # must not reset each other's persistence or share track IDs.
+        registry = app.state.live_cv_track_registry
+        if registry is None or registry.session_id != session_id:
+            registry = LiveTrackRegistry(
+                session_id, namespace="cv", confirmation_observations=2,
+                match_temporal_regions=True,
+            )
+            app.state.live_cv_track_registry = registry
+        detections = registry.update(
+            [
+                {
+                    **detection,
+                    "center_hz": (float(detection["frequency_low_hz"]) + float(detection["frequency_high_hz"])) / 2,
+                    "bandwidth_hz": float(detection["frequency_high_hz"]) - float(detection["frequency_low_hz"]),
+                    "detector_source": "cv",
+                }
+                for detection in detections
+            ],
+            sample_position=int(snapshot["sample_count"]),
+            sample_rate=int(snapshot["sample_rate"]),
+        )
         classifier = app.state.classifier
         classifier_available = classifier is not None
         if classifier is not None and include_classifier:
@@ -1663,6 +1691,84 @@ def create_app(
                 except Exception as exc:
                     logging.getLogger(__name__).exception("Live CV classifier proposal failed")
                     detection["classifier_proposal"] = {"available": False, "reason": str(exc)}
+        automatic_trial = None
+        if auto_trial and include_classifier and classifier is not None:
+            # Model acceptance is a gate, not proof. Try at most one persistent
+            # CV track per request; the queue enforces per-session/rate limits
+            # and prevents repeat sweeps for a given track ID.
+            ranked = sorted(
+                detections,
+                key=lambda item: (
+                    float(item.get("classifier_proposal", {}).get("confidence", 0)),
+                    float(item.get("confidence", 0)),
+                ),
+                reverse=True,
+            )
+            for detection in ranked:
+                proposal = detection.get("classifier_proposal", {})
+                if (
+                    detection.get("track_state") != "persistent"
+                    or not detection.get("track_id")
+                    or not proposal.get("available")
+                    or proposal.get("abstained")
+                    or not proposal.get("method")
+                    or not proposal.get("family")
+                ):
+                    continue
+                family = str(proposal["family"])
+                hypothesis = {
+                    "FSK": "FSK-like", "MFSK": "MFSK-like",
+                    "PSK": "single-tone / unknown",
+                }.get(family, family)
+                try:
+                    automatic_trial = queue_live_mode_sweep(
+                        session_id,
+                        FldigiTrackTrialRequest(
+                            track_id=detection["track_id"],
+                            modulation_hypothesis=hypothesis,
+                            candidate_modes=proposal.get("decoder_shortlist", []),
+                            sample_start=int(proposal["sample_start"]),
+                            sample_count=int(proposal["sample_count"]),
+                            carrier_hz=float(detection["center_hz"]),
+                        ),
+                        classifier_evidence={
+                            "source": "live_cv_classifier",
+                            "model_sha256": classifier["metadata"]["model_sha256"],
+                            "ranked_candidates": proposal.get("ranked_candidates", []),
+                            "family": family,
+                            "method_id": proposal.get("method_id"),
+                            "confidence": proposal.get("confidence"),
+                            "dsp_evidence": proposal.get("dsp_evidence"),
+                        },
+                        detector_evidence={
+                            "source": "live_cv",
+                            "model_sha256": detection.get("model_sha256"),
+                            "model_version": detection.get("model_version"),
+                            "confidence": detection.get("confidence"),
+                            "sample_start": detection["sample_start"],
+                            "sample_count": detection["sample_count"],
+                            "frequency_low_hz": detection["frequency_low_hz"],
+                            "frequency_high_hz": detection["frequency_high_hz"],
+                            "track_id": detection["track_id"],
+                        },
+                    )
+                    automatic_trial["trigger"] = "accepted_cv_model_proposal"
+                    detection["decoder_trial"] = {
+                        "status": automatic_trial["status"],
+                        "mode": automatic_trial["current_mode"],
+                        "run_id": automatic_trial["run_id"],
+                    }
+                except ValueError as exc:
+                    reason = str(exc)
+                    if "already had" in reason:
+                        continue
+                    if "already running" in reason:
+                        break
+                    automatic_trial = {"status": "not_started", "reason": reason}
+                except Exception as exc:
+                    logging.getLogger(__name__).exception("Live CV decoder trial failed to start")
+                    automatic_trial = {"status": "failed", "reason": str(exc)}
+                break
         return {
             "session_id": session_id, "warming_up": False,
             "observed_seconds": len(mono) / snapshot["sample_rate"],
@@ -1672,6 +1778,7 @@ def create_app(
             "classifier_available": classifier_available,
             "classifier_scoring": classifier is not None and include_classifier,
             "detections": detections,
+            "automatic_trial": automatic_trial,
         }
 
     @app.get("/api/live/analysis")
@@ -2096,6 +2203,10 @@ def create_app(
                 started["band_hop_count"] = len(frequencies)
                 started["band_hop_dwell_seconds"] = dwell
             app.state.live_track_registry = LiveTrackRegistry(started["session_id"])
+            app.state.live_cv_track_registry = LiveTrackRegistry(
+                started["session_id"], namespace="cv",
+                confirmation_observations=2, match_temporal_regions=True,
+            )
             return started
         except HTTPException:
             raise
