@@ -6,9 +6,12 @@ on:
       - "sigid/identification.py"
       - "sigid/classifier.py"
       - "sigid/api.py"
+      - "sigid/tracking.py"
+      - "sigid/web/app.js"
       - "sigid/dataset.py"
       - "tests/test_identification.py"
       - "tests/test_classifier_api.py"
+      - "tests/test_tracking.py"
       - ".github/workflows/identification-chain.yml"
   push:
     branches:
@@ -26,4 +29,6 @@ jobs:
       - name: Install test dependencies
         run: python -m pip install -e ".[dev,api]"
       - name: Test evidence and existing classifier flows
-        run: python -m pytest -q tests/test_identification.py tests/test_classifier_api.py
+        run: python -m pytest -q tests/test_identification.py tests/test_classifier_api.py tests/test_tracking.py tests/test_api.py
+      - name: Check live browser JavaScript syntax
+        run: node --input-type=module --check < sigid/web/app.js
