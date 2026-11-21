@@ -753,17 +753,20 @@ function watchDecoderTrial(result) {
 
 async function startDecoderTrial(track) {
   if (!track.track_id || !state.liveView) return;
+  const proposal = track.classifier_proposal || track.model_proposal;
+  const selected = proposal?.available ? proposal : null;
   try {
     const result = await request(`/api/live/sessions/${encodeURIComponent(state.liveSessionId)}/decode-trials`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         track_id: track.track_id,
-        carrier_hz: track.center_hz,
-        sample_start: track.sample_start,
-        sample_count: track.sample_count,
-        modulation_hypothesis: track.model_proposal?.available && !track.model_proposal.abstained
-          ? track.model_proposal.family
-          : track.modulation_hypothesis,
+        carrier_hz: track.center_hz ?? (track.frequency_low_hz + track.frequency_high_hz) / 2,
+        sample_start: selected?.sample_start ?? track.sample_start,
+        sample_count: selected?.sample_count ?? track.sample_count,
+        candidate_modes: selected?.decoder_shortlist || [],
+        modulation_hypothesis: selected?.available && !selected.abstained
+          ? selected.family
+          : track.modulation_hypothesis || "unknown",
       }),
     });
     watchDecoderTrial(result);
@@ -1349,7 +1352,11 @@ function mergeLiveCvDetections(incoming) {
   };
   for (const detection of incoming || []) {
     const detectionEnd = detection.sample_start + detection.sample_count;
-    const match = retained.find((existing) => {
+    const knownTrack = detection.track_id
+      ? retained.find((existing) => existing.track_id === detection.track_id)
+      : null;
+    const match = knownTrack || retained.find((existing) => {
+      if (existing.track_id && detection.track_id && existing.track_id !== detection.track_id) return false;
       const existingEnd = existing.sample_start + existing.sample_count;
       const timeOverlap = overlapFraction(existing.sample_start, existingEnd,
         detection.sample_start, detectionEnd) >= minimumOverlap;
@@ -1372,6 +1379,12 @@ function mergeLiveCvDetections(incoming) {
     match.frequency_low_hz = Math.min(match.frequency_low_hz, detection.frequency_low_hz);
     match.frequency_high_hz = Math.max(match.frequency_high_hz, detection.frequency_high_hz);
     match.confidence = Math.max(match.confidence || 0, detection.confidence || 0);
+    if (detection.track_id) {
+      match.track_id = detection.track_id;
+      match.track_state = detection.track_state;
+      match.track_observations = detection.track_observations;
+    }
+    if (detection.decoder_trial) match.decoder_trial = detection.decoder_trial;
     if (detection.classifier_proposal?.available
       && (!match.classifier_proposal?.available
         || (detection.classifier_proposal.confidence || 0) > (match.classifier_proposal.confidence || 0))) {
@@ -1475,8 +1488,19 @@ function renderCvDetections() {
     adjust.disabled = pendingMerge;
     reject.disabled = pendingMerge;
     if (state.liveView) {
-      summary.textContent = `Live CV box ${index + 1} · ${(detection.confidence * 100).toFixed(1)}% detector score · ${cvClassifierCaption(detection)} · provisional`;
+      const tracker = detection.track_id
+        ? `CV track ${detection.track_id.split(":").at(-1)} · ${detection.track_state} (${detection.track_observations} observations)`
+        : `CV box ${index + 1} · ${detection.track_state || "provisional"}`;
+      const trial = detection.decoder_trial?.status ? ` · decoder ${detection.decoder_trial.status}` : "";
+      summary.textContent = `${tracker} · ${(detection.confidence * 100).toFixed(1)}% detector · ${cvClassifierCaption(detection)}${trial}`;
       row.append(summary, detail);
+      if (detection.track_id && detection.track_state === "persistent") {
+        const tryButton = document.createElement("button");
+        tryButton.type = "button";
+        tryButton.textContent = "Try tested modes";
+        tryButton.addEventListener("click", () => startDecoderTrial(detection));
+        row.append(tryButton);
+      }
     } else {
       row.append(summary, detail, button, adjust, reject);
     }
@@ -3027,7 +3051,8 @@ el("live-start").addEventListener("click", async () => {
         const cvEnabled = el("live-cv-enabled").checked;
         const classifierEnabled = el("live-classifier-enabled").checked;
         const autoTrial = el("auto-trial").checked && classifierEnabled;
-        const useHeuristicTracks = classifierEnabled && (!cvEnabled || autoTrial);
+        const preferCvTracks = cvEnabled && state.cvAvailable;
+        const useHeuristicTracks = classifierEnabled && !preferCvTracks;
         const classifierCropCount = Number(el("classifier-crop-count").value) || 1;
         const analysis = await request(`/api/live/analysis?fft_size=4096&hop_size=512&max_rows=640&include_spectrum=false&classifier_crop_count=${classifierCropCount}&include_tracks=${useHeuristicTracks}&include_classifier=${useHeuristicTracks}&auto_trial=${autoTrial && useHeuristicTracks}`);
         if (generation !== state.liveGeneration || !state.liveMonitoring) return;
@@ -3039,9 +3064,10 @@ el("live-start").addEventListener("click", async () => {
         if (cvEnabled && state.cvAvailable && Date.now() - lastLiveCvAt >= 2500) {
           lastLiveCvAt = Date.now();
           try {
-            const cv = await request(`/api/live/cv-detections?session_id=${encodeURIComponent(started.session_id)}&include_classifier=${classifierEnabled}`);
+            const cv = await request(`/api/live/cv-detections?session_id=${encodeURIComponent(started.session_id)}&include_classifier=${classifierEnabled}&auto_trial=${autoTrial}`);
             if (generation === state.liveGeneration && state.liveView) {
               mergeLiveCvDetections(cv.detections);
+              if (cv.automatic_trial?.run_id) watchDecoderTrial(cv.automatic_trial);
               if (!classifierEnabled) {
                 for (const detection of state.cvDetections) delete detection.classifier_proposal;
               }
@@ -3071,7 +3097,7 @@ el("live-start").addEventListener("click", async () => {
           el("waterfall-state").textContent = `Collecting analysis window · ${analysis.window_sample_count.toLocaleString()} samples`;
           return;
         }
-        const showHeuristicTracks = !cvEnabled && classifierEnabled;
+        const showHeuristicTracks = useHeuristicTracks;
         state.tracks = showHeuristicTracks ? analysis.tracks : [];
         state.liveTrackModeMessage = cvEnabled
           ? (state.cvAvailable
