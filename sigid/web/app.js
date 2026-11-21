@@ -8337,12 +8337,16 @@ el("toggle-output").addEventListener("click", () => {
     setOutputDockHeight(lastExpandedOutputHeight);
   }
 });
-if (window.matchMedia("(max-width: 650px)").matches
-    && !el("empty-state").classList.contains("hidden")) {
-  // Give the waterfall and first-run actions room on narrow screens.
-  // Output will expand on demand when a decode is opened.
-  el("toggle-output").click();
+function collapseIdleMobileOutput() {
+  if (window.matchMedia("(max-width: 650px)").matches
+      && !el("empty-state").classList.contains("hidden")
+      && !el("output-dock").classList.contains("collapsed")) {
+    // Do not let the idle text pane occupy scarce space before a signal exists.
+    el("toggle-output").click();
+  }
 }
+collapseIdleMobileOutput();
+window.addEventListener("load", collapseIdleMobileOutput);
 {
   const handle = el("output-resize");
   let dragStart = null;
