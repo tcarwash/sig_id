@@ -11,9 +11,10 @@ from sigid.identification import decoder_shortlist, measure_audio_evidence
 
 def test_audio_evidence_recovers_two_tones_without_claiming_a_protocol():
     rate = 12_000
-    tones = np.where((np.arange(rate) // 1200) % 2 == 0, 900.0, 1300.0)
-    phase = np.cumsum(2 * np.pi * tones / rate)
-    audio = np.sin(phase)
+    t = np.arange(rate) / rate
+    # Two concurrent tones also make an apparent tone grid: this is deliberately
+    # *not* assumed to be an FSK transmission.
+    audio = 0.5 * np.sin(2 * np.pi * 900 * t) + 0.5 * np.sin(2 * np.pi * 1300 * t)
     result = measure_audio_evidence(audio, rate, 700, 1500)
 
     assert result["available"] is True
