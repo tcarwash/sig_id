@@ -1144,7 +1144,10 @@ Decoded text will appear here.</pre>
         <label class="auto-trial-toggle" title="Score CV boxes when CV is enabled; otherwise score heuristic track candidates.">
           <span>Classifier suggestions</span><input id="live-classifier-enabled" type="checkbox" checked />
         </label>
-        <p class="subhead">With both on, CV finds regions and the classifier adds optional identity suggestions. Classifier only uses heuristic track candidates; these are provisional and do not set box bounds. Turn both off to pause candidate boxes.</p>
+        <label class="auto-trial-toggle" title="Experimental, CPU-bounded high-resolution audio STFT analysis. Suggestions don't replace CV boxes or start decoders.">
+          <span>Preview fine-frequency splits</span><input id="live-fine-refinement" type="checkbox" />
+        </label>
+        <p class="subhead">With both CV and classifier on, CV finds regions and the classifier proposes possible identities. Fine-frequency splitting is optional: it marks possible sub-bands within broad regions without creating new tracks or treating them as separate stations. Turn both CV and classifier off to pause candidate boxes.</p>
       </section>
       <section class="panel">
         <h3>Decoder and identification</h3>
