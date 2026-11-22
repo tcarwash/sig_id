@@ -50,6 +50,13 @@ python -m sigid.crowded_benchmark /path/to/40m-recording.wav \
   --cv-json /path/to/cv-boxes.json
 ```
 
+For the archived 40m sample in this project, the observed (unreviewed)
+CV proposals are stored as
+[`reports/40m-ft8-cv-boxes-2026-11-21.json`](../reports/40m-ft8-cv-boxes-2026-11-21.json).
+Run the same CLI against the locally retained WAV to reproduce the
+three-region no-split result. The recording itself is intentionally not
+committed.
+
 The `cv-boxes.json` file can be a list or an object with a `detections`
 array. Each entry needs `sample_start`, `sample_count`,
 `frequency_low_hz`, and `frequency_high_hz`, or
