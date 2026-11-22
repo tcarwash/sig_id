@@ -91,9 +91,13 @@ def refine_frequency_region(
     power_db = 10.0 * np.log10(np.maximum(np.abs(spectrum) ** 2, 1e-16))
     background_db = median_filter(power_db, size=(41, 1), mode="nearest")
     excess_db = np.clip(power_db - background_db - 6.0, 0.0, 18.0)
-    profile = gaussian_filter1d(np.mean(excess_db[band], axis=1), 1.35)
+    full_profile = gaussian_filter1d(np.mean(excess_db, axis=1), 1.35)
+    profile = full_profile[band]
     band_freq = freq[band]
-    noise_score = float(np.median(profile))
+    # An ROI may be almost entirely occupied by two real signals. Estimate
+    # the background from the full audible passband, not the median inside
+    # that crowded ROI (which would suppress valid split evidence).
+    noise_score = float(np.percentile(full_profile, 25))
     peak_score = float(profile.max())
     result = {
         **base,
