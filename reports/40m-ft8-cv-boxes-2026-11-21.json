@@ -1,0 +1,29 @@
+{
+  "kind": "cv_proposals_unreviewed",
+  "capture_filename": "live-7d7ed981-d896-4cc0-9e9c-6c91499c98df.wav",
+  "capture_sha256": "4ab6af5e586fb1704ef7ae90fa923cf5a8d0d7ae87d3b1819cfa35cf83550d63",
+  "description": "Three unreviewed live CV regions observed during 40m FT8 reception; proposed boxes are not independent decoder or manual truth.",
+  "detections": [
+    {
+      "sample_start": 10770430,
+      "sample_count": 466475,
+      "frequency_low_hz": 860.143393278122,
+      "frequency_high_hz": 992.485374212265,
+      "confidence": 0.6462748050689697
+    },
+    {
+      "sample_start": 10762320,
+      "sample_count": 471629,
+      "frequency_low_hz": 1719.2310690879822,
+      "frequency_high_hz": 1829.98126745224,
+      "confidence": 0.6017541289329529
+    },
+    {
+      "sample_start": 10762320,
+      "sample_count": 449727,
+      "frequency_low_hz": 2125.2440214157104,
+      "frequency_high_hz": 2246.547818183899,
+      "confidence": 0.5326605439186096
+    }
+  ]
+}
