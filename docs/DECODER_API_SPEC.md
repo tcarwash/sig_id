@@ -8,7 +8,8 @@ Anything in "Future extensions" is not yet available.
 [Mode work items](decoder-work-items.json) |
 [Source/evidence references](DECODER_EVIDENCE_INDEX.md) |
 [Decoder roadmap](LIBSIGDECODE.md) |
-[Result JSON schema](schemas/local_decode_result.schema.json).
+[Result JSON schema](schemas/local_decode_result.schema.json) |
+[Pinned conformance harness](DECODER_CONFORMANCE.md).
 
 ## Fundamental rules
 

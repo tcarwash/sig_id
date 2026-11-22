@@ -17,6 +17,9 @@ ham-radio decoder in Signal ID.
 6. [Current library source](../sigid/libsigdecode/core.py) and
    [existing CW implementation](../sigid/libsigdecode/cw.py) as an example
    of how to CALL the API, not a template for every modulation.
+7. [Pinned conformance harness](DECODER_CONFORMANCE.md) — SHA-256 WAV
+   manifests, positive/negative controls, metrics and separate real-air
+   ground-truth requirements.
 
 ## Parallel implementation policy
 
@@ -58,6 +61,11 @@ ham-radio decoder in Signal ID.
       Old text-only `LocalDecodeResult` constructors remain compatible.
 - [ ] Independently generate golden waveforms/payloads and include
       machine-readable expected bits/text/frame integrity.
+- [ ] Supply pinned WAV SHA-256 conformance manifest under
+      tests/fixtures/decoder_conformance/<mode>/; run its positive and
+      negative controls using sigid.conformance.evaluate_suite with an
+      injected DecoderLibrary rather than editing shared registration.
+      See DECODER_CONFORMANCE.md. Never claim synthetic success as on-air validation.
 - [ ] Test corrupted frames, wrong speed/carrier/polarity, drift, weak
       SNR, neighboring stations, silence and unrelated modulation;
       require abstention rather than readable gibberish.
@@ -81,11 +89,18 @@ From a feature-branch worktree:
 
     python -m pytest -q tests/test_libsigdecode.py
     python -m pytest -q tests/test_decoder_contract_docs.py
+    python -m pytest -q tests/test_decoder_conformance.py
     python -m pytest -q tests/test_decode_<mode>.py
     python -m pytest -q tests/test_api.py tests/test_classifier_api.py
     node --input-type=module --check < sigid/web/app.js
 
-The second and third commands only apply after those tests exist.
+After creating a mode-specific suite, add an independent test calling
+evaluate_suite(..., library=DecoderLibrary((YourModeDecoder(),))) from
+DECODER_CONFORMANCE.md. The shared CW suite can also run with:
+
+    python -m sigid.conformance tests/fixtures/decoder_conformance/cw/manifest.json
+
+The mode-specific command applies only after that mode's tests exist.
 Do not run a test suite against the real receiver or modify hardware.
 Current unit tests are synthetic; report that limitation clearly.
 
