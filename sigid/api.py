@@ -764,6 +764,17 @@ class NativeDecoderRequestBody(BaseModel):
     sample_count: int = Field(gt=0, le=192_000 * 600)
     carrier_hz: float | None = Field(default=None, ge=0, le=96_000)
     region_id: str | None = Field(default=None, max_length=80)
+    detector_evidence: DetectorProposalEvidence | None = None
+    frequency_low_hz: float | None = Field(default=None, ge=0, le=96_000, allow_inf_nan=False)
+    frequency_high_hz: float | None = Field(default=None, gt=0, le=96_000, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def validate_selection_band(self) -> "NativeDecoderRequestBody":
+        if (self.frequency_low_hz is None) != (self.frequency_high_hz is None):
+            raise ValueError("both audio-frequency selection bounds are required together")
+        if self.frequency_low_hz is not None and self.frequency_high_hz <= self.frequency_low_hz:
+            raise ValueError("audio-frequency selection bounds must increase")
+        return self
 
 
 class FldigiTrackTrialRequest(BaseModel):
@@ -2535,12 +2546,40 @@ def create_app(
             raise HTTPException(status_code=404, detail="capture not found") from exc
         if settings.sample_start + settings.sample_count > int(capture["sample_count"]):
             raise HTTPException(status_code=422, detail="selected region exceeds the saved capture")
+        linked_region = None
         if settings.region_id is not None:
-            region = next((item for item in store.regions(capture_id) if item["id"] == settings.region_id), None)
-            if region is None or region["lineage_state"] != "active":
+            linked_region = next((item for item in store.regions(capture_id) if item["id"] == settings.region_id), None)
+            if linked_region is None or linked_region["lineage_state"] != "active":
                 raise HTTPException(status_code=422, detail="decoder region must be active in this capture")
-            if (settings.sample_start, settings.sample_count) != (region["sample_start"], region["sample_count"]):
+            if (settings.sample_start, settings.sample_count) != (linked_region["sample_start"], linked_region["sample_count"]):
                 raise HTTPException(status_code=422, detail="decoder sample bounds must match the linked region")
+        sample_rate = int(capture["sample_rate"])
+        if (settings.frequency_high_hz is not None and settings.frequency_high_hz > sample_rate / 2):
+            raise HTTPException(status_code=422, detail="selected audio band exceeds the capture Nyquist frequency")
+        detector = settings.detector_evidence
+        if detector is not None:
+            if detector.sample_rate != sample_rate:
+                raise HTTPException(status_code=422, detail="detector evidence sample rate does not match the capture")
+            if detector.window_sample_start + detector.window_sample_count > int(capture["sample_count"]):
+                raise HTTPException(status_code=422, detail="detector evidence window exceeds the capture")
+            if (settings.sample_start < detector.window_sample_start
+                    or settings.sample_start + settings.sample_count >
+                    detector.window_sample_start + detector.window_sample_count):
+                raise HTTPException(status_code=422, detail="decoder selection is outside detector evidence window")
+            for source_window in detector.supporting_windows:
+                if source_window.sample_start + source_window.sample_count > int(capture["sample_count"]):
+                    raise HTTPException(status_code=422, detail="supporting detector window exceeds the capture")
+            if linked_region is not None:
+                saved = linked_region["evidence"].get("detector_proposal") or {}
+                if (saved.get("proposal_id") and detector.proposal_id
+                        and saved["proposal_id"] != detector.proposal_id):
+                    raise HTTPException(status_code=422, detail="detector evidence does not match the linked region")
+        source_detector = (detector.model_dump() if detector is not None else
+                           linked_region["evidence"].get("detector_proposal") if linked_region is not None else None)
+        selection_band = ({"selection_bounds": {
+            "frequency_low_hz": settings.frequency_low_hz,
+            "frequency_high_hz": settings.frequency_high_hz,
+        }} if settings.frequency_low_hz is not None else {})
         backend_status = next((item for item in decoder_backends_registry.info() if item["backend_id"] == backend_id.casefold()), None)
         if backend_status is None:
             raise HTTPException(status_code=404, detail="decoder backend is not registered")
@@ -2627,6 +2666,14 @@ def create_app(
             note=result.note or f"Native decoder returned {', '.join(product_kinds) or 'no'} products; review before treating as a label.",
             output_scope="isolated_native_window",
             association="exact_selected_capture_window",
+            classifier_evidence=(linked_region["evidence"].get("classifier_proposal")
+                                 if linked_region is not None else None),
+            detector_evidence={
+                **(source_detector or {}), **selection_band,
+                **({"native_trial_detector_source": "client_submitted"
+                    if detector is not None else "linked_region"}
+                   if source_detector else {}),
+            },
         )
         store.update_decoder_run(run_id, {
             "attempted_modes": [result.native_mode], "current_mode": result.native_mode,

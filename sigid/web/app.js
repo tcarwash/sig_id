@@ -6,6 +6,7 @@ import { narrowKnownModes } from "/mode-candidates.mjs";
 import { layoutSignalLabels, signalCaption, hitSignal } from "/signal-overlays.mjs";
 import { decodeSelectionKey, mayPresentDecodeResult } from "/decode-context.mjs";
 import { summarizeDecoderResult } from "/decoder-result.mjs";
+import { matchingDecoderSuggestions } from "/decoder-mode-suggestions.mjs";
 
 const el = (id) => document.getElementById(id);
 const state = { capture: null, waterfall: null, drag: null, resizeDrag: null, moveDrag: null, selection: null, regions: [], tracks: [], cvDetections: [], cvDetectionCache: new Map(), cvDismissedCount: 0, cvRejectedProposals: [], cvAvailable: false, cvSimilarAvailable: false, bitAnnotations: [], rawDemodAttempts: [], comparedRawAttemptIds: new Set(), rawRetrySample: null, protocolStencils: [], liveView: false, liveMonitoring: false, liveSessionId: null, liveReviewReturn: null, modelAvailable: false, modelTraining: false, view: null, demodExports: {}, selectedTrack: null, classifierProposal: null, frozen: false, labelModeId: null, modeSearchResults: [], modeSearchRequest: 0, applyingMode: false, adjustingGeometry: false, geometryDraft: false, adjustingCandidate: null, drawingSignalBox: false, batchBoxMode: false, batchBoxes: [], batchBoxUndo: [], batchReviewBox: null, batchSaveKey: null, batchSaveDigest: null, batchSaving: false, windowRegionEdits: new Map(), windowRegionDeletes: new Map(), windowMerges: [], windowIdentityLinks: [], identityLinkSelection: new Set(), comparedDecodeRunIds: new Set(), splitMode: false, splitChildren: [], splitParentSelection: null, mergeRegionIds: new Set(), selectionMergeRegions: [], excludedMergeCandidates: new Set(), modeProposalRegion: null, proposalCaptureRequest: 0, proposalEvidenceCaptures: [] };
@@ -667,6 +668,10 @@ el("native-decode-selection").addEventListener("click", async () => {
       method: "POST", headers: {"Content-Type":"application/json"},
       body: JSON.stringify({mode_id: modeId, sample_start: selection.sample_start,
         sample_count: selection.sample_count, region_id: linkedRegion?.id || null,
+        frequency_low_hz: Number.isFinite(selection.frequency_low_hz) ? selection.frequency_low_hz : null,
+        frequency_high_hz: Number.isFinite(selection.frequency_high_hz) ? selection.frequency_high_hz : null,
+        detector_evidence: !linkedRegion && state.selectedTrack?.cv_proposal_id
+          ? (state.selectedTrack.detector_evidence || null) : null,
         carrier_hz: Number.isFinite(selection.frequency_low_hz) && Number.isFinite(selection.frequency_high_hz)
           ? (selection.frequency_low_hz + selection.frequency_high_hz) / 2 : null}),
     });
@@ -3027,43 +3032,53 @@ async function updateDecoderRecommendations(result, selection) {
     status.textContent = "No specific modulation method was proposed, so no decoder modes are suggested.";
     return;
   }
-  if (!state.fldigiModes?.length) {
-    status.textContent = "Connect to Fldigi to compare classifier results with its selectable mode catalog.";
+  if (!nativeDecoderBindings.length && !state.fldigiModes?.length) {
+    status.textContent = "No selectable decoder modes are connected. Signal ID will list native modes here once registered.";
     return;
   }
-  status.textContent = `Checking selectable Fldigi modes compatible with ${result.method}…`;
+  status.textContent = `Finding connected decoders compatible with ${result.method}…`;
   try {
     const response = await request(`/api/modes?q=${encodeURIComponent(result.method)}&limit=50`);
     if (requestId !== decoderRecommendationRequest || state.selection !== selection) return;
-    const method = result.method.trim().toLocaleLowerCase();
-    const catalog = new Map(state.fldigiModes.map((name) => [name.toLocaleLowerCase(), name]));
-    const candidates = [...new Set(response.modes
-      .filter((item) => item.method?.trim().toLocaleLowerCase() === method
-        || item.display_name?.trim().toLocaleLowerCase() === method
-        || item.variant?.trim().toLocaleLowerCase() === method)
-      .map((item) => catalog.get(item.display_name.toLocaleLowerCase()))
-      .filter(Boolean))];
-    if (!candidates.length) {
-      status.textContent = `No selectable Fldigi modes in the current catalog match ${result.method}.`;
-      return;
-    }
-    status.textContent = `${candidates.length} selectable mode${candidates.length === 1 ? "" : "s"} match the proposed ${result.method} modulation:`;
-    for (const name of candidates) {
+    const suggestions = matchingDecoderSuggestions(
+      result.method, response.modes || [], nativeDecoderBindings, state.fldigiModes || [],
+    );
+    const count = suggestions.native.length + suggestions.fldigi.length;
+    status.textContent = count
+      ? `${count} available decoder choice${count === 1 ? "" : "s"} compatible with the proposed ${result.method} modulation — not verified protocols. Stage one, then start decoding explicitly.`
+      : `No connected decoder is compatible with the proposed ${result.method} modulation. This is not evidence the signal is unknown.`;
+    for (const mode of suggestions.native) {
       const button = document.createElement("button");
       button.type = "button";
-      button.textContent = `Stage ${name}`;
+      button.textContent = `Stage ${mode.application || mode.backend_id} · ${mode.display_name}`;
+      button.addEventListener("click", () => {
+        if (state.selection !== selection || !nativeDecoderBindings.some((item) =>
+          item.backend_id === mode.backend_id && item.mode_id === mode.mode_id)) return;
+        const choice = el("native-decoder-mode");
+        choice.value = `${mode.backend_id}|${mode.mode_id}`;
+        updateDecoderSelectionControls();
+        el("native-decode-status").textContent =
+          `${mode.display_name} staged from a modulation hypothesis. It has NOT been decoded or confirmed; select Decode to run this exact saved window.`;
+        openInspector("decode");
+      });
+      list.append(button);
+    }
+    for (const name of suggestions.fldigi) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = `Stage Fldigi · ${name}`;
       button.addEventListener("click", () => {
         if (state.selection !== selection || !state.fldigiModes?.includes(name)) return;
         el("fldigi-mode").value = name;
         updateDecoderSelectionControls();
-        el("fldigi-status").textContent = `${name} staged from classifier suggestion · select receive mode to apply it`;
+        el("fldigi-status").textContent = `${name} staged from a modulation hypothesis — decode not started`;
         openInspector("decode");
       });
       list.append(button);
     }
   } catch (error) {
     if (requestId !== decoderRecommendationRequest || state.selection !== selection) return;
-    status.textContent = `Could not load compatible mode suggestions · ${error.message}`;
+    status.textContent = `Could not load compatible decoder choices · ${error.message}`;
   }
 }
 

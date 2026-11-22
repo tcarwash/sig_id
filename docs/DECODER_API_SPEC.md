@@ -126,6 +126,21 @@ Current NativeDecoderRequestBody fields:
 - carrier_hz: audio Hz or null, optional
 - region_id: active region ID or null, optional; if provided, selected
   sample bounds must match the linked region exactly.
+- frequency_low_hz and frequency_high_hz: optional paired audio-frequency
+  selection bounds (Hz); if supplied, the upper bound must fit capture Nyquist.
+- detector_evidence: optional structurally validated CV detector evidence
+  for the selected window; the source window, sample rate, and linked proposal
+  (when saved) must agree with the selected capture. Client-supplied evidence
+  is attributed as such, NOT an independent verified observation.
+
+Saved-region native decoding copies the already stored region's classifier
+proposal and detector evidence into the decoder-run record. For unsaved
+CV detections, a client-supplied detector provenance object can be recorded
+after range and structural validation; it is not authenticated ground truth.
+The selected audio-frequency bounds are saved in detector_evidence.selection_bounds
+for subsequent review. A classifier hypothesis used to suggest an available
+native decoder is UI guidance ONLY, not a confirmed mode and not automatically
+applied. The user must explicitly stage and run a candidate decoder.
 
 Example JSON request:
 
