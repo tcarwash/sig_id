@@ -58,6 +58,38 @@ For deliberate spectral collisions, combine --traffic parallel with --allow-over
 
 The default --traffic sparse provides a clean, less-crowded reference with distinct carrier frequencies, no continuous narrow QRM tones, at most --max-active 1 or 2 stations, and exactly --bursts-per-mode repeats per cycle. Their time slots are evenly spread rather than packed into the first few seconds. Seeded white noise remains present in gaps. Use --qrm to add the optional 735 and 2675 Hz interfering tones; --no-qrm to explicitly disable them. The older --traffic staggered cycles one transmitter at a time as often as the configured --gap allows, and --traffic parallel plays all separate stations simultaneously. The --gap setting affects staggered/parallel, not sparse, which allocates evenly spaced slots instead. More modes can be packed into the 160–2900 Hz passband with guard bands; if they cannot all fit simultaneously, the planner schedules groups in separate time windows.
 
+### Longer transmissions for live detector/decoder tests
+
+The conformance WAVs contain very short messages (AX.25 0.31 s, RTTY
+1.47 s, BPSK31 1.54 s, CW 3.85 s). To test tracking across many seconds,
+set `--burst-seconds` to a requested **minimum continuous station activity
+window**. Signal Lab repeats **complete** pinned modem messages/frames, with
+0.25-second pauses between messages. It does **not** slow down symbol timing,
+truncate a packet, fabricate another payload or key a transmitter. Actual
+transmission duration rounds *up* to the next full message boundary.
+
+For four modes spread out and only one station active at a time, a good
+starting point is 16-second transmissions in a 100-second cycle:
+
+    python -m sigid.signal_lab stop
+    python -m sigid.signal_lab start --modes cw,rtty,bpsk31,ax25 \
+        --traffic sparse --max-active 1 --bursts-per-mode 1 \
+        --duration 100 --burst-seconds 16 \
+        --snr-db -5 --snr-reference-hz 2500
+
+Each burst is listed once in the truth JSON, with `fixture_repetitions`,
+`fixture_gap_seconds` and `embedded_messages` containing the **absolute
+sample starts and lengths** of every real repeated frame. `expected_text`
+contains the expected sequence (newline-separated), not a claim that the
+experimental decoder can recover the whole sequence. A standalone
+`embedded_messages` slice can be compared to the pinned original decoder
+vector. `--burst-seconds 0` (default) preserves the original short fixture.
+
+The sparse scheduler rejects combinations that cannot fit intact in the
+configured time slots. For 4 modes and `--burst-seconds 16`, choose
+`--bursts-per-mode 1` or a longer cycle. The maximum burst request is
+60 seconds and the overall loop length still caps at 300 seconds.
+
 ### Default carrier plan
 
 | Mode | Audio carrier | Expected native decode |

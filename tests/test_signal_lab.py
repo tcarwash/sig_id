@@ -191,6 +191,55 @@ def test_sparse_loop_limits_active_stations_and_preserves_native_decodes(tmp_pat
             assert result.frames and result.frames[0].integrity[0].outcome == "passed"
 
 
+def test_extended_sparse_transmissions_preserve_complete_message_frames(tmp_path):
+    # The new long-burst option uses repeated complete independent fixtures,
+    # not slow-motion audio that corrupts the modem timing or packet FCS.
+    modes = ["cw", "rtty", "bpsk31", "ax25"]
+    info = signal_lab.render(
+        modes=modes, output=tmp_path / "extended.wav", duration=100,
+        traffic="sparse", bursts_per_mode=1, max_active=1,
+        burst_seconds=16, snr_db=26, snr_reference_hz=2500, seed=84)
+    assert info["minimum_burst_seconds"] == 16
+    assert len(info["transmissions"]) == 4
+    with wave.open(info["mono_wav"], "rb") as audio:
+        pcm = np.frombuffer(audio.readframes(audio.getnframes()),
+                            dtype="<i2").astype(np.float64) / 32768
+    decoder = create_library()
+    for transmission in info["transmissions"]:
+        assert transmission["sample_count"] >= 16 * 48000
+        assert transmission["fixture_repetitions"] >= 4
+        assert len(transmission["embedded_messages"]) == transmission["fixture_repetitions"]
+        assert transmission["expected_text"].count("\n") == transmission["fixture_repetitions"] - 1
+        for message in (transmission["embedded_messages"][0], transmission["embedded_messages"][-1]):
+            begin = message["sample_start"]
+            end = begin + message["sample_count"]
+            assert end <= transmission["start_sample"] + transmission["sample_count"]
+            result = decoder.decode(transmission["mode"], DecodeWindow(
+                pcm[begin:end], 48000, sample_start=begin,
+                carrier_hz=transmission["carrier_hz"]))
+            assert result.status == "decoded", (transmission["mode"], result.note)
+            assert result.text == message["expected_text"]
+            if transmission["mode"] == "ax25":
+                assert result.frames and result.frames[0].integrity[0].outcome == "passed"
+    for previous, following in zip(info["transmissions"], info["transmissions"][1:]):
+        assert previous["start_sample"] + previous["sample_count"] < following["start_sample"]
+
+
+def test_extended_burst_requires_valid_window_and_config(tmp_path):
+    base = dict(modes=["cw", "rtty", "bpsk31", "ax25"],
+                output=tmp_path / "burst.wav", duration=100, traffic="sparse",
+                bursts_per_mode=2)
+    for value in (-1, 61, float("nan"), float("inf")):
+        with pytest.raises(ValueError, match="burst-seconds"):
+            signal_lab.render(**base, burst_seconds=value)
+    with pytest.raises(ValueError, match="insufficient room"):
+        signal_lab.render(**base, burst_seconds=16)
+    unchanged = signal_lab.render(
+        modes=["cw"], output=tmp_path / "default.wav", duration=18,
+        traffic="sparse", burst_seconds=0)
+    assert all(item["fixture_repetitions"] == 1 for item in unchanged["transmissions"])
+
+
 def test_sparse_rejects_invalid_configuration_and_fixture_overcrowding(tmp_path):
     base = dict(modes=["cw", "rtty", "bpsk31", "ax25"], output=tmp_path / "scene.wav",
                 traffic="sparse", duration=100)

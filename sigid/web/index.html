@@ -84,6 +84,7 @@
                 <div class="axis-y">
                   <span id="time-start">0 s</span><span>Time</span
                   ><span id="time-end">0 s</span>
+                  <div id="time-lens-ticks" class="time-lens-ticks" aria-hidden="true"></div>
                 </div>
                 <div class="waterfall-column">
                   <div class="waterfall-wrap">
@@ -110,6 +111,14 @@
                 <button id="clear-notches" type="button" hidden>Clear notches</button>
                 <label class="cv-debug-toggle" title="Outline, lightly shade, and show the measured time/frequency bounds of each provisional CV box. Does not change detections.">
                   <input id="cv-debug-bounds" type="checkbox" /> Debug CV bounds
+                </label>
+                <label class="time-lens-control" title="Live waterfall only: keep the newest few seconds magnified while compressing older history. Detection and decoding use unchanged audio.">
+                  Time lens
+                  <select id="time-lens-mode" aria-label="Live waterfall time lens" disabled>
+                    <option value="linear">Off · 30 s linear</option>
+                    <option value="gentle">Gentle · 60 s</option>
+                    <option value="strong">Strong · 60 s</option>
+                  </select>
                 </label>
                 <span id="waterfall-state" class="muted">WAV spectrum</span>
               </div>

@@ -238,7 +238,8 @@ def render(*, modes: list[str], output: Path, fixture_root: Path = FIXTURES,
            gap_seconds: float = 0.9, carrier_overrides: dict[str, float] | None = None,
            allow_overlap: bool = False, stereo: bool = True,
            traffic: str = "staggered", max_active: int = 1,
-           bursts_per_mode: int = 2, qrm: bool | None = None) -> dict:
+           bursts_per_mode: int = 2, burst_seconds: float = 0.0,
+           qrm: bool | None = None) -> dict:
     if not 15 <= duration <= 300:
         raise ValueError("duration must be 15–300 seconds")
     if sample_rate not in (12000, 24000, 48000):
@@ -261,6 +262,8 @@ def render(*, modes: list[str], output: Path, fixture_root: Path = FIXTURES,
         raise ValueError("--max-active must be 1 or 2")
     if not isinstance(bursts_per_mode, int) or not 1 <= bursts_per_mode <= 12:
         raise ValueError("--bursts-per-mode must be between 1 and 12")
+    if not np.isfinite(burst_seconds) or not 0 <= burst_seconds <= 60:
+        raise ValueError("--burst-seconds must be between 0 and 60")
     if qrm is None:
         qrm = traffic != "sparse"
     if not modes or len(modes) != len(set(modes)):
@@ -281,6 +284,8 @@ def render(*, modes: list[str], output: Path, fixture_root: Path = FIXTURES,
     rng = np.random.default_rng(seed)
     truth: list[dict] = []
     prepared: dict[Station, np.ndarray] = {}
+    embedded_offsets: dict[Station, tuple[int, ...]] = {}
+    embedded_frame_lengths: dict[Station, int] = {}
     for station in stations:
         samples, original_rate = read_fixture(station.fixture)
         from scipy.signal import resample_poly
@@ -301,7 +306,24 @@ def render(*, modes: list[str], output: Path, fixture_root: Path = FIXTURES,
             envelope = np.sin(np.linspace(0, np.pi / 2, ramp)) ** 2
             shifted[:ramp] *= envelope
             shifted[-ramp:] *= envelope[::-1]
-        prepared[station] = shifted
+        # Repeat *complete* independently pinned messages/frames to create
+        # longer, monitor-friendly transmissions. Never time-stretch or cut a
+        # frame; doing so would change symbol rate or break AX.25 FCS.
+        target = round(burst_seconds * sample_rate)
+        gap_frames = round(0.25 * sample_rate)
+        count = 1
+        if target > len(shifted):
+            count = int(np.ceil((target + gap_frames) / (len(shifted) + gap_frames)))
+        offsets = tuple(index * (len(shifted) + gap_frames) for index in range(count))
+        if count == 1:
+            prepared[station] = shifted
+        else:
+            long_signal = np.zeros(offsets[-1] + len(shifted), dtype=np.float64)
+            for relative in offsets:
+                long_signal[relative : relative + len(shifted)] = shifted
+            prepared[station] = long_signal
+        embedded_offsets[station] = offsets
+        embedded_frame_lengths[station] = len(shifted)
 
     def emit(station: Station, at: float) -> None:
         shifted = prepared[station]
@@ -317,7 +339,15 @@ def render(*, modes: list[str], output: Path, fixture_root: Path = FIXTURES,
             "start_sample": start, "sample_count": len(shifted),
             "start_seconds": round(start / sample_rate, 4),
             "end_seconds": round(end / sample_rate, 4),
-            "expected_text": station.fixture.expected_text,
+            "fixture_repetitions": len(embedded_offsets[station]),
+            "fixture_gap_seconds": 0.25 if len(embedded_offsets[station]) > 1 else 0.0,
+            "embedded_messages": [
+                {"sample_start": start + relative,
+                 "sample_count": embedded_frame_lengths[station],
+                 "expected_text": station.fixture.expected_text}
+                for relative in embedded_offsets[station]
+            ],
+            "expected_text": "\n".join([station.fixture.expected_text] * len(embedded_offsets[station])),
         })
 
     for group in range(group_count):
@@ -414,6 +444,7 @@ def render(*, modes: list[str], output: Path, fixture_root: Path = FIXTURES,
         "traffic": traffic,
         "max_active": max_active if traffic == "sparse" else (1 if traffic == "staggered" else len(stations)),
         "bursts_per_mode": bursts_per_mode if traffic == "sparse" else None,
+        "minimum_burst_seconds": burst_seconds,
         "continuous_qrm": qrm,
         "snr_db_nominal_per_station": snr_db,
         "snr_reference_hz": reference_hz,
@@ -558,7 +589,7 @@ def start_loop(state_dir: Path, settings: argparse.Namespace) -> dict:
                     gap_seconds=settings.gap, carrier_overrides=carriers,
                     allow_overlap=settings.allow_overlap, traffic=settings.traffic,
                     max_active=settings.max_active, bursts_per_mode=settings.bursts_per_mode,
-                    qrm=settings.qrm)
+                    burst_seconds=settings.burst_seconds, qrm=settings.qrm)
     log = (state_dir / "player.log").open("ab")
     with log:
         proc = subprocess.Popen(
@@ -626,6 +657,9 @@ def _add_render_args(parser: argparse.ArgumentParser) -> None:
                         help="sparse traffic only: one or two simultaneous stations")
     parser.add_argument("--bursts-per-mode", type=int, default=2,
                         help="sparse traffic only: exact repeats of each modem per cycle (default 2)")
+    parser.add_argument("--burst-seconds", type=float, default=0.0,
+                        help="minimum transmission length, 0–60 seconds (default 0: original frame); "
+                             "repeats complete modem messages/frames with 0.25-s gaps")
     parser.add_argument("--qrm", action=argparse.BooleanOptionalAction, default=None,
                         help="enable or disable continuous non-message interference tones; sparse defaults off")
     parser.add_argument("--allow-overlap", action="store_true",
@@ -671,7 +705,7 @@ def main(argv: list[str] | None = None) -> int:
                           carrier_overrides=parse_carriers(args.carriers, modes),
                           allow_overlap=args.allow_overlap, traffic=args.traffic,
                           max_active=args.max_active, bursts_per_mode=args.bursts_per_mode,
-                          qrm=args.qrm)
+                          burst_seconds=args.burst_seconds, qrm=args.qrm)
             print(json.dumps({"mono": info["mono_wav"], "stereo": info["stereo_wav"],
                               "stations": info["stations"],
                               "bursts": len(info["transmissions"]),
