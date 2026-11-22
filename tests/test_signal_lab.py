@@ -143,6 +143,68 @@ def test_parallel_render_contains_overlapping_transmissions(tmp_path):
     )
 
 
+@pytest.mark.parametrize("max_active", [1, 2])
+def test_sparse_loop_limits_active_stations_and_preserves_native_decodes(tmp_path, max_active):
+    modes = ["cw", "rtty", "bpsk31", "ax25"]
+    output = tmp_path / f"sparse-{max_active}.wav"
+    info = signal_lab.render(modes=modes, output=output, duration=100,
+                             traffic="sparse", max_active=max_active,
+                             bursts_per_mode=2, snr_db=22)
+    assert info["traffic"] == "sparse"
+    assert info["max_active"] == max_active
+    assert info["continuous_qrm"] is False
+    assert len(info["transmissions"]) == 8
+    assert {s["mode"]: s["carrier_hz"] for s in info["stations"]} == {
+        "cw": 260, "rtty": 740, "bpsk31": 2520, "ax25": 1200}
+    assert all(sum(b["mode"] == mode for b in info["transmissions"]) == 2 for mode in modes)
+    events = []
+    for burst in info["transmissions"]:
+        start = burst["start_sample"]
+        events.extend([(start, 1), (start + burst["sample_count"], -1)])
+    active = peak_active = 0
+    for _, delta in sorted(events):
+        active += delta
+        peak_active = max(active, peak_active)
+        assert active <= max_active
+    assert active == 0 and peak_active == max_active
+
+    if max_active == 2:
+        starts = {}
+        for burst in info["transmissions"]:
+            starts.setdefault(burst["start_sample"], set()).add(burst["mode"])
+        assert {frozenset(pair) for pair in starts.values()} == {
+            frozenset(("cw", "ax25")), frozenset(("rtty", "bpsk31"))}
+
+    with wave.open(str(output), "rb") as audio:
+        samples = np.frombuffer(audio.readframes(audio.getnframes()),
+                                dtype="<i2").astype(float) / 32768.0
+    library = create_library()
+    for mode in modes:
+        b = next(item for item in info["transmissions"] if item["mode"] == mode)
+        start, stop = b["start_sample"], b["start_sample"] + b["sample_count"]
+        result = library.decode(mode, DecodeWindow(
+            samples[start:stop], 48000, sample_start=start,
+            carrier_hz=b["carrier_hz"]))
+        assert result.status == "decoded", (mode, max_active, result.note)
+        assert result.text == b["expected_text"], (mode, max_active, result.text)
+        if mode == "ax25":
+            assert result.frames and result.frames[0].integrity[0].outcome == "passed"
+
+
+def test_sparse_rejects_invalid_configuration_and_fixture_overcrowding(tmp_path):
+    base = dict(modes=["cw", "rtty", "bpsk31", "ax25"], output=tmp_path / "scene.wav",
+                traffic="sparse", duration=100)
+    with pytest.raises(ValueError, match="max-active"):
+        signal_lab.render(**base, max_active=3)
+    with pytest.raises(ValueError, match="bursts-per-mode"):
+        signal_lab.render(**base, bursts_per_mode=13)
+    with pytest.raises(ValueError, match="insufficient room"):
+        signal_lab.render(**base, bursts_per_mode=12, max_active=1)
+    with_qrm = signal_lab.render(**base, bursts_per_mode=1, qrm=True)
+    without_qrm = signal_lab.render(**base, bursts_per_mode=1, qrm=False)
+    assert with_qrm["continuous_qrm"] and not without_qrm["continuous_qrm"]
+
+
 def test_multi_group_reuses_passband_only_in_different_time_slots(tmp_path):
     info = signal_lab.render(
         modes=["rtty", "bpsk31"], output=tmp_path / "split.wav",
