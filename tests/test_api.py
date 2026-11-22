@@ -62,6 +62,8 @@ def test_upload_waterfall_manual_label_audio_and_jsonl_export(tmp_path):
             assert 'id="empty-model-readiness"' in page
             assert 'class="topbar-nav"' in page
             assert 'id="cv-debug-bounds"' in page
+            assert 'id="live-narrow-tracks"' in page
+            assert "Narrow-tone / CW candidates" in page
             assert 'id="cv-detection-list"' in page
             assert "Inspect DSP" in page
             app_js = (await client.get("/app.js")).text
