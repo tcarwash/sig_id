@@ -108,6 +108,9 @@
                 <audio id="audio-player" controls preload="none"></audio>
                 <button id="notch-mode" type="button" aria-pressed="false" title="Drag across the top of the waterfall to block detections in a frequency band">Place notch</button>
                 <button id="clear-notches" type="button" hidden>Clear notches</button>
+                <label class="cv-debug-toggle" title="Outline, lightly shade, and show the measured time/frequency bounds of each provisional CV box. Does not change detections.">
+                  <input id="cv-debug-bounds" type="checkbox" /> Debug CV bounds
+                </label>
                 <span id="waterfall-state" class="muted">WAV spectrum</span>
               </div>
             </div>
@@ -860,6 +863,7 @@ Select a saved capture or region to analyze.</div>
                   <summary>Detector model details</summary>
                   <p id="cv-model-details" class="subhead">Checking model information…</p>
                 </details>
+                <p class="subhead">CV scores describe detection only. Model rankings are relative scores, not calibrated probabilities. Use <strong>Inspect DSP</strong> to measure a box's audio timing without starting a decoder.</p>
                 <div id="cv-detection-list" class="track-list"></div>
                 <details id="cv-dismissed-details" class="advanced-only" hidden>
                   <summary id="cv-dismissed-summary">Saved dismissed CV proposals</summary>
