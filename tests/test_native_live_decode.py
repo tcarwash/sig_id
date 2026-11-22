@@ -51,16 +51,19 @@ def fixture_snapshot(mode: str):
 
 
 @pytest.mark.parametrize("family,method,frequency,span,expected", [
-    ("FSK", "RTTY", 1500, 200, ("rtty",)),
-    ("PSK", "BPSK31", 1000, 120, ("bpsk31",)),
+    ("FSK", "RTTY", 1500, 200, ("rtty", "bpsk31")),
+    ("PSK", "BPSK31", 1000, 120, ("bpsk31", "cw")),
     ("", "", 2500, 90, ("bpsk31", "cw")),
     ("", "", 650, 90, ("cw", "rtty")),
     ("", "", 1200, 960, ("ax25", "rtty")),
     ("", "", 1200, 290, ("rtty", "bpsk31")),
     ("", "", 265, 300, ("cw", "rtty")),
-    ("FSK", "RTTY", 265, 300, ("cw", "rtty")),
+    ("FSK", "RTTY", 265, 300, ("rtty", "cw")),
     ("", "", 2520, 380, ("bpsk31", "cw")),
-    ("FSK", "RTTY", 2520, 380, ("bpsk31", "cw")),
+    ("CW", "Morse", 2520, 380, ("cw", "bpsk31")),
+    ("PSK", "BPSK31", 265, 300, ("bpsk31", "cw")),
+    ("FSK", "AX.25", 650, 290, ("ax25", "rtty")),
+    ("FSK", "RTTY", 2520, 380, ("rtty", "bpsk31")),
 ])
 def test_mode_hypotheses_are_explicit_and_separate_from_classifier(family, method, frequency, span, expected):
     track = {"frequency_low_hz": frequency - span / 2,

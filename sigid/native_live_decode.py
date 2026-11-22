@@ -17,6 +17,8 @@ from typing import Any
 
 import numpy as np
 
+from .native_acquisition import propose_burst_windows
+
 MAX_WINDOW_SECONDS = 4
 MAX_MODES_PER_ATTEMPT = 2
 MAX_ATTEMPTS_PER_MINUTE = 5
@@ -28,49 +30,56 @@ MAX_TEXT_LENGTH = 2048
 
 
 def candidate_modes(track: dict[str, Any]) -> tuple[str, ...]:
-    """Classifier and spectrum propose *hypotheses*, not proven identities."""
+    """Two *unverified* modem hypotheses, with explicit model evidence first.
+
+    Audio frequency is never itself a modulation ID. An early Signal Lab
+    heuristic erroneously forced CW at low carriers and PSK31 at high ones,
+    even after an accepted classifier named another mode. We preserve those
+    useful fallback lanes without allowing them to suppress a classifier's
+    explicit suggestion. A wrong classifier still gets a spectral fallback.
+    """
     proposal = track.get("classifier_proposal") or track.get("model_proposal") or {}
     if proposal.get("abstained") or not proposal.get("available"):
         proposal = {}
-    identity = " ".join(str(proposal.get(k) or "").lower()
-                        for k in ("method", "method_id", "family", "top_candidate"))
+    identity = " ".join(str(proposal.get(key) or "").lower()
+                        for key in ("method", "method_id", "family", "top_candidate"))
     low = float(track.get("frequency_low_hz", 0.0))
     high = float(track.get("frequency_high_hz", 0.0))
     width = high - low
     center = (low + high) / 2
 
-    # CV boxes are sometimes wider than the actual energy band. A CW box
-    # around 265 Hz was incorrectly sent to RTTY/PSK decoders because the
-    # detector reported a broad width. Prefer these clear audio lanes,
-    # independently of a provisional ML family claim. Keep a second mode
-    # to account for real off-center narrowband signals.
     if 0 < center < 420 and high < 850:
-        return ("cw", "rtty")
-    if center > 2300 and low > 2100:
-        return ("bpsk31", "cw")
+        fallback = ("cw", "rtty")
+    elif center > 2300 and low > 2100:
+        fallback = ("bpsk31", "cw")
+    elif width > 600:
+        fallback = ("ax25", "rtty")
+    elif width > 170:
+        fallback = ("rtty", "bpsk31")
+    elif center >= 1600:
+        fallback = ("bpsk31", "cw")
+    else:
+        fallback = ("cw", "rtty")
 
+    explicit = None
     if "ax.25" in identity or "ax25" in identity or "aprs" in identity:
-        return ("ax25",)
-    if "rtty" in identity or "baudot" in identity:
-        return ("rtty",)
-    if "bpsk31" in identity or "psk31" in identity:
-        return ("bpsk31",)
-    if "morse" in identity or " cw " in f" {identity} ":
-        return ("cw",)
-    if "psk" in identity:
-        return ("bpsk31", "cw")
-    if "fsk" in identity:
-        return ("rtty", "ax25")
+        explicit = "ax25"
+    elif "rtty" in identity or "baudot" in identity:
+        explicit = "rtty"
+    elif "bpsk31" in identity or "psk31" in identity:
+        explicit = "bpsk31"
+    elif "morse" in identity or " cw " in f" {identity} ":
+        explicit = "cw"
+    elif "psk" in identity:
+        explicit = "bpsk31"
+    elif "fsk" in identity:
+        explicit = "rtty"
 
-    # Fallback even if the classifier abstained. No spurious model confidence
-    # is generated: these are frequency/width-based experimental suggestions.
-    if width > 600:
-        return ("ax25", "rtty")
-    if width > 170:
-        return ("rtty", "bpsk31")
-    if center >= 1600:
-        return ("bpsk31", "cw")
-    return ("cw", "rtty")
+    # The detector frequency and classifier label are separate, uncertain
+    # sources. Never silently override the model with a Signal Lab frequency
+    # lane, and never allow any candidate count to exceed the worker limit.
+    candidates = (explicit, *fallback) if explicit else fallback
+    return tuple(dict.fromkeys(mode for mode in candidates if mode))[:MAX_MODES_PER_ATTEMPT]
 
 
 def _evidence_grade(result: Any) -> tuple[str, str]:
@@ -117,13 +126,52 @@ def decode_live_candidate(pcm: bytes, sample_rate: int, sample_start: int,
         started = time.perf_counter()
         cpu_started = time.process_time()
         try:
-            result = _worker_library.decode(
-                mode, DecodeWindow(values, sample_rate, sample_start=sample_start,
-                                   carrier_hz=(1200.0 if mode == "ax25" else carrier_hz)))
-            grade, text = _evidence_grade(result)
+            # A four-second crop can contain an entire 1.5-second RTTY or
+            # PSK31 message *between* two truncated messages. Whole-crop
+            # decoders can then fail acquisition even though the signal is
+            # strong. Look for low-energy inter-transmission gaps first.
+            # Only complete interior spans qualify; no signal generator truth
+            # or test-specific message length is used at runtime.
+            windows = propose_burst_windows(values, sample_rate, carrier_hz, mode)
+            acquisition_attempts = []
+            result = None
+            grade, text = "none", ""
+            # One original four-second fallback remains for non-bursty live
+            # signals, weak SNR and candidates that fail a segmented trial.
+            for begin, end in (*windows, (0, len(values))):
+                proposed = _worker_library.decode(
+                    mode, DecodeWindow(
+                        values[begin:end], sample_rate,
+                        sample_start=sample_start + int(begin),
+                        carrier_hz=(1200.0 if mode == "ax25" else carrier_hz),
+                    ))
+                candidate_grade, candidate_text = _evidence_grade(proposed)
+                acquisition_attempts.append({
+                    "sample_start": sample_start + int(begin),
+                    "sample_count": int(end - begin),
+                    "kind": "energy-gap-segment" if (begin, end) != (0, len(values)) else "full-window",
+                    "status": proposed.status,
+                    "grade": candidate_grade,
+                })
+                result, grade, text = proposed, candidate_grade, candidate_text
+                if grade != "none":
+                    break
+            assert result is not None
+            result_dict = result.to_dict()
+            result_dict["live_acquisition"] = {
+                "strategy": "bounded-energy-gap-v1",
+                "original_sample_start": sample_start,
+                "original_sample_count": len(values),
+                "selected_sample_start": acquisition_attempts[-1]["sample_start"],
+                "selected_sample_count": acquisition_attempts[-1]["sample_count"],
+                "attempts": acquisition_attempts,
+                "candidate_spans": len(windows),
+                "confirmed_identity": False,
+            }
             item = {
                 "mode": mode, "status": result.status, "grade": grade,
-                "text": text, "result": result.to_dict(),
+                "text": text, "result": result_dict,
+                "acquisition": result_dict["live_acquisition"],
                 "wall_ms": round((time.perf_counter() - started) * 1000, 2),
                 "cpu_ms": round((time.process_time() - cpu_started) * 1000, 2),
             }
@@ -310,7 +358,8 @@ class NativeLiveRunner:
                     "cpu_ms": result["cpu_ms"], "wall_ms": result["wall_ms"],
                     "mode_timings": [
                         {"mode": a["mode"], "wall_ms": a["wall_ms"], "cpu_ms": a["cpu_ms"],
-                         "status": a["status"], "grade": a["grade"]}
+                         "status": a["status"], "grade": a["grade"],
+                         "acquisition": a.get("acquisition")}
                         for a in attempted
                     ],
                 }
