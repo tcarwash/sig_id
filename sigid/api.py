@@ -62,6 +62,7 @@ from .fldigi import FldigiClient
 from .fldigi_backend import FldigiNativeBackend
 from .fldigi_replay import IsolatedFldigiReplay
 from .wsjtx_backend import WsjtxUdpBackend
+from .onair_backend import OnAirEventBackend
 from .live_audio import LiveCaptureManager
 from .live_spectrum import spectrum_packet
 from .modes import MODE_REGISTRY_VERSION, find_modes, resolve_mode_label
@@ -884,6 +885,18 @@ def create_app(
             wsjtx_port = None
             logging.getLogger(__name__).warning("Ignoring invalid SIG_ID_WSJTX_UDP_PORT")
         configured_backends.append(WsjtxUdpBackend(port=wsjtx_port))
+    if not any(str(getattr(backend, "backend_id", "")).casefold() == "onair" for backend in configured_backends):
+        # The OnAir bridge is strictly event-only and never controls a receiver.
+        # Disabled by default; a bad optional URL must not prevent audio capture.
+        onair_url = os.environ.get("SIG_ID_ONAIR_URL", "").strip()
+        try:
+            configured_backends.append(OnAirEventBackend(
+                base_url=onair_url or None,
+                token=os.environ.get("SIG_ID_ONAIR_TOKEN") or None,
+            ))
+        except ValueError as exc:
+            logging.getLogger(__name__).warning("Ignoring invalid OnAir URL: %s", exc)
+            configured_backends.append(OnAirEventBackend())
     decoder_backends_registry = DecoderBackendRegistry.discover(tuple(configured_backends))
     decode_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sig-id-fldigi-replay")
     model_training_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sig-id-model-training")

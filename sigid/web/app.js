@@ -581,7 +581,8 @@ async function refreshNativeDecoderStatus() {
     const backends = response.backends || [];
     statusNode.textContent = backends.map((backend) => {
       const modeCount = (backend.modes || []).length;
-      return `${backend.application || backend.backend_id}: ${backend.connected ? "ready" : "not connected"} · ${modeCount} modes · ${backend.note || ""}`;
+      const capability = backend.backend_id === "onair" ? "live decode events only" : `${modeCount} listed modes`;
+      return `${backend.application || backend.backend_id}: ${backend.connected ? "ready" : "not connected"} · ${capability} · ${backend.note || ""}`;
     }).join("\n") || "No native decoder backends are registered.";
     statusNode.style.whiteSpace = "pre-line";
     if (response.plugin_errors?.length) {
@@ -605,25 +606,37 @@ async function refreshNativeDecoderStatus() {
     updateDecoderSelectionControls();
     const events = [];
     for (const backend of backends) {
-      if (backend.backend_id !== "wsjtx" || !backend.connected) continue;
+      if (!["wsjtx", "onair"].includes(backend.backend_id) || !backend.connected) continue;
       const received = await request(`/api/decoder-backends/${encodeURIComponent(backend.backend_id)}/events?limit=100`);
       events.push(...received);
     }
     if (!events.length && !resultNode.children.length) {
       resultNode.replaceChildren(Object.assign(document.createElement("p"), {
         className: "muted",
-        textContent: "No new native decoder results. Results from WSJT-X appear here when its UDP reporting is configured.",
+        textContent: "No new native decoder results. WSJT-X UDP and OnAir's local HTTP event feed appear here when configured.",
       }));
       return;
     }
     if (!events.length) return;
+    if (resultNode.children.length === 1 && resultNode.firstElementChild.classList.contains("muted")) {
+      resultNode.replaceChildren();
+    }
     for (const event of events) {
       const row = document.createElement("div");
       row.className = "decode-run";
-      const products = (event.products || []).map((product) => product.kind === "text" ? product.content : `[${product.kind} product]`);
-      const frequency = Number.isFinite(event.frequency_hz) ? ` · ${event.frequency_hz} Hz audio offset` : "";
+      // OnAir provides an absolute RF frequency, unlike WSJT-X's audio offset.
+      const frequency = Number.isFinite(event.frequency_hz)
+        ? event.backend_id === "onair"
+          ? ` · ${(event.frequency_hz / 1e6).toFixed(6)} MHz RF`
+          : ` · ${event.frequency_hz} Hz audio offset`
+        : "";
       const snr = Number.isFinite(event.snr_db) ? ` · ${event.snr_db} dB SNR` : "";
-      row.textContent = `${event.native_mode} · ${event.observed_utc}${frequency}${snr}\n${products.join("\n") || "No text product"}`;
+      const type = event.metadata?.event_type ? ` · ${event.metadata.event_type}` : "";
+      const products = (event.products || []).map((product) =>
+        product.kind === "text" ? product.content
+          : product.kind === "metadata" ? `Fields: ${product.content.slice(0, 800)}`
+          : `[${product.kind} product]`);
+      row.textContent = `${event.backend_id.toUpperCase()} · ${event.native_mode}${type} · ${event.observed_utc}${frequency}${snr}\n${products.join("\n") || "No text product"}`;
       row.style.whiteSpace = "pre-line";
       resultNode.prepend(row);
     }
