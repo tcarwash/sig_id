@@ -53,6 +53,36 @@ CV and heuristic detectors share the *isolated receive-only decoder queue*,
 but not their track registries. CV remains optional; the heuristic path is
 available when the model is unavailable.
 
+## CW-like narrow-tone tracking is independent of CV
+
+The live UI now defaults to **Narrow-tone / CW candidates** in Receive settings,
+separately from CV boxes and classifier suggestions. Before this change, an
+available CV model caused the browser to request no heuristic spectral tracks:
+it hid the established narrow-tone detection path entirely. This was a UI
+integration regression, not evidence that CW could no longer be observed.
+
+With both detectors enabled, CV runs on the normal window and the original
+spectral detector runs periodically (about every 3 seconds, with a reduced
+320-row analysis budget). When CV is preferred, spectral results are limited
+to strongly detected **single-tone narrow candidates** and tone grouping
+uses a 35 Hz maximum gap instead of the general detector's 800 Hz default.
+Without CV, the general multi-tone tracker keeps its original 800 Hz grouping.
+Independent narrow-tone detection remains available even if the classifier is
+disabled; it must never silently depend on a trained model. The two detection
+routes keep separate track IDs and are not counted as independently verified
+protocols.
+
+**Important:** a stable narrow tone can be keyed CW, another on/off-keyed
+emission, or an unmodulated carrier. Signal ID labels it *CW-like / unverified*,
+not decoded Morse. No automatic decoder trial is started for the independent
+single-tone candidate. The UI caches tracks between throttled updates.
+
+Synthetic regression coverage generates an on/off-keyed 1100 Hz carrier,
+checks that it survives without classifier scoring, and confirms the narrower
+35 Hz grouping keeps it separate from an unrelated nearby carrier. Live
+capture overloads remain a separate operational concern; this restores
+visibility but does not guarantee an audio interface cannot overrun.
+
 ## Inspecting CV geometry and independent symbol timing
 
 The waterfall's **Debug CV bounds** switch renders a lightly shaded
