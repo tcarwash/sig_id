@@ -53,10 +53,46 @@ CV and heuristic detectors share the *isolated receive-only decoder queue*,
 but not their track registries. CV remains optional; the heuristic path is
 available when the model is unavailable.
 
+## Inspecting CV geometry and independent symbol timing
+
+The waterfall's **Debug CV bounds** switch renders a lightly shaded
+time/frequency rectangle with a midpoint guide. The compact label includes
+the CV-reported audio-frequency bounds and the detector score. These are the
+detector's proposed bounds, not a measured carrier or confirmed identity.
+The normal overlay remains available when debugging is off.
+
+Each CV result lists its top three **relative, uncalibrated** hierarchical
+mode scores. On-demand **Inspect DSP** uses a bounded excerpt (at most 16 s)
+from the already-captured audio to measure independent, narrowband
+instantaneous-frequency transitions. The helper
+`sigid/timing_evidence.py` reports a *possible* tone grid and a candidate
+frequency-change clock when it can establish sufficient periodicity. It
+abstains on stationary tones, too-short crops, broad/crowded ROIs, and
+ambiguous timing. Neither the classifier scores nor these measurements imply
+a validated modulation identity, protocol, frame sync, or decode.
+
+Read-only API endpoints:
+
+- `GET /api/live/dsp-evidence?session_id=...&sample_start=...&sample_count=...&frequency_low_hz=...&frequency_high_hz=...`
+- `GET /api/captures/{capture_id}/dsp-evidence` with the same geometry
+  parameters (except `session_id`).
+
+The endpoints never start or stop capture, save labels, or invoke a decoder.
+Live audio that has aged outside the bounded ring returns HTTP 409; use a
+newer track or the saved WAV. Tone-transition evidence specifically targets
+frequency-stepped modulation. PSK, ASK, phase-only, and many other emissions
+will require separate estimators rather than forced FSK-like results.
+
+In the locally retained 40m FT8 example, the 1719–1830 Hz box produced
+a **6.25 baud / 160 ms** transition-clock candidate with an approximately
+6 Hz tone-grid candidate. Adjacent boxes were inconclusive for timing.
+This is an FT8-*compatible measurement*, not an independent FT8 decode.
+See [Crowded audio benchmark](CROWDED_AUDIO_BENCHMARK.md).
+
 ## Tests and next gates
 
 ```bash
-python -m pytest -q tests/test_identification.py tests/test_classifier_api.py tests/test_tracking.py tests/test_api.py tests/test_frequency_refinement.py tests/test_crowded_benchmark.py tests/test_frequency_refinement_api.py
+python -m pytest -q tests/test_identification.py tests/test_classifier_api.py tests/test_tracking.py tests/test_api.py tests/test_frequency_refinement.py tests/test_crowded_benchmark.py tests/test_frequency_refinement_api.py tests/test_timing_evidence.py tests/test_timing_evidence_api.py
 ```
 
 Before widening automatic identification, benchmark the whole chain on
