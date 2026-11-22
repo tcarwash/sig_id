@@ -40,6 +40,7 @@ Then open <http://127.0.0.1:8010>. Local audio capture also requires the platfor
 - [Automatic native live decoding](docs/NATIVE_LIVE_DECODING.md): CPU-budgeted worker runs native modem attempts against persistent live detector tracks and surfaces unverified coherent output plus latency/CPU metrics.
 - [Live pipeline optimization](docs/LIVE_PIPELINE_OPTIMIZATION.md): guarded concurrent CV/heuristic polling, bounded classifier cache, annotation triage and benchmark.
 - [Signal-chain SNR and acquisition benchmark](docs/SIGNAL_CHAIN_SNR_BENCHMARK.md): deterministic positive/negative and 48-kHz live-crop comparison; RTTY/BPSK31 segmented acquisition with exact sample evidence.
+- [Weak RTTY and longer-CW acquisition](docs/WEAK_SIGNAL_ACQUISITION.md): conservative two-tone gating, CW-first eight-second evidence, multi-seed SNR and negative controls.
 - [Waterfall Time Lens](docs/WATERFALL_TIME_LENS.md): 60-second log-like live display with newest seconds expanded, exact sample-to-screen selection and no changes to decoder audio.
 - [Decoder agent start page](docs/DECODER_AGENT_PLAYBOOK.md): implementation API, source/evidence links and machine-readable 36-mode work queue for parallel agents.
 - [Crowded-signal benchmark](docs/CROWDED_AUDIO_BENCHMARK.md): high-resolution split previews, real 40m replay, and accuracy metrics with reviewed references.

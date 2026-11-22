@@ -6,11 +6,20 @@ In **Settings → Receive settings**, enable **Auto-try native decoders (CPU lim
 
 ## What triggers a trial
 
-The browser's existing live detection polls carry `auto_native_decode=true` when enabled. A detector must produce a **persistent track**; provisional and historical candidates do not trigger work. The service extracts up to four seconds of the exact current, absolute-sample-indexed mono input around the detector region and tries at most two native mode hypotheses.
+The browser's existing live detection polls carry `auto_native_decode=true` when enabled. A detector must produce a **persistent track**; provisional and historical candidates do not trigger work. The service extracts up to four seconds of the current, absolute-sample-indexed mono input around the detector region for each normal modem hypothesis. A **primary CW** hypothesis may examine up to eight seconds from the existing ten-second live analysis ring, and can compare its newest four-second slice. At most two native mode hypotheses run.
 
 Classifier method/family suggestions narrow the mode shortlist when available; **classifier abstention does not forbid a trial**. The fallback shortlist is based on audio frequency and occupied bandwidth and is explicitly an *unverified hypothesis*. The first-party library currently offers CW, RTTY, BPSK31 and AX.25. AX.25 uses its present fixed Bell 202 1200/2200-Hz tone pair.
 
 All modem DSP executes on a dedicated **single-worker child process**, not in the audio callback or the HTTP detection request. It owns no sound hardware, CAT/PTT, network decoder service or transmit action. It is fully separate from Fldigi, OnAir, and WSJT-X.
+
+## Weak-signal and extended-CW follow-up
+
+See [the controlled multi-seed weak-signal evaluation](WEAK_SIGNAL_ACQUISITION.md)
+for the new two-tone-gated negative-SNR RTTY acquisition, CW-first eight-second
+lookback and recent-four-second comparison, persisted trial sample windows,
+CPU measurements, wrong-but-readable text controls and still-unresolved streaming
+CW state machine work. These changes keep the independent single-worker CPU
+admission and unverified result semantics intact.
 
 ## Acquisition-aware short-burst recovery
 
@@ -47,7 +56,7 @@ The following default admission controls are applied **per server**:
 | Native decoder process workers | 1 |
 | Concurrent/queued decoder jobs | 1 running / 0 queued |
 | Maximum candidates per attempt | 2 |
-| PCM input window | Up to 4 seconds |
+| PCM input window | Up to 4 seconds per non-CW modem; up to 8 seconds for primary CW |
 | Starts per rolling minute | 5 |
 | Decoder process CPU budget | 3,000 ms per rolling minute |
 | Minimum time between starts | 3 seconds |
@@ -69,7 +78,7 @@ Fields: `attempts_last_minute`, `cpu_ms_last_minute`, `cpu_pct_single_core_last_
 A native decoder's candidate output is graded conservatively:
 
 - **frame-integrity-passed:** a decoded frame with an explicitly passed CRC/checksum integrity check. This is stronger evidence for that decoded payload, **not a reviewed mode identity**.
-- **coherent-unverified:** a decoded text string that meets minimal length/printability/character variety criteria. These heuristics reject some garbage but are not calibrated correctness scores.
+- **coherent-unverified:** a decoded text string that meets minimal length/printability/character variety criteria. These heuristics reject some garbage but are not calibrated correctness scores. **Correct-looking Baudot/CW text may contain bit errors**, especially below 0 dB SNR.
 - **none:** abstained, partial, failed, or incoherent result. No text is promoted to the UI.
 
 The decoder's mode suggestion and recovered text are attached to the **same detector track**, kept apart from the classifier's own proposals, and displayed in the live waterfall label and separate native results section. No manual annotation, label, protocol identity, or model training truth is changed automatically. All attempts—including failures and abstentions—are persisted as structured decoder runs with exact sample-window provenance for later comparison. They can be collected for review only through the usual deliberate workflow.
