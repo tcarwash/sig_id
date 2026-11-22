@@ -20,6 +20,7 @@ import numpy as np
 from .native_acquisition import propose_burst_windows
 
 MAX_WINDOW_SECONDS = 4
+MAX_CW_WINDOW_SECONDS = 8
 MAX_MODES_PER_ATTEMPT = 2
 MAX_ATTEMPTS_PER_MINUTE = 5
 MAX_CPU_MS_PER_MINUTE = 3000
@@ -114,8 +115,9 @@ def decode_live_candidate(pcm: bytes, sample_rate: int, sample_start: int,
     if not 1 <= len(modes) <= MAX_MODES_PER_ATTEMPT:
         raise ValueError("native live decode requires one or two hypotheses")
     values = np.frombuffer(pcm, dtype="<i2").astype(np.float64) / 32768.0
-    if not len(values) or len(values) > MAX_WINDOW_SECONDS * sample_rate:
-        raise ValueError("live decoder window must be bounded")
+    max_seconds = MAX_CW_WINDOW_SECONDS if "cw" in modes else MAX_WINDOW_SECONDS
+    if not len(values) or len(values) > max_seconds * sample_rate:
+        raise ValueError("live decoder window must be bounded for the requested modes")
     if not np.isfinite(carrier_hz) or not 20 <= carrier_hz < sample_rate / 2:
         raise ValueError("invalid audio carrier")
     attempts = []
@@ -125,6 +127,15 @@ def decode_live_candidate(pcm: bytes, sample_rate: int, sample_start: int,
     for mode in modes:
         started = time.perf_counter()
         cpu_started = time.process_time()
+        # A CW candidate can use an eight-second lookback to accumulate
+        # complete characters across partial windows. Other modes retain
+        # their original four-second DSP cap even when paired with CW.
+        if mode != "cw" and len(values) > MAX_WINDOW_SECONDS * sample_rate:
+            mode_values = values[-MAX_WINDOW_SECONDS * sample_rate:]
+            mode_start = sample_start + len(values) - len(mode_values)
+        else:
+            mode_values = values
+            mode_start = sample_start
         try:
             # A four-second crop can contain an entire 1.5-second RTTY or
             # PSK31 message *between* two truncated messages. Whole-crop
@@ -132,38 +143,68 @@ def decode_live_candidate(pcm: bytes, sample_rate: int, sample_start: int,
             # strong. Look for low-energy inter-transmission gaps first.
             # Only complete interior spans qualify; no signal generator truth
             # or test-specific message length is used at runtime.
-            windows = propose_burst_windows(values, sample_rate, carrier_hz, mode)
+            windows = propose_burst_windows(mode_values, sample_rate, carrier_hz, mode)
             acquisition_attempts = []
             result = None
             grade, text = "none", ""
-            # One original four-second fallback remains for non-bursty live
-            # signals, weak SNR and candidates that fail a segmented trial.
-            for begin, end in (*windows, (0, len(values))):
+            selected_trial = -1
+            extended_cw = mode == "cw" and len(mode_values) > MAX_WINDOW_SECONDS * sample_rate
+            # CW: compare an 8s history with the familiar recent 4s slice.
+            # The larger window can contain an earlier partial symbol and
+            # misleading noise; never force it over a cleaner short decode.
+            # Neither slice is a verified Morse message or packet boundary.
+            if extended_cw:
+                trials = ((0, len(mode_values)),
+                          (len(mode_values)-MAX_WINDOW_SECONDS*sample_rate, len(mode_values)))
+            else:
+                trials = (*windows, (0, len(mode_values)))
+            best_quality = (-1, -1.0, -1.0)
+            # Other modes retain up to two energy-gap candidates followed by
+            # one full-window fallback. No extra workers or queued jobs.
+            for begin, end in trials:
                 proposed = _worker_library.decode(
                     mode, DecodeWindow(
-                        values[begin:end], sample_rate,
-                        sample_start=sample_start + int(begin),
+                        mode_values[begin:end], sample_rate,
+                        sample_start=mode_start + int(begin),
                         carrier_hz=(1200.0 if mode == "ax25" else carrier_hz),
                     ))
                 candidate_grade, candidate_text = _evidence_grade(proposed)
                 acquisition_attempts.append({
-                    "sample_start": sample_start + int(begin),
+                    "sample_start": mode_start + int(begin),
                     "sample_count": int(end - begin),
-                    "kind": "energy-gap-segment" if (begin, end) != (0, len(values)) else "full-window",
+                    "kind": ("cw-recent-four-second-check" if extended_cw and begin > 0
+                             else "energy-gap-segment" if (begin, end) != (0, len(mode_values))
+                             else "full-window"),
                     "status": proposed.status,
                     "grade": candidate_grade,
                 })
-                result, grade, text = proposed, candidate_grade, candidate_text
-                if grade != "none":
-                    break
-            assert result is not None
+                if extended_cw:
+                    evidence = proposed.evidence
+                    quality = (
+                        1 if candidate_grade != "none" else 0,
+                        float(evidence.get("mean_symbol_timing_fit", -1)),
+                        1 - float(evidence.get("unknown_token_fraction", 1)),
+                    )
+                    if quality > best_quality:
+                        result, grade, text = proposed, candidate_grade, candidate_text
+                        selected_trial = len(acquisition_attempts)-1
+                        best_quality = quality
+                else:
+                    result, grade, text = proposed, candidate_grade, candidate_text
+                    selected_trial = len(acquisition_attempts)-1
+                    if grade != "none":
+                        break
+            assert result is not None and selected_trial >= 0
+            acquisition_attempts[selected_trial]["selected"] = True
             result_dict = result.to_dict()
             result_dict["live_acquisition"] = {
-                "strategy": "bounded-energy-gap-v1",
-                "original_sample_start": sample_start,
-                "original_sample_count": len(values),
-                "selected_sample_start": acquisition_attempts[-1]["sample_start"],
-                "selected_sample_count": acquisition_attempts[-1]["sample_count"],
+                "strategy": ("cw-long-or-recent-window-v2" if mode == "cw" and len(mode_values) > MAX_WINDOW_SECONDS * sample_rate
+                             else "bounded-energy-gap-v1"),
+                "original_sample_start": mode_start,
+                "original_sample_count": len(mode_values),
+                "selected_sample_start": acquisition_attempts[selected_trial]["sample_start"],
+                "selected_sample_count": acquisition_attempts[selected_trial]["sample_count"],
+                "selected_attempt_index": selected_trial,
                 "attempts": acquisition_attempts,
                 "candidate_spans": len(windows),
                 "confirmed_identity": False,
@@ -255,12 +296,15 @@ class NativeLiveRunner:
         end = start + int(track.get("sample_count") or 0)
         if start < 0 or end <= start or end > ring_end:
             return {"status": "not_eligible"}
-        # Add short guard intervals to retain modem acquisition/termination,
-        # but never read outside the live ring or exceed 4 seconds.
+        # CW can need several complete words to overcome a cropped initial
+        # Morse symbol. Keep the longer lookback restricted to CW hypotheses,
+        # with all other modems still limited to four-second DSP windows.
+        modes = candidate_modes(track)[:MAX_MODES_PER_ATTEMPT]
+        max_seconds = MAX_CW_WINDOW_SECONDS if modes[0] == "cw" else MAX_WINDOW_SECONDS
         left = max(ring_start, start - round(.15 * rate))
         right = min(ring_end, end + round(.15 * rate))
-        if right - left > MAX_WINDOW_SECONDS * rate:
-            left = right - MAX_WINDOW_SECONDS * rate
+        if right - left > max_seconds * rate:
+            left = right - max_seconds * rate
         if right - left < .4 * rate:
             return {"status": "not_eligible"}
         lo = float(track.get("frequency_low_hz") or 0)
@@ -268,7 +312,6 @@ class NativeLiveRunner:
         if not (0 <= lo < hi <= min(3000.0, rate / 2)):
             return {"status": "not_eligible"}
         carrier = (lo + hi) / 2
-        modes = candidate_modes(track)[:MAX_MODES_PER_ATTEMPT]
         now = time.monotonic()
         with self._lock:
             self._reset_for_session(session_id)

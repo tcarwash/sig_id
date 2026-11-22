@@ -45,7 +45,7 @@ export function summarizeDecoderResult(result) {
     const attempts = Array.isArray(acquisition.attempts) ? acquisition.attempts : [];
     if (attempts.length) {
       lines.push(`Acquisition trials (${attempts.length}): ${attempts.slice(0, 3).map((trial) =>
-        `${shortText(trial?.kind, 25)} · ${shortText(trial?.status, 20)} · ${shortText(trial?.grade, 30)}`
+        `${shortText(trial?.kind, 25)}${trial?.selected ? " [selected]" : ""} · ${shortText(trial?.status, 20)} · ${shortText(trial?.grade, 30)}`
       ).join(" | ")}`);
     }
     lines.push("Acquisition windows are proposals, not verified message boundaries.");

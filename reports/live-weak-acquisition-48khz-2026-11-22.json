@@ -1,0 +1,3082 @@
+{
+  "schema_version": 1,
+  "provenance": "synthetic-signal-lab-only",
+  "not_on_air_validation": true,
+  "sample_rate": 48000,
+  "seed_start": 71062,
+  "seed_count": 6,
+  "snrs": [
+    -10.0,
+    -5.0,
+    0.0,
+    10.0
+  ],
+  "summary": {
+    "cw:-10.0": {
+      "cases": 6,
+      "legacy_expected_present": 0,
+      "updated_expected_present": 0,
+      "incorrect_coherent_unverified": 0,
+      "noise_false_outputs": 0,
+      "updated_cpu_ms_median": 60.19
+    },
+    "cw:-5.0": {
+      "cases": 6,
+      "legacy_expected_present": 2,
+      "updated_expected_present": 2,
+      "incorrect_coherent_unverified": 2,
+      "noise_false_outputs": 0,
+      "updated_cpu_ms_median": 58.81
+    },
+    "cw:0.0": {
+      "cases": 6,
+      "legacy_expected_present": 6,
+      "updated_expected_present": 6,
+      "incorrect_coherent_unverified": 0,
+      "noise_false_outputs": 0,
+      "updated_cpu_ms_median": 58.86
+    },
+    "cw:10.0": {
+      "cases": 6,
+      "legacy_expected_present": 6,
+      "updated_expected_present": 6,
+      "incorrect_coherent_unverified": 0,
+      "noise_false_outputs": 0,
+      "updated_cpu_ms_median": 59.22
+    },
+    "rtty:-10.0": {
+      "cases": 6,
+      "legacy_expected_present": 0,
+      "updated_expected_present": 0,
+      "incorrect_coherent_unverified": 0,
+      "noise_false_outputs": 0,
+      "updated_cpu_ms_median": 569.69
+    },
+    "rtty:-5.0": {
+      "cases": 6,
+      "legacy_expected_present": 0,
+      "updated_expected_present": 2,
+      "incorrect_coherent_unverified": 2,
+      "noise_false_outputs": 0,
+      "updated_cpu_ms_median": 330.63
+    },
+    "rtty:0.0": {
+      "cases": 6,
+      "legacy_expected_present": 0,
+      "updated_expected_present": 6,
+      "incorrect_coherent_unverified": 0,
+      "noise_false_outputs": 0,
+      "updated_cpu_ms_median": 303.65
+    },
+    "rtty:10.0": {
+      "cases": 6,
+      "legacy_expected_present": 0,
+      "updated_expected_present": 6,
+      "incorrect_coherent_unverified": 0,
+      "noise_false_outputs": 0,
+      "updated_cpu_ms_median": 306.97
+    }
+  },
+  "cases": [
+    {
+      "mode": "cw",
+      "snr_db": -10.0,
+      "seed": 71062,
+      "sample_rate": 48000,
+      "source_sha256": "cebbac20ed46747e8f508e0dcaa10a8ad078c68bed1e0ec2c11b02564a23091f",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 260.0,
+      "sample_start": 64800,
+      "sample_count": 384000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": {
+        "grade": "none",
+        "text": "",
+        "expected_present": false
+      },
+      "legacy": {
+        "sample_start": 256800,
+        "sample_count": 192000,
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 14.99
+      },
+      "updated": {
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 95.07,
+        "cpu_ms": 95.02,
+        "acquisition": {
+          "strategy": "cw-long-or-recent-window-v2",
+          "original_sample_start": 64800,
+          "original_sample_count": 384000,
+          "selected_sample_start": 64800,
+          "selected_sample_count": 384000,
+          "selected_attempt_index": 0,
+          "attempts": [
+            {
+              "sample_start": 64800,
+              "sample_count": 384000,
+              "kind": "full-window",
+              "status": "no_decode",
+              "grade": "none",
+              "selected": true
+            },
+            {
+              "sample_start": 256800,
+              "sample_count": 192000,
+              "kind": "cw-recent-four-second-check",
+              "status": "no_decode",
+              "grade": "none"
+            }
+          ],
+          "candidate_spans": 0,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 68.73
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "cw",
+      "snr_db": -5.0,
+      "seed": 71062,
+      "sample_rate": 48000,
+      "source_sha256": "b194b9d6a0bf5b42c9c4f2d6ee1f80b1d76f9984bc5da2866b184416dc4ba497",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 260.0,
+      "sample_start": 64800,
+      "sample_count": 384000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": {
+        "grade": "none",
+        "text": "",
+        "expected_present": false
+      },
+      "legacy": {
+        "sample_start": 256800,
+        "sample_count": 192000,
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 15.29
+      },
+      "updated": {
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 65.63,
+        "cpu_ms": 65.62,
+        "acquisition": {
+          "strategy": "cw-long-or-recent-window-v2",
+          "original_sample_start": 64800,
+          "original_sample_count": 384000,
+          "selected_sample_start": 256800,
+          "selected_sample_count": 192000,
+          "selected_attempt_index": 1,
+          "attempts": [
+            {
+              "sample_start": 64800,
+              "sample_count": 384000,
+              "kind": "full-window",
+              "status": "decoded",
+              "grade": "coherent-unverified"
+            },
+            {
+              "sample_start": 256800,
+              "sample_count": 192000,
+              "kind": "cw-recent-four-second-check",
+              "status": "decoded",
+              "grade": "coherent-unverified",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 0,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 56.91
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "cw",
+      "snr_db": 0.0,
+      "seed": 71062,
+      "sample_rate": 48000,
+      "source_sha256": "13ef4a1f7ebcc4e2c9496000199a727f3081edff45d1e632c000f02b1636509b",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 260.0,
+      "sample_start": 64800,
+      "sample_count": 384000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": {
+        "grade": "coherent-unverified",
+        "text": "FQ TEST",
+        "expected_present": false
+      },
+      "legacy": {
+        "sample_start": 256800,
+        "sample_count": 192000,
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 13.49
+      },
+      "updated": {
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 54.78,
+        "cpu_ms": 54.78,
+        "acquisition": {
+          "strategy": "cw-long-or-recent-window-v2",
+          "original_sample_start": 64800,
+          "original_sample_count": 384000,
+          "selected_sample_start": 256800,
+          "selected_sample_count": 192000,
+          "selected_attempt_index": 1,
+          "attempts": [
+            {
+              "sample_start": 64800,
+              "sample_count": 384000,
+              "kind": "full-window",
+              "status": "decoded",
+              "grade": "coherent-unverified"
+            },
+            {
+              "sample_start": 256800,
+              "sample_count": 192000,
+              "kind": "cw-recent-four-second-check",
+              "status": "decoded",
+              "grade": "coherent-unverified",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 0,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 57.45
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "cw",
+      "snr_db": 10.0,
+      "seed": 71062,
+      "sample_rate": 48000,
+      "source_sha256": "5b0658c2b230806ad54a0558347c19a2951ff37f570c9b282774345aa377ad59",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 260.0,
+      "sample_start": 64800,
+      "sample_count": 384000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": {
+        "grade": "coherent-unverified",
+        "text": "FQ TEST",
+        "expected_present": false
+      },
+      "legacy": {
+        "sample_start": 256800,
+        "sample_count": 192000,
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 13.16
+      },
+      "updated": {
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 55.51,
+        "cpu_ms": 55.51,
+        "acquisition": {
+          "strategy": "cw-long-or-recent-window-v2",
+          "original_sample_start": 64800,
+          "original_sample_count": 384000,
+          "selected_sample_start": 256800,
+          "selected_sample_count": 192000,
+          "selected_attempt_index": 1,
+          "attempts": [
+            {
+              "sample_start": 64800,
+              "sample_count": 384000,
+              "kind": "full-window",
+              "status": "decoded",
+              "grade": "coherent-unverified"
+            },
+            {
+              "sample_start": 256800,
+              "sample_count": 192000,
+              "kind": "cw-recent-four-second-check",
+              "status": "decoded",
+              "grade": "coherent-unverified",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 0,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 56.56
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "rtty",
+      "snr_db": -10.0,
+      "seed": 71062,
+      "sample_rate": 48000,
+      "source_sha256": "761dc13ab076caaf04bc6e8437db0631c2e6f8f45bd2d9d8923625dabd436f8e",
+      "fixture_sha256": "e8889ec97e40d6cd618a4a96114fc2467a034f9009551e28be3e6bd2ddd27c04",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 740.0,
+      "sample_start": 64800,
+      "sample_count": 192000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": null,
+      "legacy": {
+        "sample_start": 64800,
+        "sample_count": 192000,
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 563.26
+      },
+      "updated": {
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 579.04,
+        "cpu_ms": 578.9,
+        "acquisition": {
+          "strategy": "bounded-energy-gap-v1",
+          "original_sample_start": 64800,
+          "original_sample_count": 192000,
+          "selected_sample_start": 64800,
+          "selected_sample_count": 192000,
+          "selected_attempt_index": 0,
+          "attempts": [
+            {
+              "sample_start": 64800,
+              "sample_count": 192000,
+              "kind": "full-window",
+              "status": "no_decode",
+              "grade": "none",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 0,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 563.31
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "rtty",
+      "snr_db": -5.0,
+      "seed": 71062,
+      "sample_rate": 48000,
+      "source_sha256": "81dcce09a2ea9379e937fe5a29ab38c6c768935de23feb64f4a75754100528c6",
+      "fixture_sha256": "e8889ec97e40d6cd618a4a96114fc2467a034f9009551e28be3e6bd2ddd27c04",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 740.0,
+      "sample_start": 64800,
+      "sample_count": 192000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": null,
+      "legacy": {
+        "sample_start": 64800,
+        "sample_count": 192000,
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 565.07
+      },
+      "updated": {
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 340.22,
+        "cpu_ms": 340.15,
+        "acquisition": {
+          "strategy": "bounded-energy-gap-v1",
+          "original_sample_start": 64800,
+          "original_sample_count": 192000,
+          "selected_sample_start": 129840,
+          "selected_sample_count": 72960,
+          "selected_attempt_index": 0,
+          "attempts": [
+            {
+              "sample_start": 129840,
+              "sample_count": 72960,
+              "kind": "energy-gap-segment",
+              "status": "decoded",
+              "grade": "coherent-unverified",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 1,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 569.95
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "rtty",
+      "snr_db": 0.0,
+      "seed": 71062,
+      "sample_rate": 48000,
+      "source_sha256": "f5616c29e409f188125c0b21d65118da57413d4079cfae5370b917b21a429f15",
+      "fixture_sha256": "e8889ec97e40d6cd618a4a96114fc2467a034f9009551e28be3e6bd2ddd27c04",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 740.0,
+      "sample_start": 64800,
+      "sample_count": 192000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": null,
+      "legacy": {
+        "sample_start": 64800,
+        "sample_count": 192000,
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 559.95
+      },
+      "updated": {
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 305.3,
+        "cpu_ms": 305.22,
+        "acquisition": {
+          "strategy": "bounded-energy-gap-v1",
+          "original_sample_start": 64800,
+          "original_sample_count": 192000,
+          "selected_sample_start": 129600,
+          "selected_sample_count": 73440,
+          "selected_attempt_index": 0,
+          "attempts": [
+            {
+              "sample_start": 129600,
+              "sample_count": 73440,
+              "kind": "energy-gap-segment",
+              "status": "decoded",
+              "grade": "coherent-unverified",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 1,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 567.78
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "rtty",
+      "snr_db": 10.0,
+      "seed": 71062,
+      "sample_rate": 48000,
+      "source_sha256": "5f31ea52bc0658d0bb3e0422695593105a640a522eb4ee0b8f5440354127520b",
+      "fixture_sha256": "e8889ec97e40d6cd618a4a96114fc2467a034f9009551e28be3e6bd2ddd27c04",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 740.0,
+      "sample_start": 64800,
+      "sample_count": 192000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": null,
+      "legacy": {
+        "sample_start": 64800,
+        "sample_count": 192000,
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 578.68
+      },
+      "updated": {
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 336.64,
+        "cpu_ms": 336.57,
+        "acquisition": {
+          "strategy": "bounded-energy-gap-v1",
+          "original_sample_start": 64800,
+          "original_sample_count": 192000,
+          "selected_sample_start": 129600,
+          "selected_sample_count": 73440,
+          "selected_attempt_index": 0,
+          "attempts": [
+            {
+              "sample_start": 129600,
+              "sample_count": 73440,
+              "kind": "energy-gap-segment",
+              "status": "decoded",
+              "grade": "coherent-unverified",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 1,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 564.87
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "cw",
+      "snr_db": -10.0,
+      "seed": 71063,
+      "sample_rate": 48000,
+      "source_sha256": "8e03a69d3aee1572c19d769a10beea605558e344b50a8acf2b29a11e41863c14",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 260.0,
+      "sample_start": 64800,
+      "sample_count": 384000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": {
+        "grade": "none",
+        "text": "",
+        "expected_present": false
+      },
+      "legacy": {
+        "sample_start": 256800,
+        "sample_count": 192000,
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 14.08
+      },
+      "updated": {
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 59.94,
+        "cpu_ms": 59.95,
+        "acquisition": {
+          "strategy": "cw-long-or-recent-window-v2",
+          "original_sample_start": 64800,
+          "original_sample_count": 384000,
+          "selected_sample_start": 64800,
+          "selected_sample_count": 384000,
+          "selected_attempt_index": 0,
+          "attempts": [
+            {
+              "sample_start": 64800,
+              "sample_count": 384000,
+              "kind": "full-window",
+              "status": "no_decode",
+              "grade": "none",
+              "selected": true
+            },
+            {
+              "sample_start": 256800,
+              "sample_count": 192000,
+              "kind": "cw-recent-four-second-check",
+              "status": "no_decode",
+              "grade": "none"
+            }
+          ],
+          "candidate_spans": 0,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 63.12
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "cw",
+      "snr_db": -5.0,
+      "seed": 71063,
+      "sample_rate": 48000,
+      "source_sha256": "a352f51db72a5aca789fdb03d72f30e169c756f2ca7ae09362e617947eec78aa",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 260.0,
+      "sample_start": 64800,
+      "sample_count": 384000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": {
+        "grade": "none",
+        "text": "",
+        "expected_present": false
+      },
+      "legacy": {
+        "sample_start": 256800,
+        "sample_count": 192000,
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 13.42
+      },
+      "updated": {
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 58.24,
+        "cpu_ms": 58.25,
+        "acquisition": {
+          "strategy": "cw-long-or-recent-window-v2",
+          "original_sample_start": 64800,
+          "original_sample_count": 384000,
+          "selected_sample_start": 256800,
+          "selected_sample_count": 192000,
+          "selected_attempt_index": 1,
+          "attempts": [
+            {
+              "sample_start": 64800,
+              "sample_count": 384000,
+              "kind": "full-window",
+              "status": "no_decode",
+              "grade": "none"
+            },
+            {
+              "sample_start": 256800,
+              "sample_count": 192000,
+              "kind": "cw-recent-four-second-check",
+              "status": "partial",
+              "grade": "none",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 0,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 59.73
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "cw",
+      "snr_db": 0.0,
+      "seed": 71063,
+      "sample_rate": 48000,
+      "source_sha256": "bb1225041afa5fc69b044e5331e25fecad1cc91fcb88f1432928e9aaa8c85ec9",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 260.0,
+      "sample_start": 64800,
+      "sample_count": 384000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": {
+        "grade": "coherent-unverified",
+        "text": "FQ TEST",
+        "expected_present": false
+      },
+      "legacy": {
+        "sample_start": 256800,
+        "sample_count": 192000,
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 13.58
+      },
+      "updated": {
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 67.2,
+        "cpu_ms": 67.16,
+        "acquisition": {
+          "strategy": "cw-long-or-recent-window-v2",
+          "original_sample_start": 64800,
+          "original_sample_count": 384000,
+          "selected_sample_start": 256800,
+          "selected_sample_count": 192000,
+          "selected_attempt_index": 1,
+          "attempts": [
+            {
+              "sample_start": 64800,
+              "sample_count": 384000,
+              "kind": "full-window",
+              "status": "decoded",
+              "grade": "coherent-unverified"
+            },
+            {
+              "sample_start": 256800,
+              "sample_count": 192000,
+              "kind": "cw-recent-four-second-check",
+              "status": "decoded",
+              "grade": "coherent-unverified",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 0,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 58.31
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "cw",
+      "snr_db": 10.0,
+      "seed": 71063,
+      "sample_rate": 48000,
+      "source_sha256": "872272cbe828816cb2f3c07fa1a6471205febfa524432f690d9a1c67ba2e0628",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 260.0,
+      "sample_start": 64800,
+      "sample_count": 384000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": {
+        "grade": "coherent-unverified",
+        "text": "FQ TEST",
+        "expected_present": false
+      },
+      "legacy": {
+        "sample_start": 256800,
+        "sample_count": 192000,
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 13.91
+      },
+      "updated": {
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 58.98,
+        "cpu_ms": 58.97,
+        "acquisition": {
+          "strategy": "cw-long-or-recent-window-v2",
+          "original_sample_start": 64800,
+          "original_sample_count": 384000,
+          "selected_sample_start": 256800,
+          "selected_sample_count": 192000,
+          "selected_attempt_index": 1,
+          "attempts": [
+            {
+              "sample_start": 64800,
+              "sample_count": 384000,
+              "kind": "full-window",
+              "status": "decoded",
+              "grade": "coherent-unverified"
+            },
+            {
+              "sample_start": 256800,
+              "sample_count": 192000,
+              "kind": "cw-recent-four-second-check",
+              "status": "decoded",
+              "grade": "coherent-unverified",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 0,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 79.02
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "rtty",
+      "snr_db": -10.0,
+      "seed": 71063,
+      "sample_rate": 48000,
+      "source_sha256": "292f7743e935818985452e2a97e84ede0f4ca322d46cc772ab162c6578b9b7c6",
+      "fixture_sha256": "e8889ec97e40d6cd618a4a96114fc2467a034f9009551e28be3e6bd2ddd27c04",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 740.0,
+      "sample_start": 64800,
+      "sample_count": 192000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": null,
+      "legacy": {
+        "sample_start": 64800,
+        "sample_count": 192000,
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 560.4
+      },
+      "updated": {
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 569.52,
+        "cpu_ms": 569.42,
+        "acquisition": {
+          "strategy": "bounded-energy-gap-v1",
+          "original_sample_start": 64800,
+          "original_sample_count": 192000,
+          "selected_sample_start": 64800,
+          "selected_sample_count": 192000,
+          "selected_attempt_index": 0,
+          "attempts": [
+            {
+              "sample_start": 64800,
+              "sample_count": 192000,
+              "kind": "full-window",
+              "status": "no_decode",
+              "grade": "none",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 0,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 587.6
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "rtty",
+      "snr_db": -5.0,
+      "seed": 71063,
+      "sample_rate": 48000,
+      "source_sha256": "92cba09a63dffc1d3ca95d909737bf057a5d42762231a41216726cabf6bd4977",
+      "fixture_sha256": "e8889ec97e40d6cd618a4a96114fc2467a034f9009551e28be3e6bd2ddd27c04",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 740.0,
+      "sample_start": 64800,
+      "sample_count": 192000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": null,
+      "legacy": {
+        "sample_start": 64800,
+        "sample_count": 192000,
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 566.7
+      },
+      "updated": {
+        "grade": "coherent-unverified",
+        "text": "VCQ TEST",
+        "expected_present": false,
+        "wall_ms": 314.18,
+        "cpu_ms": 314.13,
+        "acquisition": {
+          "strategy": "bounded-energy-gap-v1",
+          "original_sample_start": 64800,
+          "original_sample_count": 192000,
+          "selected_sample_start": 129840,
+          "selected_sample_count": 72960,
+          "selected_attempt_index": 0,
+          "attempts": [
+            {
+              "sample_start": 129840,
+              "sample_count": 72960,
+              "kind": "energy-gap-segment",
+              "status": "decoded",
+              "grade": "coherent-unverified",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 1,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": true
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 575.32
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "rtty",
+      "snr_db": 0.0,
+      "seed": 71063,
+      "sample_rate": 48000,
+      "source_sha256": "f412b12e524173a85fad562bd64666239b526e705bf3b9759853ed739ed613d7",
+      "fixture_sha256": "e8889ec97e40d6cd618a4a96114fc2467a034f9009551e28be3e6bd2ddd27c04",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 740.0,
+      "sample_start": 64800,
+      "sample_count": 192000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": null,
+      "legacy": {
+        "sample_start": 64800,
+        "sample_count": 192000,
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 562.32
+      },
+      "updated": {
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 307.72,
+        "cpu_ms": 307.68,
+        "acquisition": {
+          "strategy": "bounded-energy-gap-v1",
+          "original_sample_start": 64800,
+          "original_sample_count": 192000,
+          "selected_sample_start": 129600,
+          "selected_sample_count": 73440,
+          "selected_attempt_index": 0,
+          "attempts": [
+            {
+              "sample_start": 129600,
+              "sample_count": 73440,
+              "kind": "energy-gap-segment",
+              "status": "decoded",
+              "grade": "coherent-unverified",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 1,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 596.34
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "rtty",
+      "snr_db": 10.0,
+      "seed": 71063,
+      "sample_rate": 48000,
+      "source_sha256": "0c798ae5183bb7ccd2192ca3a0bd55a46c522049b2844b1986cc70034a628230",
+      "fixture_sha256": "e8889ec97e40d6cd618a4a96114fc2467a034f9009551e28be3e6bd2ddd27c04",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 740.0,
+      "sample_start": 64800,
+      "sample_count": 192000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": null,
+      "legacy": {
+        "sample_start": 64800,
+        "sample_count": 192000,
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 567.36
+      },
+      "updated": {
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 322.46,
+        "cpu_ms": 322.15,
+        "acquisition": {
+          "strategy": "bounded-energy-gap-v1",
+          "original_sample_start": 64800,
+          "original_sample_count": 192000,
+          "selected_sample_start": 129600,
+          "selected_sample_count": 73440,
+          "selected_attempt_index": 0,
+          "attempts": [
+            {
+              "sample_start": 129600,
+              "sample_count": 73440,
+              "kind": "energy-gap-segment",
+              "status": "decoded",
+              "grade": "coherent-unverified",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 1,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 565.47
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "cw",
+      "snr_db": -10.0,
+      "seed": 71064,
+      "sample_rate": 48000,
+      "source_sha256": "64bb16f4083e5b9cc392fea6a4d26fdc9a9d92fef85d314b5f426ca030520cc8",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 260.0,
+      "sample_start": 64800,
+      "sample_count": 384000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": {
+        "grade": "none",
+        "text": "",
+        "expected_present": false
+      },
+      "legacy": {
+        "sample_start": 256800,
+        "sample_count": 192000,
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 13.9
+      },
+      "updated": {
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 56.07,
+        "cpu_ms": 56.07,
+        "acquisition": {
+          "strategy": "cw-long-or-recent-window-v2",
+          "original_sample_start": 64800,
+          "original_sample_count": 384000,
+          "selected_sample_start": 64800,
+          "selected_sample_count": 384000,
+          "selected_attempt_index": 0,
+          "attempts": [
+            {
+              "sample_start": 64800,
+              "sample_count": 384000,
+              "kind": "full-window",
+              "status": "no_decode",
+              "grade": "none",
+              "selected": true
+            },
+            {
+              "sample_start": 256800,
+              "sample_count": 192000,
+              "kind": "cw-recent-four-second-check",
+              "status": "no_decode",
+              "grade": "none"
+            }
+          ],
+          "candidate_spans": 0,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 57.26
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "cw",
+      "snr_db": -5.0,
+      "seed": 71064,
+      "sample_rate": 48000,
+      "source_sha256": "5443e702e50533a3733b58629db7500e02f6e57665830367806e1d04fc5a82b2",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 260.0,
+      "sample_start": 64800,
+      "sample_count": 384000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": {
+        "grade": "coherent-unverified",
+        "text": "FQ TEST",
+        "expected_present": false
+      },
+      "legacy": {
+        "sample_start": 256800,
+        "sample_count": 192000,
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 13.57
+      },
+      "updated": {
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 55.98,
+        "cpu_ms": 55.95,
+        "acquisition": {
+          "strategy": "cw-long-or-recent-window-v2",
+          "original_sample_start": 64800,
+          "original_sample_count": 384000,
+          "selected_sample_start": 256800,
+          "selected_sample_count": 192000,
+          "selected_attempt_index": 1,
+          "attempts": [
+            {
+              "sample_start": 64800,
+              "sample_count": 384000,
+              "kind": "full-window",
+              "status": "partial",
+              "grade": "none"
+            },
+            {
+              "sample_start": 256800,
+              "sample_count": 192000,
+              "kind": "cw-recent-four-second-check",
+              "status": "decoded",
+              "grade": "coherent-unverified",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 0,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 57.81
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "cw",
+      "snr_db": 0.0,
+      "seed": 71064,
+      "sample_rate": 48000,
+      "source_sha256": "27e0595c59be0d3519bb440f0180afcedb4d5e40883d282d375101b8313f2660",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 260.0,
+      "sample_start": 64800,
+      "sample_count": 384000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": {
+        "grade": "coherent-unverified",
+        "text": "FQ TEST",
+        "expected_present": false
+      },
+      "legacy": {
+        "sample_start": 256800,
+        "sample_count": 192000,
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 14.69
+      },
+      "updated": {
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 57.5,
+        "cpu_ms": 57.47,
+        "acquisition": {
+          "strategy": "cw-long-or-recent-window-v2",
+          "original_sample_start": 64800,
+          "original_sample_count": 384000,
+          "selected_sample_start": 256800,
+          "selected_sample_count": 192000,
+          "selected_attempt_index": 1,
+          "attempts": [
+            {
+              "sample_start": 64800,
+              "sample_count": 384000,
+              "kind": "full-window",
+              "status": "decoded",
+              "grade": "coherent-unverified"
+            },
+            {
+              "sample_start": 256800,
+              "sample_count": 192000,
+              "kind": "cw-recent-four-second-check",
+              "status": "decoded",
+              "grade": "coherent-unverified",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 0,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 58.1
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "cw",
+      "snr_db": 10.0,
+      "seed": 71064,
+      "sample_rate": 48000,
+      "source_sha256": "49e7134b77c93b4247dd4c266984fd66d722775b82d30396510c2dbfc6eeb3d4",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 260.0,
+      "sample_start": 64800,
+      "sample_count": 384000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": {
+        "grade": "coherent-unverified",
+        "text": "FQ TEST",
+        "expected_present": false
+      },
+      "legacy": {
+        "sample_start": 256800,
+        "sample_count": 192000,
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 14.84
+      },
+      "updated": {
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 85.03,
+        "cpu_ms": 85.02,
+        "acquisition": {
+          "strategy": "cw-long-or-recent-window-v2",
+          "original_sample_start": 64800,
+          "original_sample_count": 384000,
+          "selected_sample_start": 256800,
+          "selected_sample_count": 192000,
+          "selected_attempt_index": 1,
+          "attempts": [
+            {
+              "sample_start": 64800,
+              "sample_count": 384000,
+              "kind": "full-window",
+              "status": "decoded",
+              "grade": "coherent-unverified"
+            },
+            {
+              "sample_start": 256800,
+              "sample_count": 192000,
+              "kind": "cw-recent-four-second-check",
+              "status": "decoded",
+              "grade": "coherent-unverified",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 0,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 61.11
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "rtty",
+      "snr_db": -10.0,
+      "seed": 71064,
+      "sample_rate": 48000,
+      "source_sha256": "70fa88adeb2bee898228ddebf0eacd47b49d348e207274898284782804aa358c",
+      "fixture_sha256": "e8889ec97e40d6cd618a4a96114fc2467a034f9009551e28be3e6bd2ddd27c04",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 740.0,
+      "sample_start": 64800,
+      "sample_count": 192000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": null,
+      "legacy": {
+        "sample_start": 64800,
+        "sample_count": 192000,
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 557.82
+      },
+      "updated": {
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 567.52,
+        "cpu_ms": 567.4,
+        "acquisition": {
+          "strategy": "bounded-energy-gap-v1",
+          "original_sample_start": 64800,
+          "original_sample_count": 192000,
+          "selected_sample_start": 64800,
+          "selected_sample_count": 192000,
+          "selected_attempt_index": 0,
+          "attempts": [
+            {
+              "sample_start": 64800,
+              "sample_count": 192000,
+              "kind": "full-window",
+              "status": "no_decode",
+              "grade": "none",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 0,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 570.78
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "rtty",
+      "snr_db": -5.0,
+      "seed": 71064,
+      "sample_rate": 48000,
+      "source_sha256": "eabe3ccd14b53ef5e97ee42ec7b047b8a697666c1a4cebdf1d81fa8a14525e9d",
+      "fixture_sha256": "e8889ec97e40d6cd618a4a96114fc2467a034f9009551e28be3e6bd2ddd27c04",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 740.0,
+      "sample_start": 64800,
+      "sample_count": 192000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": null,
+      "legacy": {
+        "sample_start": 64800,
+        "sample_count": 192000,
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 597.14
+      },
+      "updated": {
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 317.27,
+        "cpu_ms": 317.13,
+        "acquisition": {
+          "strategy": "bounded-energy-gap-v1",
+          "original_sample_start": 64800,
+          "original_sample_count": 192000,
+          "selected_sample_start": 129840,
+          "selected_sample_count": 72960,
+          "selected_attempt_index": 0,
+          "attempts": [
+            {
+              "sample_start": 129840,
+              "sample_count": 72960,
+              "kind": "energy-gap-segment",
+              "status": "decoded",
+              "grade": "coherent-unverified",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 1,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 565.85
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "rtty",
+      "snr_db": 0.0,
+      "seed": 71064,
+      "sample_rate": 48000,
+      "source_sha256": "ca54f3c6064200e490ebea63ccdcbe0b9e18e0df2923c0e895a79cc8610bc85d",
+      "fixture_sha256": "e8889ec97e40d6cd618a4a96114fc2467a034f9009551e28be3e6bd2ddd27c04",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 740.0,
+      "sample_start": 64800,
+      "sample_count": 192000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": null,
+      "legacy": {
+        "sample_start": 64800,
+        "sample_count": 192000,
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 555.01
+      },
+      "updated": {
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 302.12,
+        "cpu_ms": 302.08,
+        "acquisition": {
+          "strategy": "bounded-energy-gap-v1",
+          "original_sample_start": 64800,
+          "original_sample_count": 192000,
+          "selected_sample_start": 129600,
+          "selected_sample_count": 73440,
+          "selected_attempt_index": 0,
+          "attempts": [
+            {
+              "sample_start": 129600,
+              "sample_count": 73440,
+              "kind": "energy-gap-segment",
+              "status": "decoded",
+              "grade": "coherent-unverified",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 1,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 574.46
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "rtty",
+      "snr_db": 10.0,
+      "seed": 71064,
+      "sample_rate": 48000,
+      "source_sha256": "d2f76f835d46233be5fd469542a5126fcffdeb28e4f2b11fe62f2df2d13d3408",
+      "fixture_sha256": "e8889ec97e40d6cd618a4a96114fc2467a034f9009551e28be3e6bd2ddd27c04",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 740.0,
+      "sample_start": 64800,
+      "sample_count": 192000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": null,
+      "legacy": {
+        "sample_start": 64800,
+        "sample_count": 192000,
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 560.91
+      },
+      "updated": {
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 314.28,
+        "cpu_ms": 314.23,
+        "acquisition": {
+          "strategy": "bounded-energy-gap-v1",
+          "original_sample_start": 64800,
+          "original_sample_count": 192000,
+          "selected_sample_start": 129600,
+          "selected_sample_count": 73440,
+          "selected_attempt_index": 0,
+          "attempts": [
+            {
+              "sample_start": 129600,
+              "sample_count": 73440,
+              "kind": "energy-gap-segment",
+              "status": "decoded",
+              "grade": "coherent-unverified",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 1,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 573.87
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "cw",
+      "snr_db": -10.0,
+      "seed": 71065,
+      "sample_rate": 48000,
+      "source_sha256": "ecc5e08af2df525063fbd275161f10a017ad3095bbc921175bb0915a2bbd4e17",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 260.0,
+      "sample_start": 64800,
+      "sample_count": 384000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": {
+        "grade": "none",
+        "text": "",
+        "expected_present": false
+      },
+      "legacy": {
+        "sample_start": 256800,
+        "sample_count": 192000,
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 13.25
+      },
+      "updated": {
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 60.41,
+        "cpu_ms": 60.43,
+        "acquisition": {
+          "strategy": "cw-long-or-recent-window-v2",
+          "original_sample_start": 64800,
+          "original_sample_count": 384000,
+          "selected_sample_start": 64800,
+          "selected_sample_count": 384000,
+          "selected_attempt_index": 0,
+          "attempts": [
+            {
+              "sample_start": 64800,
+              "sample_count": 384000,
+              "kind": "full-window",
+              "status": "no_decode",
+              "grade": "none",
+              "selected": true
+            },
+            {
+              "sample_start": 256800,
+              "sample_count": 192000,
+              "kind": "cw-recent-four-second-check",
+              "status": "no_decode",
+              "grade": "none"
+            }
+          ],
+          "candidate_spans": 0,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 56.52
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "cw",
+      "snr_db": -5.0,
+      "seed": 71065,
+      "sample_rate": 48000,
+      "source_sha256": "b9d07f8c06c598657b6c4ce1e0005ad07026ff122538b6e43d371da8e043d727",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 260.0,
+      "sample_start": 64800,
+      "sample_count": 384000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": {
+        "grade": "coherent-unverified",
+        "text": "FQ TEST",
+        "expected_present": false
+      },
+      "legacy": {
+        "sample_start": 256800,
+        "sample_count": 192000,
+        "grade": "coherent-unverified",
+        "text": "CQ TESN",
+        "expected_present": false,
+        "wall_ms": 13.6
+      },
+      "updated": {
+        "grade": "coherent-unverified",
+        "text": "FQ TEST CQ TESN",
+        "expected_present": false,
+        "wall_ms": 56.19,
+        "cpu_ms": 56.19,
+        "acquisition": {
+          "strategy": "cw-long-or-recent-window-v2",
+          "original_sample_start": 64800,
+          "original_sample_count": 384000,
+          "selected_sample_start": 64800,
+          "selected_sample_count": 384000,
+          "selected_attempt_index": 0,
+          "attempts": [
+            {
+              "sample_start": 64800,
+              "sample_count": 384000,
+              "kind": "full-window",
+              "status": "decoded",
+              "grade": "coherent-unverified",
+              "selected": true
+            },
+            {
+              "sample_start": 256800,
+              "sample_count": 192000,
+              "kind": "cw-recent-four-second-check",
+              "status": "decoded",
+              "grade": "coherent-unverified"
+            }
+          ],
+          "candidate_spans": 0,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": true
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 58.2
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "cw",
+      "snr_db": 0.0,
+      "seed": 71065,
+      "sample_rate": 48000,
+      "source_sha256": "fd78648aa06e509e1ef806d6e7d115911ef85b02eb34066b9696f48576471686",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 260.0,
+      "sample_start": 64800,
+      "sample_count": 384000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": {
+        "grade": "coherent-unverified",
+        "text": "FQ TEST",
+        "expected_present": false
+      },
+      "legacy": {
+        "sample_start": 256800,
+        "sample_count": 192000,
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 13.91
+      },
+      "updated": {
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 57.82,
+        "cpu_ms": 57.81,
+        "acquisition": {
+          "strategy": "cw-long-or-recent-window-v2",
+          "original_sample_start": 64800,
+          "original_sample_count": 384000,
+          "selected_sample_start": 256800,
+          "selected_sample_count": 192000,
+          "selected_attempt_index": 1,
+          "attempts": [
+            {
+              "sample_start": 64800,
+              "sample_count": 384000,
+              "kind": "full-window",
+              "status": "decoded",
+              "grade": "coherent-unverified"
+            },
+            {
+              "sample_start": 256800,
+              "sample_count": 192000,
+              "kind": "cw-recent-four-second-check",
+              "status": "decoded",
+              "grade": "coherent-unverified",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 0,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 57.92
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "cw",
+      "snr_db": 10.0,
+      "seed": 71065,
+      "sample_rate": 48000,
+      "source_sha256": "67b7d343c44bc00419bee222b9f9365bd8a14b319ba46fd34a9344fb7b406008",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 260.0,
+      "sample_start": 64800,
+      "sample_count": 384000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": {
+        "grade": "coherent-unverified",
+        "text": "FQ TEST",
+        "expected_present": false
+      },
+      "legacy": {
+        "sample_start": 256800,
+        "sample_count": 192000,
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 13.05
+      },
+      "updated": {
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 80.41,
+        "cpu_ms": 80.41,
+        "acquisition": {
+          "strategy": "cw-long-or-recent-window-v2",
+          "original_sample_start": 64800,
+          "original_sample_count": 384000,
+          "selected_sample_start": 256800,
+          "selected_sample_count": 192000,
+          "selected_attempt_index": 1,
+          "attempts": [
+            {
+              "sample_start": 64800,
+              "sample_count": 384000,
+              "kind": "full-window",
+              "status": "decoded",
+              "grade": "coherent-unverified"
+            },
+            {
+              "sample_start": 256800,
+              "sample_count": 192000,
+              "kind": "cw-recent-four-second-check",
+              "status": "decoded",
+              "grade": "coherent-unverified",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 0,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 60.43
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "rtty",
+      "snr_db": -10.0,
+      "seed": 71065,
+      "sample_rate": 48000,
+      "source_sha256": "96fca347807decf8b0d19cd46a31a5f67531f89517d3b4430fb613521596767e",
+      "fixture_sha256": "e8889ec97e40d6cd618a4a96114fc2467a034f9009551e28be3e6bd2ddd27c04",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 740.0,
+      "sample_start": 64800,
+      "sample_count": 192000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": null,
+      "legacy": {
+        "sample_start": 64800,
+        "sample_count": 192000,
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 564.43
+      },
+      "updated": {
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 564.79,
+        "cpu_ms": 564.61,
+        "acquisition": {
+          "strategy": "bounded-energy-gap-v1",
+          "original_sample_start": 64800,
+          "original_sample_count": 192000,
+          "selected_sample_start": 64800,
+          "selected_sample_count": 192000,
+          "selected_attempt_index": 0,
+          "attempts": [
+            {
+              "sample_start": 64800,
+              "sample_count": 192000,
+              "kind": "full-window",
+              "status": "no_decode",
+              "grade": "none",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 0,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 570.07
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "rtty",
+      "snr_db": -5.0,
+      "seed": 71065,
+      "sample_rate": 48000,
+      "source_sha256": "9ab240a7db2bf7e15d7252e1964aab65f56eca1e04e8e69acab84a201ceb3cdd",
+      "fixture_sha256": "e8889ec97e40d6cd618a4a96114fc2467a034f9009551e28be3e6bd2ddd27c04",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 740.0,
+      "sample_start": 64800,
+      "sample_count": 192000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": null,
+      "legacy": {
+        "sample_start": 64800,
+        "sample_count": 192000,
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 566.8
+      },
+      "updated": {
+        "grade": "coherent-unverified",
+        "text": "IQ TEST",
+        "expected_present": false,
+        "wall_ms": 321.2,
+        "cpu_ms": 321.12,
+        "acquisition": {
+          "strategy": "bounded-energy-gap-v1",
+          "original_sample_start": 64800,
+          "original_sample_count": 192000,
+          "selected_sample_start": 129840,
+          "selected_sample_count": 72960,
+          "selected_attempt_index": 0,
+          "attempts": [
+            {
+              "sample_start": 129840,
+              "sample_count": 72960,
+              "kind": "energy-gap-segment",
+              "status": "decoded",
+              "grade": "coherent-unverified",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 1,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": true
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 590.75
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "rtty",
+      "snr_db": 0.0,
+      "seed": 71065,
+      "sample_rate": 48000,
+      "source_sha256": "b1668e7e73a61a290444c959d2842257637fc8f1a389ec2c87f08a3807aed118",
+      "fixture_sha256": "e8889ec97e40d6cd618a4a96114fc2467a034f9009551e28be3e6bd2ddd27c04",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 740.0,
+      "sample_start": 64800,
+      "sample_count": 192000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": null,
+      "legacy": {
+        "sample_start": 64800,
+        "sample_count": 192000,
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 561.61
+      },
+      "updated": {
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 296.53,
+        "cpu_ms": 294.56,
+        "acquisition": {
+          "strategy": "bounded-energy-gap-v1",
+          "original_sample_start": 64800,
+          "original_sample_count": 192000,
+          "selected_sample_start": 129600,
+          "selected_sample_count": 73440,
+          "selected_attempt_index": 0,
+          "attempts": [
+            {
+              "sample_start": 129600,
+              "sample_count": 73440,
+              "kind": "energy-gap-segment",
+              "status": "decoded",
+              "grade": "coherent-unverified",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 1,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 559.67
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "rtty",
+      "snr_db": 10.0,
+      "seed": 71065,
+      "sample_rate": 48000,
+      "source_sha256": "1dc43ba06b52eda6c8c702dbff4251cfd3619a4714c674b3cd60d6f11eccf482",
+      "fixture_sha256": "e8889ec97e40d6cd618a4a96114fc2467a034f9009551e28be3e6bd2ddd27c04",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 740.0,
+      "sample_start": 64800,
+      "sample_count": 192000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": null,
+      "legacy": {
+        "sample_start": 64800,
+        "sample_count": 192000,
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 563.94
+      },
+      "updated": {
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 298.3,
+        "cpu_ms": 298.24,
+        "acquisition": {
+          "strategy": "bounded-energy-gap-v1",
+          "original_sample_start": 64800,
+          "original_sample_count": 192000,
+          "selected_sample_start": 129600,
+          "selected_sample_count": 73440,
+          "selected_attempt_index": 0,
+          "attempts": [
+            {
+              "sample_start": 129600,
+              "sample_count": 73440,
+              "kind": "energy-gap-segment",
+              "status": "decoded",
+              "grade": "coherent-unverified",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 1,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 597.3
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "cw",
+      "snr_db": -10.0,
+      "seed": 71066,
+      "sample_rate": 48000,
+      "source_sha256": "ec2de574dc411eaace216195718a3c84c3249e5304e3341e6877c924ac458a8e",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 260.0,
+      "sample_start": 64800,
+      "sample_count": 384000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": {
+        "grade": "none",
+        "text": "",
+        "expected_present": false
+      },
+      "legacy": {
+        "sample_start": 256800,
+        "sample_count": 192000,
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 14.15
+      },
+      "updated": {
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 74.97,
+        "cpu_ms": 74.96,
+        "acquisition": {
+          "strategy": "cw-long-or-recent-window-v2",
+          "original_sample_start": 64800,
+          "original_sample_count": 384000,
+          "selected_sample_start": 64800,
+          "selected_sample_count": 384000,
+          "selected_attempt_index": 0,
+          "attempts": [
+            {
+              "sample_start": 64800,
+              "sample_count": 384000,
+              "kind": "full-window",
+              "status": "no_decode",
+              "grade": "none",
+              "selected": true
+            },
+            {
+              "sample_start": 256800,
+              "sample_count": 192000,
+              "kind": "cw-recent-four-second-check",
+              "status": "no_decode",
+              "grade": "none"
+            }
+          ],
+          "candidate_spans": 0,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 64.93
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "cw",
+      "snr_db": -5.0,
+      "seed": 71066,
+      "sample_rate": 48000,
+      "source_sha256": "2d9c4e3d90c29676ab4930bbe37b33b6e7d23b3a3796314863f1d9627efe2ceb",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 260.0,
+      "sample_start": 64800,
+      "sample_count": 384000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": {
+        "grade": "none",
+        "text": "",
+        "expected_present": false
+      },
+      "legacy": {
+        "sample_start": 256800,
+        "sample_count": 192000,
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 13.97
+      },
+      "updated": {
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 70.1,
+        "cpu_ms": 70.08,
+        "acquisition": {
+          "strategy": "cw-long-or-recent-window-v2",
+          "original_sample_start": 64800,
+          "original_sample_count": 384000,
+          "selected_sample_start": 256800,
+          "selected_sample_count": 192000,
+          "selected_attempt_index": 1,
+          "attempts": [
+            {
+              "sample_start": 64800,
+              "sample_count": 384000,
+              "kind": "full-window",
+              "status": "partial",
+              "grade": "none"
+            },
+            {
+              "sample_start": 256800,
+              "sample_count": 192000,
+              "kind": "cw-recent-four-second-check",
+              "status": "partial",
+              "grade": "none",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 0,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 57.26
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "cw",
+      "snr_db": 0.0,
+      "seed": 71066,
+      "sample_rate": 48000,
+      "source_sha256": "1aedab5115af7fc9aa8e6035fcd6c9bc16c81a7e727c98a86f3f4111c56950a0",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 260.0,
+      "sample_start": 64800,
+      "sample_count": 384000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": {
+        "grade": "coherent-unverified",
+        "text": "FQ TEST",
+        "expected_present": false
+      },
+      "legacy": {
+        "sample_start": 256800,
+        "sample_count": 192000,
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 13.84
+      },
+      "updated": {
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 59.93,
+        "cpu_ms": 59.91,
+        "acquisition": {
+          "strategy": "cw-long-or-recent-window-v2",
+          "original_sample_start": 64800,
+          "original_sample_count": 384000,
+          "selected_sample_start": 256800,
+          "selected_sample_count": 192000,
+          "selected_attempt_index": 1,
+          "attempts": [
+            {
+              "sample_start": 64800,
+              "sample_count": 384000,
+              "kind": "full-window",
+              "status": "decoded",
+              "grade": "coherent-unverified"
+            },
+            {
+              "sample_start": 256800,
+              "sample_count": 192000,
+              "kind": "cw-recent-four-second-check",
+              "status": "decoded",
+              "grade": "coherent-unverified",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 0,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 71.96
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "cw",
+      "snr_db": 10.0,
+      "seed": 71066,
+      "sample_rate": 48000,
+      "source_sha256": "4b199da615005b43928dac58d81fb1abc140f0129766277c6baf13fa12512923",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 260.0,
+      "sample_start": 64800,
+      "sample_count": 384000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": {
+        "grade": "coherent-unverified",
+        "text": "FQ TEST",
+        "expected_present": false
+      },
+      "legacy": {
+        "sample_start": 256800,
+        "sample_count": 192000,
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 13.57
+      },
+      "updated": {
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 57.73,
+        "cpu_ms": 57.71,
+        "acquisition": {
+          "strategy": "cw-long-or-recent-window-v2",
+          "original_sample_start": 64800,
+          "original_sample_count": 384000,
+          "selected_sample_start": 256800,
+          "selected_sample_count": 192000,
+          "selected_attempt_index": 1,
+          "attempts": [
+            {
+              "sample_start": 64800,
+              "sample_count": 384000,
+              "kind": "full-window",
+              "status": "decoded",
+              "grade": "coherent-unverified"
+            },
+            {
+              "sample_start": 256800,
+              "sample_count": 192000,
+              "kind": "cw-recent-four-second-check",
+              "status": "decoded",
+              "grade": "coherent-unverified",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 0,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 58.56
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "rtty",
+      "snr_db": -10.0,
+      "seed": 71066,
+      "sample_rate": 48000,
+      "source_sha256": "4084b224b8ff721954ede11958ee06500b5f7b9157cdad6af1c3877f28657764",
+      "fixture_sha256": "e8889ec97e40d6cd618a4a96114fc2467a034f9009551e28be3e6bd2ddd27c04",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 740.0,
+      "sample_start": 64800,
+      "sample_count": 192000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": null,
+      "legacy": {
+        "sample_start": 64800,
+        "sample_count": 192000,
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 575.61
+      },
+      "updated": {
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 570.07,
+        "cpu_ms": 569.97,
+        "acquisition": {
+          "strategy": "bounded-energy-gap-v1",
+          "original_sample_start": 64800,
+          "original_sample_count": 192000,
+          "selected_sample_start": 64800,
+          "selected_sample_count": 192000,
+          "selected_attempt_index": 0,
+          "attempts": [
+            {
+              "sample_start": 64800,
+              "sample_count": 192000,
+              "kind": "full-window",
+              "status": "no_decode",
+              "grade": "none",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 0,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 579.22
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "rtty",
+      "snr_db": -5.0,
+      "seed": 71066,
+      "sample_rate": 48000,
+      "source_sha256": "072dad38abc2117c17c9b3b071b8ca62fa0b55120938ba12b545f6969b464496",
+      "fixture_sha256": "e8889ec97e40d6cd618a4a96114fc2467a034f9009551e28be3e6bd2ddd27c04",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 740.0,
+      "sample_start": 64800,
+      "sample_count": 192000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": null,
+      "legacy": {
+        "sample_start": 64800,
+        "sample_count": 192000,
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 573.98
+      },
+      "updated": {
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 569.83,
+        "cpu_ms": 568.83,
+        "acquisition": {
+          "strategy": "bounded-energy-gap-v1",
+          "original_sample_start": 64800,
+          "original_sample_count": 192000,
+          "selected_sample_start": 64800,
+          "selected_sample_count": 192000,
+          "selected_attempt_index": 0,
+          "attempts": [
+            {
+              "sample_start": 64800,
+              "sample_count": 192000,
+              "kind": "full-window",
+              "status": "no_decode",
+              "grade": "none",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 0,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 587.46
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "rtty",
+      "snr_db": 0.0,
+      "seed": 71066,
+      "sample_rate": 48000,
+      "source_sha256": "26acc7b907d87f93fea3d7ef9ae92969686faaef60b0e16b56e4ab71d09fb022",
+      "fixture_sha256": "e8889ec97e40d6cd618a4a96114fc2467a034f9009551e28be3e6bd2ddd27c04",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 740.0,
+      "sample_start": 64800,
+      "sample_count": 192000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": null,
+      "legacy": {
+        "sample_start": 64800,
+        "sample_count": 192000,
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 592.01
+      },
+      "updated": {
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 298.84,
+        "cpu_ms": 298.79,
+        "acquisition": {
+          "strategy": "bounded-energy-gap-v1",
+          "original_sample_start": 64800,
+          "original_sample_count": 192000,
+          "selected_sample_start": 129600,
+          "selected_sample_count": 72720,
+          "selected_attempt_index": 0,
+          "attempts": [
+            {
+              "sample_start": 129600,
+              "sample_count": 72720,
+              "kind": "energy-gap-segment",
+              "status": "decoded",
+              "grade": "coherent-unverified",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 1,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 582.45
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "rtty",
+      "snr_db": 10.0,
+      "seed": 71066,
+      "sample_rate": 48000,
+      "source_sha256": "c6665ca796a1b28d6693d8214c605bc4abfe881ddda6ce3d9ed9d465b9ccfd92",
+      "fixture_sha256": "e8889ec97e40d6cd618a4a96114fc2467a034f9009551e28be3e6bd2ddd27c04",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 740.0,
+      "sample_start": 64800,
+      "sample_count": 192000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": null,
+      "legacy": {
+        "sample_start": 64800,
+        "sample_count": 192000,
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 549.93
+      },
+      "updated": {
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 299.79,
+        "cpu_ms": 299.7,
+        "acquisition": {
+          "strategy": "bounded-energy-gap-v1",
+          "original_sample_start": 64800,
+          "original_sample_count": 192000,
+          "selected_sample_start": 129600,
+          "selected_sample_count": 73440,
+          "selected_attempt_index": 0,
+          "attempts": [
+            {
+              "sample_start": 129600,
+              "sample_count": 73440,
+              "kind": "energy-gap-segment",
+              "status": "decoded",
+              "grade": "coherent-unverified",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 1,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 564.07
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "cw",
+      "snr_db": -10.0,
+      "seed": 71067,
+      "sample_rate": 48000,
+      "source_sha256": "cf553a4a340a2b421181c1a428693ea74f55b5ee2c7d22470d9093e3e34bc42a",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 260.0,
+      "sample_start": 64800,
+      "sample_count": 384000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": {
+        "grade": "none",
+        "text": "",
+        "expected_present": false
+      },
+      "legacy": {
+        "sample_start": 256800,
+        "sample_count": 192000,
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 13.64
+      },
+      "updated": {
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 56.9,
+        "cpu_ms": 56.89,
+        "acquisition": {
+          "strategy": "cw-long-or-recent-window-v2",
+          "original_sample_start": 64800,
+          "original_sample_count": 384000,
+          "selected_sample_start": 64800,
+          "selected_sample_count": 384000,
+          "selected_attempt_index": 0,
+          "attempts": [
+            {
+              "sample_start": 64800,
+              "sample_count": 384000,
+              "kind": "full-window",
+              "status": "no_decode",
+              "grade": "none",
+              "selected": true
+            },
+            {
+              "sample_start": 256800,
+              "sample_count": 192000,
+              "kind": "cw-recent-four-second-check",
+              "status": "no_decode",
+              "grade": "none"
+            }
+          ],
+          "candidate_spans": 0,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 58.89
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "cw",
+      "snr_db": -5.0,
+      "seed": 71067,
+      "sample_rate": 48000,
+      "source_sha256": "5b6e2720c757d4db15f658cb4b0f13a30282be106dec74cc1cf2efa03310126b",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 260.0,
+      "sample_start": 64800,
+      "sample_count": 384000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": {
+        "grade": "coherent-unverified",
+        "text": "FQ TEST",
+        "expected_present": false
+      },
+      "legacy": {
+        "sample_start": 256800,
+        "sample_count": 192000,
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 14.67
+      },
+      "updated": {
+        "grade": "coherent-unverified",
+        "text": "FQ TEST CQETEHT",
+        "expected_present": false,
+        "wall_ms": 59.39,
+        "cpu_ms": 59.38,
+        "acquisition": {
+          "strategy": "cw-long-or-recent-window-v2",
+          "original_sample_start": 64800,
+          "original_sample_count": 384000,
+          "selected_sample_start": 64800,
+          "selected_sample_count": 384000,
+          "selected_attempt_index": 0,
+          "attempts": [
+            {
+              "sample_start": 64800,
+              "sample_count": 384000,
+              "kind": "full-window",
+              "status": "decoded",
+              "grade": "coherent-unverified",
+              "selected": true
+            },
+            {
+              "sample_start": 256800,
+              "sample_count": 192000,
+              "kind": "cw-recent-four-second-check",
+              "status": "no_decode",
+              "grade": "none"
+            }
+          ],
+          "candidate_spans": 0,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": true
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 62.03
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "cw",
+      "snr_db": 0.0,
+      "seed": 71067,
+      "sample_rate": 48000,
+      "source_sha256": "f03ac5b1b75ddc50947c9f50e849fe95348b8cb2dc49c0d414e706ffd2bd9587",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 260.0,
+      "sample_start": 64800,
+      "sample_count": 384000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": {
+        "grade": "coherent-unverified",
+        "text": "FQ TEST",
+        "expected_present": false
+      },
+      "legacy": {
+        "sample_start": 256800,
+        "sample_count": 192000,
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 14.34
+      },
+      "updated": {
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 72.43,
+        "cpu_ms": 72.44,
+        "acquisition": {
+          "strategy": "cw-long-or-recent-window-v2",
+          "original_sample_start": 64800,
+          "original_sample_count": 384000,
+          "selected_sample_start": 256800,
+          "selected_sample_count": 192000,
+          "selected_attempt_index": 1,
+          "attempts": [
+            {
+              "sample_start": 64800,
+              "sample_count": 384000,
+              "kind": "full-window",
+              "status": "decoded",
+              "grade": "coherent-unverified"
+            },
+            {
+              "sample_start": 256800,
+              "sample_count": 192000,
+              "kind": "cw-recent-four-second-check",
+              "status": "decoded",
+              "grade": "coherent-unverified",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 0,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 59.68
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "cw",
+      "snr_db": 10.0,
+      "seed": 71067,
+      "sample_rate": 48000,
+      "source_sha256": "fa4bb9ab3ee50620a39f54978f5933dd19d6d4ef789f8504c67062faf83a8e0f",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 260.0,
+      "sample_start": 64800,
+      "sample_count": 384000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": {
+        "grade": "coherent-unverified",
+        "text": "FQ TEST",
+        "expected_present": false
+      },
+      "legacy": {
+        "sample_start": 256800,
+        "sample_count": 192000,
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 14.38
+      },
+      "updated": {
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 59.47,
+        "cpu_ms": 59.48,
+        "acquisition": {
+          "strategy": "cw-long-or-recent-window-v2",
+          "original_sample_start": 64800,
+          "original_sample_count": 384000,
+          "selected_sample_start": 256800,
+          "selected_sample_count": 192000,
+          "selected_attempt_index": 1,
+          "attempts": [
+            {
+              "sample_start": 64800,
+              "sample_count": 384000,
+              "kind": "full-window",
+              "status": "decoded",
+              "grade": "coherent-unverified"
+            },
+            {
+              "sample_start": 256800,
+              "sample_count": 192000,
+              "kind": "cw-recent-four-second-check",
+              "status": "decoded",
+              "grade": "coherent-unverified",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 0,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 73.08
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "rtty",
+      "snr_db": -10.0,
+      "seed": 71067,
+      "sample_rate": 48000,
+      "source_sha256": "bf698d3c0ef9bce72d0908eba12c8db20bfeedab68d6727937cd6975110f80cd",
+      "fixture_sha256": "e8889ec97e40d6cd618a4a96114fc2467a034f9009551e28be3e6bd2ddd27c04",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 740.0,
+      "sample_start": 64800,
+      "sample_count": 192000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": null,
+      "legacy": {
+        "sample_start": 64800,
+        "sample_count": 192000,
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 558.76
+      },
+      "updated": {
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 584.99,
+        "cpu_ms": 584.87,
+        "acquisition": {
+          "strategy": "bounded-energy-gap-v1",
+          "original_sample_start": 64800,
+          "original_sample_count": 192000,
+          "selected_sample_start": 64800,
+          "selected_sample_count": 192000,
+          "selected_attempt_index": 0,
+          "attempts": [
+            {
+              "sample_start": 64800,
+              "sample_count": 192000,
+              "kind": "full-window",
+              "status": "no_decode",
+              "grade": "none",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 0,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 567.63
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "rtty",
+      "snr_db": -5.0,
+      "seed": 71067,
+      "sample_rate": 48000,
+      "source_sha256": "cfb7e94007af198d7a6f827e705cb4004430cfa70a376b0c23aa7b7ae4702239",
+      "fixture_sha256": "e8889ec97e40d6cd618a4a96114fc2467a034f9009551e28be3e6bd2ddd27c04",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 740.0,
+      "sample_start": 64800,
+      "sample_count": 192000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": null,
+      "legacy": {
+        "sample_start": 64800,
+        "sample_count": 192000,
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 574.73
+      },
+      "updated": {
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 579.58,
+        "cpu_ms": 579.45,
+        "acquisition": {
+          "strategy": "bounded-energy-gap-v1",
+          "original_sample_start": 64800,
+          "original_sample_count": 192000,
+          "selected_sample_start": 64800,
+          "selected_sample_count": 192000,
+          "selected_attempt_index": 0,
+          "attempts": [
+            {
+              "sample_start": 64800,
+              "sample_count": 192000,
+              "kind": "full-window",
+              "status": "no_decode",
+              "grade": "none",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 0,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 573.89
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "rtty",
+      "snr_db": 0.0,
+      "seed": 71067,
+      "sample_rate": 48000,
+      "source_sha256": "feba29677d45728b12a59c6fac057c3bdab8b3c6731b6d00778a6d5d92af033a",
+      "fixture_sha256": "e8889ec97e40d6cd618a4a96114fc2467a034f9009551e28be3e6bd2ddd27c04",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 740.0,
+      "sample_start": 64800,
+      "sample_count": 192000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": null,
+      "legacy": {
+        "sample_start": 64800,
+        "sample_count": 192000,
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 550.51
+      },
+      "updated": {
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 328.63,
+        "cpu_ms": 328.53,
+        "acquisition": {
+          "strategy": "bounded-energy-gap-v1",
+          "original_sample_start": 64800,
+          "original_sample_count": 192000,
+          "selected_sample_start": 129600,
+          "selected_sample_count": 73440,
+          "selected_attempt_index": 0,
+          "attempts": [
+            {
+              "sample_start": 129600,
+              "sample_count": 73440,
+              "kind": "energy-gap-segment",
+              "status": "decoded",
+              "grade": "coherent-unverified",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 1,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 562.8
+      },
+      "synthetic_only": true
+    },
+    {
+      "mode": "rtty",
+      "snr_db": 10.0,
+      "seed": 71067,
+      "sample_rate": 48000,
+      "source_sha256": "1bfee4af70b47a0d56240e7cfce111a78de97a8bfee591501c37aaebd65fb6e0",
+      "fixture_sha256": "e8889ec97e40d6cd618a4a96114fc2467a034f9009551e28be3e6bd2ddd27c04",
+      "expected_text": "CQ TEST",
+      "carrier_hz": 740.0,
+      "sample_start": 64800,
+      "sample_count": 192000,
+      "complete_messages_inside_crop": 1,
+      "initial_four_seconds": null,
+      "legacy": {
+        "sample_start": 64800,
+        "sample_count": 192000,
+        "grade": "none",
+        "text": "",
+        "expected_present": false,
+        "wall_ms": 551.61
+      },
+      "updated": {
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "expected_present": true,
+        "wall_ms": 296.82,
+        "cpu_ms": 296.75,
+        "acquisition": {
+          "strategy": "bounded-energy-gap-v1",
+          "original_sample_start": 64800,
+          "original_sample_count": 192000,
+          "selected_sample_start": 129600,
+          "selected_sample_count": 73440,
+          "selected_attempt_index": 0,
+          "attempts": [
+            {
+              "sample_start": 129600,
+              "sample_count": 73440,
+              "kind": "energy-gap-segment",
+              "status": "decoded",
+              "grade": "coherent-unverified",
+              "selected": true
+            }
+          ],
+          "candidate_spans": 1,
+          "confirmed_identity": false
+        },
+        "incorrect_coherent": false
+      },
+      "noise": {
+        "grade": "none",
+        "text": "",
+        "false_output": false,
+        "cpu_ms": 563.62
+      },
+      "synthetic_only": true
+    }
+  ]
+}
