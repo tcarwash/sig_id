@@ -3,7 +3,7 @@
 const resultStates = {
   decoded: "Decoded candidate — not operator verified",
   partial: "Partial candidate — not operator verified",
-  no_decode: "Abstained — no reliable text decode",
+  no_decode: "Abstained — no reliable decode",
 };
 
 function shortText(value, limit = 140) {
@@ -38,6 +38,27 @@ export function summarizeDecoderResult(result) {
       return pattern ? `${symbol}(${pattern})` : symbol;
     }).filter(Boolean).join(" ");
     lines.push(`Candidate tokens (${tokens.length}): ${preview}${tokens.length > 24 ? " …" : ""}`);
+  }
+  // Candidate frames and soft decisions remain distinct from validated mode identity.
+  const frames = Array.isArray(result.frames) ? result.frames : [];
+  if (frames.length) {
+    lines.push(`Candidate binary frames: ${frames.length}`);
+    for (const [index, frame] of frames.slice(0, 8).entries()) {
+      const bits = Number.isInteger(frame?.bit_length) ? frame.bit_length : "?";
+      const bytes = Number.isInteger(frame?.byte_count) ? frame.byte_count : "?";
+      const checks = Array.isArray(frame?.integrity) ? frame.integrity : [];
+      const checkSummary = checks.slice(0, 4).map((check) =>
+        `${shortText(check?.kind, 16)} ${shortText(check?.algorithm, 48)}: ${shortText(check?.outcome, 16)}`
+      ).join(" · ");
+      lines.push(`Frame ${index + 1}: ${bytes} bytes, ${bits} bits · samples ${frame?.start_sample ?? "?"}–${frame?.end_sample ?? "?"}${checkSummary ? ` · ${checkSummary}` : " · integrity not checked"}`);
+    }
+    if (frames.length > 8) lines.push(`… ${frames.length - 8} more frame candidates`);
+  }
+  const spans = Array.isArray(result.soft_bits) ? result.soft_bits : [];
+  if (spans.length) {
+    const bitCount = spans.reduce((n, span) => n + (Number.isInteger(span?.bit_count) ? span.bit_count : 0), 0);
+    const types = [...new Set(spans.map((span) => shortText(span?.encoding, 32)).filter(Boolean))];
+    lines.push(`Soft decision evidence: ${bitCount} bits in ${spans.length} span(s) · ${types.join(", ")} (uncalibrated)`);
   }
   if (result.status === "no_decode" && evidence.unverified_pattern_preview) {
     lines.push(`Unverified interpretation (NOT a decode): ${shortText(evidence.unverified_pattern_preview)}`);

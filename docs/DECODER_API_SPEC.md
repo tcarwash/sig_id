@@ -1,4 +1,4 @@
-# First-party decoder API contract — v0.1
+# First-party decoder API contract — v0.2
 
 **Audience:** independent agents implementing one ham-radio decoder at a
 time. **Scope:** documents the *implemented* library and HTTP adapters.
@@ -75,6 +75,44 @@ documented per decoder. CW uses a dot/dash string for pattern.
 Evidence is an extensible, JSON-compatible dict; report real CRC/FEC
 outcomes, SNR, sync and partial-bit diagnostics when measured. Do not
 invent a generic "confirmed" or "crc_ok" field for modes without it.
+
+### Typed frame and soft-bit evidence (additive v0.2)
+
+The original `LocalDecodeResult` fields and constructors remain compatible.
+Two optional tuples now have defaults of `()`:
+
+- `frames: tuple[DecodedFrame, ...]`: bounded candidate binary frames,
+  each with absolute original-capture `start_sample` (inclusive) /
+  `end_sample` (exclusive),
+  `payload: bytes`, meaningful `bit_length`, optional `protocol_hint`,
+  and zero or more typed `IntegrityCheck` results.
+- `soft_bits: tuple[SoftBitSpan, ...]`: bounded numeric soft decisions with
+  absolute sample extents and an explicit encoding:
+  `llr_positive_is_one` means log(P(bit=1)/P(bit=0)), while
+  `probability_one` contains numbers in [0,1]. These are NOT generic
+  decoder confidence scores.
+
+`IntegrityCheck(kind, algorithm, outcome, corrected_bits=None, note="")`
+supports kinds `crc`, `fec`, `checksum`, and `parity`, with explicit
+outcomes `passed`, `failed`, or `not_checked`. `corrected_bits` applies
+only to FEC. A passing check only means the stated algorithm passed; it is
+not independently verified radio identity or human-reviewed content.
+
+The shared library enforces candidate extent containment inside the exact
+DecodeWindow. Frame contents are encoded as `payload_base64` in JSON,
+with MSB-first bit order when `bit_length` is not a multiple of eight.
+Limits: 32 frames, 8192 bytes/frame, 16 soft-bit spans, and 8192 values
+across all spans. Frame contents are additionally exposed as typed
+`binary` products from the built-in backend for decoded/partial results
+only; for `no_decode` the candidate evidence stays inside metadata and
+cannot become a successful binary product. Each result still includes
+complete metadata even if it emits no text, and a binary-only successful
+or partial result has native adapter status `completed`, not
+`completed_empty`. Existing database records without these keys remain
+readable; no migration is required for their JSON values.
+
+This is a *result* contract, NOT an IQ input, automatic packet parser,
+FEC library, image renderer, or proof that AX.25/FT8 decoding works.
 
 JSON transport shape:
 [local_decode_result.schema.json](schemas/local_decode_result.schema.json).
@@ -194,12 +232,12 @@ CLI: installed 'sig-id-decode', or:
 
 Current CLI input: mono 16-bit PCM WAV and <= 120-second selection.
 
-## Future extensions — NOT PART OF v0.1
+## Future extensions — NOT PART OF v0.2
 
 - Typed IQWindow with RF center, complex samples, sideband, gain and
   provenance; cannot reconstruct IQ from pre-demodulated SSB audio.
 - Streaming reset/feed/finalize and state/latency lifecycle.
-- First-class image, binary packet/frame, soft-bit and FEC/CRC products.
+- First-class image outputs, streaming packet lifecycle, and shared FEC implementations.
 - Decoder capability/version negotiation, cancel/timeouts, configurable
   resource limits and typed mode-specific options.
 

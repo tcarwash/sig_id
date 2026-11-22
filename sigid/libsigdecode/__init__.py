@@ -7,6 +7,7 @@ from .core import (
     DecodeWindow, DecodedToken, DecoderLibrary, DecoderSpec, LocalDecodeResult,
 )
 from .cw import CWDecoder, CWSettings
+from .artifacts import DecodedFrame, IntegrityCheck, SoftBitSpan
 
 
 def create_library() -> DecoderLibrary:
@@ -16,4 +17,5 @@ def create_library() -> DecoderLibrary:
 __all__ = [
     "CWDecoder", "CWSettings", "DecodeWindow", "DecodedToken",
     "DecoderLibrary", "DecoderSpec", "LocalDecodeResult", "create_library",
+    "DecodedFrame", "IntegrityCheck", "SoftBitSpan",
 ]
