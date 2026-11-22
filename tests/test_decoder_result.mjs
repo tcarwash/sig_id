@@ -40,12 +40,12 @@ test("live segmentation provenance appears in native and cross-backend result ca
       confirmed_identity: false, original_sample_start: 1000,
       original_sample_count: 48000, selected_sample_start: 17400,
       selected_sample_count: 18500,
-      attempts: [{kind: "energy-gap-segment", status: "decoded", grade: "coherent-unverified"}],
+      attempts: [{kind: "energy-gap-segment", status: "decoded", grade: "coherent-unverified", selected:true}],
     }};
   const summary = summarizeDecoderResult(result);
   assert.match(summary, /Live audio window: samples 1000–49000/);
   assert.match(summary, /Selected decoder window: samples 17400–35900/);
-  assert.match(summary, /energy-gap-segment.*coherent-unverified/);
+  assert.match(summary, /energy-gap-segment \[selected\].*coherent-unverified/);
   assert.match(summary, /not verified message boundaries/);
   assert.match(summary, /not a calibrated probability or confirmed identification/);
   assert.doesNotMatch(summary, /confirmed mode/i);

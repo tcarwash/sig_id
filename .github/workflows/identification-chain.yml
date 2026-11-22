@@ -13,6 +13,10 @@ on:
       - "sigid/native_acquisition.py"
       - "tools/bench_signal_chain_snr.py"
       - "tests/test_native_acquisition.py"
+      - "tests/test_native_weak_acquisition.py"
+      - "tools/bench_weak_acquisition.py"
+      - "docs/WEAK_SIGNAL_ACQUISITION.md"
+      - "reports/live-weak-acquisition-*.json"
       - "tests/test_signal_chain_snr_benchmark.py"
       - "docs/SIGNAL_CHAIN_SNR_BENCHMARK.md"
       - "reports/signal-chain-snr-*.json"
@@ -88,7 +92,7 @@ jobs:
       - name: Install test dependencies
         run: python -m pip install -e ".[dev,api]"
       - name: Test evidence and existing classifier flows
-        run: python -m pytest -q tests/test_identification.py tests/test_classifier_api.py tests/test_tracking.py tests/test_api.py tests/test_frequency_refinement.py tests/test_crowded_benchmark.py tests/test_frequency_refinement_api.py tests/test_timing_evidence.py tests/test_timing_evidence_api.py tests/test_narrow_tone_detection.py tests/test_onair_backend.py tests/test_libsigdecode.py tests/test_decoder_contract_docs.py tests/test_decoder_conformance.py tests/test_decode_rtty.py tests/test_decode_bpsk31.py tests/test_decode_ax25.py tests/test_decoder_conformance_rtty.py tests/test_decoder_conformance_bpsk31.py tests/test_decoder_conformance_ax25.py tests/test_native_mode_integration.py tests/test_native_live_decode.py tests/test_native_live_api.py tests/test_live_classifier_cache.py tests/test_native_acquisition.py tests/test_signal_chain_snr_benchmark.py
+        run: python -m pytest -q tests/test_identification.py tests/test_classifier_api.py tests/test_tracking.py tests/test_api.py tests/test_frequency_refinement.py tests/test_crowded_benchmark.py tests/test_frequency_refinement_api.py tests/test_timing_evidence.py tests/test_timing_evidence_api.py tests/test_narrow_tone_detection.py tests/test_onair_backend.py tests/test_libsigdecode.py tests/test_decoder_contract_docs.py tests/test_decoder_conformance.py tests/test_decode_rtty.py tests/test_decode_bpsk31.py tests/test_decode_ax25.py tests/test_decoder_conformance_rtty.py tests/test_decoder_conformance_bpsk31.py tests/test_decoder_conformance_ax25.py tests/test_native_mode_integration.py tests/test_native_live_decode.py tests/test_native_live_api.py tests/test_live_classifier_cache.py tests/test_native_acquisition.py tests/test_signal_chain_snr_benchmark.py tests/test_native_weak_acquisition.py
       - name: Run pinned CW decoder positive and negative suite
         run: python -m sigid.conformance tests/fixtures/decoder_conformance/cw/manifest.json --json-out /tmp/cw-conformance.json
       - name: Run pinned native-mode conformance suites
