@@ -4,6 +4,12 @@ on:
   pull_request:
     paths:
       - "sigid/identification.py"
+      - "sigid/frequency_refinement.py"
+      - "sigid/crowded_benchmark.py"
+      - "pyproject.toml"
+      - "tests/test_frequency_refinement.py"
+      - "tests/test_crowded_benchmark.py"
+      - "tests/test_frequency_refinement_api.py"
       - "sigid/classifier.py"
       - "sigid/api.py"
       - "sigid/tracking.py"
