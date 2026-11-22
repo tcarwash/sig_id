@@ -161,6 +161,7 @@ function bandHopFrequenciesHz() {
 }
 el("live-cv-enabled").checked = savedInspectorPreference("sig-id-live-cv-enabled", ["on", "off"], "on") === "on";
 el("live-classifier-enabled").checked = savedInspectorPreference("sig-id-live-classifier-enabled", ["on", "off"], "on") === "on";
+el("live-narrow-tracks").checked = savedInspectorPreference("sig-id-live-narrow-tracks", ["on", "off"], "on") === "on";
 el("cv-debug-bounds").checked = savedInspectorPreference("sig-id-cv-debug-bounds", ["on", "off"], "off") === "on";
 el("cv-debug-bounds").addEventListener("change", () => {
   try { localStorage.setItem("sig-id-cv-debug-bounds", el("cv-debug-bounds").checked ? "on" : "off"); } catch {}
@@ -174,7 +175,7 @@ el("live-fine-refinement").addEventListener("change", () => {
     renderCvDetections();
   }
 });
-for (const id of ["live-cv-enabled", "live-classifier-enabled"]) {
+for (const id of ["live-cv-enabled", "live-classifier-enabled", "live-narrow-tracks"]) {
   el(id).addEventListener("change", () => {
     try { localStorage.setItem(`sig-id-${id}`, el(id).checked ? "on" : "off"); } catch {}
     if (!el("live-cv-enabled").checked) {
@@ -185,15 +186,13 @@ for (const id of ["live-cv-enabled", "live-classifier-enabled"]) {
       for (const detection of state.cvDetections) delete detection.classifier_proposal;
       renderCvDetections();
     }
-    state.liveTrackModeMessage = el("live-cv-enabled").checked
-      ? "CV boxes are active above; heuristic track boxes are hidden. Turn CV off to inspect classifier-only track candidates."
-      : el("live-classifier-enabled").checked
-        ? null
-        : "Candidate analysis is paused. Turn on CV signal boxes or classifier suggestions to show candidates.";
-    if (el("live-cv-enabled").checked || !el("live-classifier-enabled").checked) {
+    state.liveTrackModeMessage = el("live-narrow-tracks").checked
+      ? null
+      : "Narrow-tone tracking paused; enable it to see CW-like tone candidates independently of CV.";
+    if (!el("live-narrow-tracks").checked) {
       state.tracks = [];
-      renderTracks();
     }
+    renderTracks();
     if (state.liveView && !state.frozen) drawWaterfall();
   });
 }
@@ -3172,6 +3171,7 @@ function attachLiveCapture(started, {resumed = false} = {}) {
     startSpectrumStream(generation, started.session_id);
     let pending = false;
     let lastLiveCvAt = 0;
+    let lastNarrowAt = 0;
     livePoll = setInterval(async () => {
       if (pending) return;
       pending = true;
@@ -3192,9 +3192,15 @@ function attachLiveCapture(started, {resumed = false} = {}) {
         const classifierEnabled = el("live-classifier-enabled").checked;
         const autoTrial = el("auto-trial").checked && classifierEnabled;
         const preferCvTracks = cvEnabled && state.cvAvailable;
-        const useHeuristicTracks = classifierEnabled && !preferCvTracks;
+        const narrowEnabled = el("live-narrow-tracks").checked;
+        // Keep the independent spectral detector alive alongside CV, but
+        // throttle it and avoid an extra model pass while CV is preferred.
+        const useHeuristicTracks = narrowEnabled
+          && (!preferCvTracks || Date.now() - lastNarrowAt >= 3000);
+        if (useHeuristicTracks) lastNarrowAt = Date.now();
+        const classifyHeuristicTracks = useHeuristicTracks && classifierEnabled && !preferCvTracks;
         const classifierCropCount = Number(el("classifier-crop-count").value) || 1;
-        const analysis = await request(`/api/live/analysis?fft_size=4096&hop_size=512&max_rows=640&include_spectrum=false&classifier_crop_count=${classifierCropCount}&include_tracks=${useHeuristicTracks}&include_classifier=${useHeuristicTracks}&auto_trial=${autoTrial && useHeuristicTracks}`);
+        const analysis = await request(`/api/live/analysis?fft_size=4096&hop_size=512&max_rows=${preferCvTracks ? 320 : 640}&include_spectrum=false&classifier_crop_count=${classifierCropCount}&include_tracks=${useHeuristicTracks}&include_classifier=${classifyHeuristicTracks}&auto_trial=${autoTrial && classifyHeuristicTracks}`);
         if (generation !== state.liveGeneration || !state.liveMonitoring) return;
         if (!state.liveView) return;
         state.liveWindowStartSample = Number.isFinite(analysis.sample_offset) ? analysis.sample_offset : null;
@@ -3239,20 +3245,32 @@ function attachLiveCapture(started, {resumed = false} = {}) {
           el("waterfall-state").textContent = `Collecting analysis window · ${analysis.window_sample_count.toLocaleString()} samples`;
           return;
         }
-        const showHeuristicTracks = useHeuristicTracks;
-        state.tracks = showHeuristicTracks ? analysis.tracks : [];
-        state.liveTrackModeMessage = preferCvTracks
-          ? "CV boxes are active above; heuristic tracks are hidden. Turn CV off to inspect them."
-          : cvEnabled && !state.cvAvailable && classifierEnabled
-            ? "CV is unavailable; showing heuristic track candidates instead."
-            : classifierEnabled
-              ? null
-              : "Candidate analysis is paused. Turn on CV signal boxes or classifier suggestions to show candidates.";
+        if (!narrowEnabled) {
+          state.tracks = [];
+        } else if (useHeuristicTracks) {
+          const candidates = analysis.tracks || [];
+          // When CV is available, expose only strongly observed, narrow
+          // single-tone tracks. Do not clutter an FT8 passband with the full
+          // multi-tone heuristic fallback or call them verified Morse.
+          state.tracks = preferCvTracks
+            ? candidates.filter((track) =>
+              track.tone_count_candidate === 1
+              && track.bandwidth_hz <= 45
+              && track.peak_snr_db >= 14)
+            : candidates;
+        }
+        state.liveTrackModeMessage = !narrowEnabled
+          ? "Narrow-tone tracking paused. Enable it to find keyed CW-like tones."
+          : preferCvTracks
+            ? "CV is active; no separate persistent narrow-tone candidates in this window."
+            : cvEnabled && !state.cvAvailable
+              ? "CV unavailable; independent spectral tracking is the fallback."
+              : null;
         el("track-status").textContent = preferCvTracks
-          ? "CV detection mode · persistent CV boxes can enter evidence-guided decoder trials"
-          : classifierEnabled
-            ? cvEnabled ? "CV unavailable · heuristic detector fallback" : "Classifier-only mode · heuristic bounds are provisional"
-            : "Candidate analysis paused";
+          ? `CV + narrow-tone detection · ${state.tracks.length} CW-like candidate${state.tracks.length === 1 ? "" : "s"} · unverified`
+          : narrowEnabled
+            ? "Independent spectral tracking · signal families remain provisional"
+            : "Narrow-tone tracking paused";
         drawWaterfall();
         renderTracks();
       } catch (error) { if (generation === state.liveGeneration) showError(error.message); }
@@ -4968,7 +4986,7 @@ function renderTracks() {
           ? ` · model abstained (${proposal.top_candidate}, ${(100 * proposal.confidence).toFixed(0)}%)`
           : ` · model ${proposal.method_id} ${(100 * proposal.confidence).toFixed(0)}%`
         : "";
-      summary.textContent = `${identity} · ${track.modulation_hypothesis} · ${track.tone_count_candidate} tone centers${modelLabel}`;
+      summary.textContent = `${identity} · ${track.tone_count_candidate === 1 ? "narrow tone (CW-like, unverified)" : track.modulation_hypothesis} · ${track.tone_count_candidate} tone centers${modelLabel}`;
       const detail = document.createElement("div");
       detail.className = "region-detail";
       detail.textContent = `${track.frequency_low_hz.toFixed(0)}–${track.frequency_high_hz.toFixed(0)} Hz · ${track.time_start_seconds.toFixed(2)}–${track.time_end_seconds.toFixed(2)} s · ${track.peak_snr_db.toFixed(1)} dB peak SNR · drift ${drift >= 0 ? "+" : ""}${drift.toFixed(1)} Hz/s`;
@@ -5006,7 +5024,7 @@ function renderTracks() {
         toneButton.addEventListener("click", () => applyTrackToneEstimate(track));
         row.append(toneButton);
       }
-      if (state.liveView && track.track_id) {
+      if (state.liveView && track.track_id && track.tone_count_candidate >= 2) {
         const tryButton = document.createElement("button");
         tryButton.className = "track-auto-button";
         tryButton.type = "button";
