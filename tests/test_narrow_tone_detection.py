@@ -67,6 +67,35 @@ def test_narrow_grouping_keeps_keyed_carrier_separate_from_nearby_tone():
     assert all(row["protocol"] is None for row in narrow)
 
 
+
+def test_weak_keyed_carrier_needs_lower_peak_floor_but_still_rejects_noise():
+    """Weak CW-like carrier in recent IC-7300 recordings fell below -25 dB."""
+    rate = 12000
+    audio = keyed_tone_audio(rate) * 0.3
+    spectrum = waterfall_samples(
+        audio, rate, fft_size=4096, hop_size=512, max_rows=320,
+        sample_offset=0, total_sample_count=len(audio),
+    )
+    original = detect_tracks(spectrum, minimum_peak_db=-25, maximum_tone_gap_hz=35)
+    sensitive = detect_tracks(spectrum, minimum_peak_db=-32, maximum_tone_gap_hz=35)
+    assert not any(abs(row["center_hz"] - 1100) < 25 for row in original)
+    assert any(
+        abs(row["center_hz"] - 1100) < 25
+        and row["tone_count_candidate"] == 1
+        and row["bandwidth_hz"] <= 45
+        for row in sensitive
+    )
+    # Low-level noise must not become a "CW" confirmation.
+    assert not detect_tracks(
+        waterfall_samples(
+            np.random.default_rng(22).normal(0, 0.001, len(audio)),
+            rate, fft_size=4096, hop_size=512, max_rows=320,
+            sample_offset=0, total_sample_count=len(audio),
+        ),
+        minimum_peak_db=-32, maximum_tone_gap_hz=35,
+    )
+
+
 def test_live_analysis_exposes_tone_tracks_when_classifier_disabled(tmp_path, monkeypatch):
     rate = 12000
     pcm = np.round(np.clip(keyed_tone_audio(rate), -1, 1) * 32767).astype("<i2")
