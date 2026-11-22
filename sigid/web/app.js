@@ -2952,10 +2952,10 @@ function updateAudioInputHint() {
   const selected = el("audio-device").selectedOptions[0];
   const name = selected?.dataset.deviceName || "";
   const hint = el("audio-input-hint");
-  const outputMonitor = /(?:\\.monitor\\b|output.*monitor)/i.test(name);
+  const outputMonitor = /(?:\.monitor\b|output.*monitor)/i.test(name);
   if (outputMonitor) {
     hint.textContent = "Playback/output monitor selected! This records what the computer sends TO the device, not the radio's receiver audio. Choose the USB Audio CODEC input instead.";
-  } else if (/USB Audio CODEC.*\\(hw:/i.test(name)) {
+  } else if (/USB Audio CODEC.*\(hw:/i.test(name)) {
     hint.textContent = "Direct USB Audio CODEC recording input selected. If it is busy, stop other applications recording from this interface.";
   } else if (name) {
     hint.textContent = `Selected recording input: ${name}. Check that it carries your receiver's audio.`;
@@ -2974,7 +2974,7 @@ async function refreshAudioDevices() {
     const requestedName = state.liveDeviceName || previousName || savedName;
     select.replaceChildren(new Option("Default input (may be microphone)", ""));
     for (const device of devices) {
-      const outputMonitor = /(?:\\.monitor\\b|output.*monitor)/i.test(device.name);
+      const outputMonitor = /(?:\.monitor\b|output.*monitor)/i.test(device.name);
       const title = `${outputMonitor ? "⚠ Output monitor — " : ""}${device.name} · ${device.max_input_channels} ch`;
       const option = new Option(title, String(device.id));
       option.dataset.deviceName = device.name;
