@@ -1145,13 +1145,16 @@ Decoded text will appear here.</pre>
         <label class="auto-trial-toggle" title="Run the class-agnostic CV detector and show its proposed signal boxes.">
           <span>CV signal boxes</span><input id="live-cv-enabled" type="checkbox" checked />
         </label>
+        <label class="auto-trial-toggle" title="Independently detect stable narrow audio tones such as keyed CW, even when the CV model is enabled. This does not prove Morse code and does not trigger automatic decoder trials.">
+          <span>Narrow-tone / CW candidates</span><input id="live-narrow-tracks" type="checkbox" checked />
+        </label>
         <label class="auto-trial-toggle" title="Score CV boxes when CV is enabled; otherwise score heuristic track candidates.">
           <span>Classifier suggestions</span><input id="live-classifier-enabled" type="checkbox" checked />
         </label>
         <label class="auto-trial-toggle" title="Experimental, CPU-bounded high-resolution audio STFT analysis. Suggestions don't replace CV boxes or start decoders.">
           <span>Preview fine-frequency splits</span><input id="live-fine-refinement" type="checkbox" />
         </label>
-        <p class="subhead">With both CV and classifier on, CV finds regions and the classifier proposes possible identities. Fine-frequency splitting is optional: it marks possible sub-bands within broad regions without creating new tracks or treating them as separate stations. Turn both CV and classifier off to pause candidate boxes.</p>
+        <p class="subhead">CV detects broad time/frequency regions. The independent narrow-tone detector stays enabled for keyed CW and other stable carriers, even when CV is active; its results are provisional, not confirmed Morse. Classifier suggestions are separate. Fine-frequency splitting previews possible sub-bands without adding tracks. Disable both detectors to pause candidate detection.</p>
       </section>
       <section class="panel">
         <h3>Decoder and identification</h3>
