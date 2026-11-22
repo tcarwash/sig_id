@@ -660,7 +660,7 @@ el("native-decode-selection").addEventListener("click", async () => {
   const button = el("native-decode-selection");
   button.disabled = true;
   const owner = beginDecodeAttempt();
-  el("native-decode-status").textContent = `Sending selected audio to ${backendId} · ${modeId}…`;
+  el("native-decode-status").textContent = `Decoding the selected audio with ${backendId} · ${modeId}…`;
   try {
     const result = await request(`/api/captures/${encodeURIComponent(capture.id)}/decoder-backends/${encodeURIComponent(backendId)}/decode`, {
       method: "POST", headers: {"Content-Type":"application/json"},
@@ -7120,6 +7120,8 @@ function updateDecoderSelectionControls() {
   if (el("native-decode-selection")) {
     const selectedNativeMode = nativeDecoderBindings.some((mode) => `${mode.backend_id}|${mode.mode_id}` === el("native-decoder-mode")?.value);
     el("native-decode-selection").disabled = !validSavedSelection || !selectedNativeMode;
+    el("native-decode-selection").textContent = el("native-decoder-mode")?.value.startsWith("sigdecode|")
+      ? "Decode with Signal ID" : "Decode with selected decoder";
   }
 }
 function showOutput(tab) {

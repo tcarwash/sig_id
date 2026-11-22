@@ -349,12 +349,12 @@
                   >
                 </div>
                 <section class="decoder-evidence native-decoder-links" aria-live="polite">
-                  <strong>Native decoder applications</strong>
-                  <p id="native-decoder-status" class="subhead">Checking optional decoder links…</p>
+                  <strong>Decoders — built-in and optional external</strong>
+                  <p id="native-decoder-status" class="subhead">Checking built-in decoders and optional external links…</p>
                   <label>Native clip decoder<select id="native-decoder-mode" disabled><option value="">No native clip decoder available</option></select></label>
-                  <button id="native-decode-selection" type="button" disabled>Decode selected region with native app</button>
+                  <button id="native-decode-selection" type="button" disabled>Decode with selected decoder</button>
                   <p id="native-decode-status" class="subhead">Select a supported native mode to decode this saved audio window.</p>
-                  <p class="subhead">WSJT-X can decode saved FT8 clips via jt9 and report live results through loopback UDP. OnAir can publish decoded live events through its optional local HTTP API; Signal ID only reads that feed and never tunes or transmits through it. OnAir does not yet support selected-clip decoding here. Configure the server-side OnAir URL and API token as described in Operations. Data2G modes remain annotation candidates until a native audio-window adapter is installed.</p>
+                  <p class="subhead">Signal ID includes its own experimental CW decoder: select a Morse carrier and a saved audio window, then choose Signal ID · CW. It does not call Fldigi, OnAir, or WSJT-X. Optional WSJT-X can decode saved FT8 clips via jt9 and report live results through loopback UDP. OnAir can publish decoded live events through its optional local HTTP API; Signal ID only reads that feed and never tunes or transmits through it. OnAir does not yet support selected-clip decoding here. Configure the server-side OnAir URL and API token as described in Operations. Data2G modes remain annotation candidates until a native audio-window adapter is installed.</p>
                   <div id="native-decoder-results" class="decode-runs"><p class="muted">No native decoder results received yet.</p></div>
                 </section>
                 <p id="collection-status" class="subhead" role="status" aria-live="polite"></p>

@@ -63,6 +63,7 @@ from .fldigi_backend import FldigiNativeBackend
 from .fldigi_replay import IsolatedFldigiReplay
 from .wsjtx_backend import WsjtxUdpBackend
 from .onair_backend import OnAirEventBackend
+from .local_decoder_backend import LocalDecoderBackend
 from .live_audio import LiveCaptureManager
 from .live_spectrum import spectrum_packet
 from .modes import MODE_REGISTRY_VERSION, find_modes, resolve_mode_label
@@ -875,6 +876,10 @@ def create_app(
     )
     fldigi_replay = fldigi_replay_backend or IsolatedFldigiReplay()
     configured_backends = list(decoder_backends)
+    if not any(str(getattr(backend, "backend_id", "")).casefold() == "sigdecode" for backend in configured_backends):
+        # The project's own library is first-class and does not require an
+        # external decoder application to be installed or connected.
+        configured_backends.insert(0, LocalDecoderBackend())
     if not any(str(getattr(backend, "backend_id", "")).casefold() == "fldigi" for backend in configured_backends):
         configured_backends.append(FldigiNativeBackend(fldigi, fldigi_replay))
     if not any(str(getattr(backend, "backend_id", "")).casefold() == "wsjtx" for backend in configured_backends):
