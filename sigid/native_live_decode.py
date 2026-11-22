@@ -39,6 +39,16 @@ def candidate_modes(track: dict[str, Any]) -> tuple[str, ...]:
     width = high - low
     center = (low + high) / 2
 
+    # CV boxes are sometimes wider than the actual energy band. A CW box
+    # around 265 Hz was incorrectly sent to RTTY/PSK decoders because the
+    # detector reported a broad width. Prefer these clear audio lanes,
+    # independently of a provisional ML family claim. Keep a second mode
+    # to account for real off-center narrowband signals.
+    if 0 < center < 420 and high < 850:
+        return ("cw", "rtty")
+    if center > 2300 and low > 2100:
+        return ("bpsk31", "cw")
+
     if "ax.25" in identity or "ax25" in identity or "aprs" in identity:
         return ("ax25",)
     if "rtty" in identity or "baudot" in identity:
