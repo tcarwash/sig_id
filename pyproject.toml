@@ -49,6 +49,7 @@ sig-id-import-sigidwiki-images = "sigid.sigidwiki_images:main"
 sig-id-serve = "sigid.server:main"
 sig-id-decode = "sigid.libsigdecode.cli:main"
 sig-id-conformance = "sigid.conformance:main"
+sig-id-signal-lab = "sigid.signal_lab:main"
 sig-id-hub = "sigid.hub:main"
 
 [tool.setuptools.package-data]
