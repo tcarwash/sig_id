@@ -55,6 +55,7 @@ from .cv_embeddings import load_embedding_index, read_audio_range, region_image
 from .laya import LayaError, classify as classify_with_laya, configured as laya_configured, load_reference_examples
 from .demod import demodulate_2fsk, demodulate_bpsk, demodulate_mfsk, demodulate_ook, demodulate_qpsk
 from .identification import decoder_shortlist, measure_audio_evidence
+from .frequency_refinement import MAX_REFINEMENT_SECONDS, refine_frequency_region
 from .detection import detect_tracks
 from .fldigi import FldigiClient
 from .fldigi_backend import FldigiNativeBackend
@@ -1604,6 +1605,7 @@ def create_app(
         confidence: float | None = Query(default=None, ge=0.0, le=1.0),
         include_classifier: bool = Query(default=True),
         auto_trial: bool = Query(default=False),
+        include_frequency_refinement: bool = Query(default=False),
     ) -> dict[str, Any]:
         detector = app.state.cv_detector
         if detector is None:
@@ -1648,6 +1650,35 @@ def create_app(
             sample_position=int(snapshot["sample_count"]),
             sample_rate=int(snapshot["sample_rate"]),
         )
+        if include_frequency_refinement:
+            sample_rate = int(snapshot["sample_rate"])
+            ring_start = int(snapshot["sample_offset"])
+            refined = sorted(detections, key=lambda item: float(item.get("confidence", 0)), reverse=True)[:8]
+            eligible = {id(item) for item in refined}
+            for detection in detections:
+                if id(detection) not in eligible:
+                    detection["frequency_refinement"] = {
+                        "split_suggested": False, "status": "skipped",
+                        "reason": "8-box live refinement limit",
+                    }
+                    continue
+                local_start = max(0, int(detection["sample_start"]) - ring_start)
+                local_end = min(len(mono), int(detection["sample_start"])
+                                + int(detection["sample_count"]) - ring_start)
+                try:
+                    result = refine_frequency_region(
+                        mono[local_start:local_end], sample_rate,
+                        float(detection["frequency_low_hz"]),
+                        float(detection["frequency_high_hz"]),
+                    )
+                    detection["frequency_refinement"] = {
+                        **result, "sample_start": ring_start + local_start,
+                        "sample_count": max(0, local_end - local_start),
+                    }
+                except (ValueError, RuntimeError) as exc:
+                    detection["frequency_refinement"] = {
+                        "status": "unavailable", "split_suggested": False, "reason": str(exc),
+                    }
         classifier = app.state.classifier
         classifier_available = classifier is not None
         if classifier is not None and include_classifier:
@@ -1777,6 +1808,11 @@ def create_app(
             "preprocessing_version": PREPROCESSING_VERSION,
             "classifier_available": classifier_available,
             "classifier_scoring": classifier is not None and include_classifier,
+            "frequency_refinement_enabled": include_frequency_refinement,
+            "frequency_refinement_suggestions": sum(
+                bool(item.get("frequency_refinement", {}).get("split_suggested"))
+                for item in detections
+            ),
             "detections": detections,
             "automatic_trial": automatic_trial,
         }
@@ -3130,6 +3166,7 @@ def create_app(
     def detect_capture_signals(
         capture_id: str,
         confidence: float | None = Query(default=None, ge=0.0, le=1.0),
+        include_frequency_refinement: bool = Query(default=False),
     ) -> dict[str, Any]:
         detector = app.state.cv_detector
         if detector is None:
@@ -3144,6 +3181,39 @@ def create_app(
         except Exception as exc:
             logging.getLogger(__name__).exception("Optional CV detection failed for capture %s", capture_id)
             raise HTTPException(status_code=503, detail=f"CV inference failed: {exc}") from exc
+        if include_frequency_refinement:
+            rate = int(capture["sample_rate"])
+            max_samples = int(round(MAX_REFINEMENT_SECONDS * rate))
+            chosen = sorted(detections, key=lambda item: float(item.get("confidence", 0)), reverse=True)[:8]
+            eligible = {id(item) for item in chosen}
+            for detection in detections:
+                if id(detection) not in eligible:
+                    detection["frequency_refinement"] = {
+                        "split_suggested": False, "status": "skipped",
+                        "reason": "8-box capture refinement limit",
+                    }
+                    continue
+                start = int(detection["sample_start"])
+                count = int(detection["sample_count"])
+                bounded_count = min(count, max_samples)
+                excerpt_start = start + max(0, (count - bounded_count) // 2)
+                try:
+                    excerpt_rate, excerpt = read_audio_range(
+                        capture["audio_path"], excerpt_start, bounded_count,
+                    )
+                    result = refine_frequency_region(
+                        excerpt, excerpt_rate,
+                        float(detection["frequency_low_hz"]),
+                        float(detection["frequency_high_hz"]),
+                    )
+                    detection["frequency_refinement"] = {
+                        **result, "sample_start": excerpt_start,
+                        "sample_count": len(excerpt),
+                    }
+                except (ValueError, RuntimeError, OSError) as exc:
+                    detection["frequency_refinement"] = {
+                        "status": "unavailable", "split_suggested": False, "reason": str(exc),
+                    }
         classifier = app.state.classifier
         classifier_available = classifier is not None
         if classifier is not None:
@@ -3198,6 +3268,11 @@ def create_app(
             "overlap_deduplication_iou": OVERLAP_DEDUP_IOU,
             "confidence_threshold": detector.confidence_threshold,
             "classifier_available": classifier_available,
+            "frequency_refinement_enabled": include_frequency_refinement,
+            "frequency_refinement_suggestions": sum(
+                bool(item.get("frequency_refinement", {}).get("split_suggested"))
+                for item in detections
+            ),
             "detections": detections,
             "dismissed_proposals": store.cv_proposal_decisions(
                 capture_id, model_sha256=detector.model_sha256,
