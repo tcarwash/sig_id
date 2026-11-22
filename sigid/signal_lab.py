@@ -34,8 +34,8 @@ MAX_HZ = 2900.0
 # not the middle of the 1200/2200-Hz Bell 202 tone pair.
 PROFILES = {
     "cw": (-90.0, 90.0, 260.0),
-    "rtty": (-135.0, 135.0, 595.0),
-    "bpsk31": (-70.0, 70.0, 925.0),
+    "rtty": (-135.0, 135.0, 740.0),
+    "bpsk31": (-70.0, 70.0, 2520.0),
     # The current native AX.25 implementation uses fixed 1200/2200 Hz tones;
     # changing only DecodeWindow.carrier_hz does not retune that decoder.
     "ax25": (-100.0, 1100.0, 1200.0),
@@ -236,7 +236,8 @@ def render(*, modes: list[str], output: Path, fixture_root: Path = FIXTURES,
            snr_db: float = 19.0, level: float = 0.17,
            gap_seconds: float = 0.9, carrier_overrides: dict[str, float] | None = None,
            allow_overlap: bool = False, stereo: bool = True,
-           traffic: str = "staggered") -> dict:
+           traffic: str = "staggered", max_active: int = 1,
+           bursts_per_mode: int = 2, qrm: bool | None = None) -> dict:
     if not 15 <= duration <= 300:
         raise ValueError("duration must be 15–300 seconds")
     if sample_rate not in (12000, 24000, 48000):
@@ -245,8 +246,14 @@ def render(*, modes: list[str], output: Path, fixture_root: Path = FIXTURES,
         raise ValueError("SNR must be 0–55 dB and signal level 0.02–0.3 RMS")
     if not 0.2 <= gap_seconds <= 10:
         raise ValueError("gap must be between 0.2 and 10 seconds")
-    if traffic not in {"staggered", "parallel"}:
-        raise ValueError("traffic must be staggered or parallel")
+    if traffic not in {"staggered", "sparse", "parallel"}:
+        raise ValueError("traffic must be staggered, sparse or parallel")
+    if max_active not in (1, 2):
+        raise ValueError("--max-active must be 1 or 2")
+    if not isinstance(bursts_per_mode, int) or not 1 <= bursts_per_mode <= 12:
+        raise ValueError("--bursts-per-mode must be between 1 and 12")
+    if qrm is None:
+        qrm = traffic != "sparse"
     if not modes or len(modes) != len(set(modes)):
         raise ValueError("supply at least one distinct mode")
     available = discover(fixture_root)
@@ -308,7 +315,43 @@ def render(*, modes: list[str], output: Path, fixture_root: Path = FIXTURES,
         peers = [s for s in stations if s.group == group]
         window_start = group * block_seconds
         window_end = min(duration, window_start + block_seconds) - 0.5
-        if traffic == "staggered":
+        if traffic == "sparse":
+            # Evenly distributed transmissions with an exact cap of one or
+            # two active stations. This leaves real noise-only intervals and
+            # avoids packing tens of repeated bursts into a 30-second view.
+            if max_active == 1:
+                batches = [[station] for station in peers]
+            else:
+                # Keep the widest-band mode away from the nearest narrow
+                # signals. Fixed-tone AX.25 in particular has no channel
+                # isolation yet, so pair it with the largest spectral gap.
+                remaining = list(peers)
+                batches = []
+                while remaining:
+                    widest = max(remaining, key=lambda s: s.edge_high_hz - s.edge_low_hz)
+                    remaining.remove(widest)
+                    if remaining:
+                        farthest = max(remaining, key=lambda s: max(
+                            0.0, s.edge_low_hz - widest.edge_high_hz,
+                            widest.edge_low_hz - s.edge_high_hz))
+                        remaining.remove(farthest)
+                        batches.append([widest, farthest])
+                    else:
+                        batches.append([widest])
+            slots = len(batches) * bursts_per_mode
+            slot_seconds = block_seconds / slots
+            for repetition in range(bursts_per_mode):
+                for batch_number, batch in enumerate(batches):
+                    position = repetition * len(batches) + batch_number
+                    at = window_start + position * slot_seconds + 1.0
+                    end = at + max(len(prepared[s]) / sample_rate for s in batch)
+                    if end > min(window_end, window_start + (position + 1) * slot_seconds - 0.15):
+                        raise ValueError("sparse pattern has insufficient room for complete "
+                                         "modem frames; increase --duration, reduce "
+                                         "--bursts-per-mode or --max-active")
+                    for station in batch:
+                        emit(station, at)
+        elif traffic == "staggered":
             # Reliable baseline: different occupied frequencies, one TX at
             # a time. This keeps short CRC-checked AX.25 frames intact, even
             # when experimental decoder front ends lack interference filters.
@@ -338,10 +381,13 @@ def render(*, modes: list[str], output: Path, fixture_root: Path = FIXTURES,
                              "in the requested duration; increase --duration")
     noise_rms = level / (10 ** (snr_db / 20))
     audio += rng.normal(0, noise_rms, total_frames)
-    # Mild, known unrelated QRM carriers. These are not modem messages.
-    t = np.arange(total_frames) / sample_rate
-    audio += 0.5 * noise_rms * np.sin(2 * np.pi * 735 * t + 0.3)
-    audio += 0.25 * noise_rms * np.sin(2 * np.pi * 2675 * t + 0.7)
+    # Continuous fixed QRM lines can dominate a sparse waterfall and trigger
+    # narrow-tone false positives, so omit them in sparse mode by default.
+    # Keep QRM available explicitly as a stressor.
+    if qrm:
+        t = np.arange(total_frames) / sample_rate
+        audio += 0.5 * noise_rms * np.sin(2 * np.pi * 735 * t + 0.3)
+        audio += 0.25 * noise_rms * np.sin(2 * np.pi * 2675 * t + 0.7)
     peak_before_scaling = float(np.max(np.abs(audio)))
     gain = min(1.0, 0.94 / max(peak_before_scaling, 1e-12))
     audio *= gain
@@ -356,6 +402,9 @@ def render(*, modes: list[str], output: Path, fixture_root: Path = FIXTURES,
         "source": "verified-sha256-pinned-positive-conformance-fixtures",
         "rate_hz": sample_rate, "duration_seconds": duration, "seed": seed,
         "traffic": traffic,
+        "max_active": max_active if traffic == "sparse" else (1 if traffic == "staggered" else len(stations)),
+        "bursts_per_mode": bursts_per_mode if traffic == "sparse" else None,
+        "continuous_qrm": qrm,
         "snr_db_nominal_per_station": snr_db,
         "signal_rms_before_overlap": level,
         "background_noise_rms": round(noise_rms, 8),
@@ -491,7 +540,9 @@ def start_loop(state_dir: Path, settings: argparse.Namespace) -> dict:
                     duration=settings.duration, sample_rate=settings.rate,
                     seed=settings.seed, snr_db=settings.snr_db, level=settings.level,
                     gap_seconds=settings.gap, carrier_overrides=carriers,
-                    allow_overlap=settings.allow_overlap, traffic=settings.traffic)
+                    allow_overlap=settings.allow_overlap, traffic=settings.traffic,
+                    max_active=settings.max_active, bursts_per_mode=settings.bursts_per_mode,
+                    qrm=settings.qrm)
     log = (state_dir / "player.log").open("ab")
     with log:
         proc = subprocess.Popen(
@@ -539,8 +590,8 @@ def _add_render_args(parser: argparse.ArgumentParser) -> None:
                         help="root directory containing per-mode conformance manifests")
     parser.add_argument("--carriers", default="",
                         help="optional exact audio carrier overrides: rtty=650,bpsk31=1050")
-    parser.add_argument("--duration", type=float, default=48,
-                        help="repeat WAV length, 15–300 seconds (default 48)")
+    parser.add_argument("--duration", type=float, default=100,
+                        help="repeat WAV length, 15–300 seconds (default 100)")
     parser.add_argument("--rate", type=int, default=RATE, choices=(12000, 24000, 48000))
     parser.add_argument("--seed", type=int, default=71062)
     parser.add_argument("--snr-db", type=float, default=19,
@@ -548,10 +599,16 @@ def _add_render_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--level", type=float, default=0.17,
                         help="each station's target RMS before overlap (default 0.17)")
     parser.add_argument("--gap", type=float, default=0.9,
-                        help="extra idle seconds between consecutive bursts")
-    parser.add_argument("--traffic", choices=("staggered", "parallel"),
-                        default="staggered",
-                        help="staggered reliable baseline (default), or simultaneous crowded tests")
+                        help="idle seconds between bursts in staggered/parallel mode; sparse uses even slots")
+    parser.add_argument("--traffic", choices=("staggered", "sparse", "parallel"),
+                        default="sparse",
+                        help="sparse one/two at a time (default), staggered continuous or parallel busy")
+    parser.add_argument("--max-active", type=int, choices=(1, 2), default=1,
+                        help="sparse traffic only: one or two simultaneous stations")
+    parser.add_argument("--bursts-per-mode", type=int, default=2,
+                        help="sparse traffic only: exact repeats of each modem per cycle (default 2)")
+    parser.add_argument("--qrm", action=argparse.BooleanOptionalAction, default=None,
+                        help="enable or disable continuous non-message interference tones; sparse defaults off")
     parser.add_argument("--allow-overlap", action="store_true",
                         help="allow intentionally overlapping channels for stress tests")
 
@@ -592,7 +649,9 @@ def main(argv: list[str] | None = None) -> int:
                           sample_rate=args.rate, seed=args.seed, snr_db=args.snr_db,
                           level=args.level, gap_seconds=args.gap,
                           carrier_overrides=parse_carriers(args.carriers, modes),
-                          allow_overlap=args.allow_overlap, traffic=args.traffic)
+                          allow_overlap=args.allow_overlap, traffic=args.traffic,
+                          max_active=args.max_active, bursts_per_mode=args.bursts_per_mode,
+                          qrm=args.qrm)
             print(json.dumps({"mono": info["mono_wav"], "stereo": info["stereo_wav"],
                               "stations": info["stations"],
                               "bursts": len(info["transmissions"]),

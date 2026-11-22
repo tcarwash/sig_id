@@ -10,7 +10,7 @@ From a Signal ID checkout with audio dependencies installed, run:
 
     python -m pip install -e '.[audio,api,dev]'
     python -m sigid.signal_lab list
-    python -m sigid.signal_lab start --modes rtty,bpsk31,ax25,cw --duration 48 --snr-db 20
+    python -m sigid.signal_lab start --modes rtty,bpsk31,ax25,cw --duration 100 --snr-db 22
 
 The installed entrypoint **sig-id-signal-lab** runs the same commands.
 
@@ -25,31 +25,46 @@ The player stays running after you close the browser. Start creates the null sin
 
 ## Choose modes, noise, and traffic patterns
 
-Reliable baseline: frequency-separated, **staggered** bursts, one transmitter at a time.
+The default **sparse** pattern puts each modem on a widely separated audio channel
+and sends **one complete transmission at a time**, with only two bursts per mode
+spread over the full cycle. For two stations transmitting simultaneously, use
+--max-active 2. The scheduler intelligently pairs AX.25 with distant CW and
+RTTY with BPSK31 when all four modes are selected; this minimizes cross-mode
+interference rather than assuming each experimental decoder has a perfect filter.
 
-    python -m sigid.signal_lab start --modes cw,rtty,bpsk31,ax25 --duration 60 --snr-db 23
+Reliable quiet baseline: frequency-separated, **sparse** bursts, one transmitter at a time.
+
+    python -m sigid.signal_lab start --modes cw,rtty,bpsk31,ax25 \
+        --duration 100 --snr-db 23 --traffic sparse --max-active 1 --bursts-per-mode 2
 
 Change the mode list or carrier positions by stopping the current player first:
 
     python -m sigid.signal_lab stop
-    python -m sigid.signal_lab start --modes rtty,bpsk31 --carriers rtty=615,bpsk31=980 --snr-db 15
+    python -m sigid.signal_lab start --modes rtty,bpsk31 \
+        --carriers rtty=740,bpsk31=2520 --duration 100 --snr-db 15
 
-Stress test: multiple stations transmit **simultaneously** in their own audio frequency lanes:
+Two-station mode: maximum two simultaneous signals, with deliberate quiet intervals:
+
+    python -m sigid.signal_lab stop
+    python -m sigid.signal_lab start --modes cw,rtty,bpsk31,ax25 \
+        --traffic sparse --max-active 2 --bursts-per-mode 2 --duration 100
+
+Stress test: all stations transmit **simultaneously** in their own audio frequency lanes:
 
     python -m sigid.signal_lab stop
     python -m sigid.signal_lab start --modes rtty,bpsk31,ax25,cw --traffic parallel --snr-db 12
 
 For deliberate spectral collisions, combine --traffic parallel with --allow-overlap and an explicit --carriers mapping. This can produce no-decodes or corrupted decodes on experimental front ends, which is meaningful stress evidence rather than a generator failure.
 
-The default --traffic staggered provides a clean reference with distinct carrier frequencies. The simulator always emits seeded noise in gaps. More modes can be packed into the 160–2900 Hz passband with guard bands; if they cannot all fit simultaneously, the planner schedules groups in separate time windows.
+The default --traffic sparse provides a clean, less-crowded reference with distinct carrier frequencies, no continuous narrow QRM tones, at most --max-active 1 or 2 stations, and exactly --bursts-per-mode repeats per cycle. Their time slots are evenly spread rather than packed into the first few seconds. Seeded white noise remains present in gaps. Use --qrm to add the optional 735 and 2675 Hz interfering tones; --no-qrm to explicitly disable them. The older --traffic staggered cycles one transmitter at a time as often as the configured --gap allows, and --traffic parallel plays all separate stations simultaneously. The --gap setting affects staggered/parallel, not sparse, which allocates evenly spaced slots instead. More modes can be packed into the 160–2900 Hz passband with guard bands; if they cannot all fit simultaneously, the planner schedules groups in separate time windows.
 
 ### Default carrier plan
 
 | Mode | Audio carrier | Expected native decode |
 | --- | --- | --- |
 | CW | 260 Hz | CQ TEST |
-| RTTY 45.45 baud ITA2 | 595 Hz | CQ TEST |
-| BPSK31 | 925 Hz | cq de |
+| RTTY 45.45 baud ITA2 | 740 Hz | CQ TEST |
+| BPSK31 | 2520 Hz | cq de |
 | AX.25 Bell 202 AFSK | mark 1200 Hz, space 2200 Hz | HELLO WORLD, valid FCS |
 
 AX.25's current first-party decoder expects **fixed 1200/2200 Hz tones**, regardless of the selected window's carrier-hz hint. Signal Lab intentionally keeps AX.25 at those frequencies by default. A manually shifted AX.25 test signal is possible for stress testing but **not guaranteed to decode natively** until AX.25 retuning is implemented.
@@ -70,7 +85,7 @@ Files:
 - /tmp/sigid-multi-mode-stereo.wav — identical audio in both channels; used by the loop player
 - /tmp/sigid-multi-mode.json — sample-accurate truth metadata, fixture hashes and parameters
 
-The default signal RMS is 0.17 per station before overlap. Default SNR 19 dB adds seeded white noise plus weak interfering tones at 735 and 2675 Hz. The mix is linearly peak-normalized if needed; the truth manifest records its gain. Use --snr-db 25 for a clean control or --snr-db 10 to challenge the detectors. Sample rates 12, 24 and 48 kHz are supported; use 48 kHz for the virtual audio input.
+The default signal RMS is 0.17 per station before overlap. Default SNR 19 dB adds seeded white noise. The default CLI renders a 100-second sparse loop with two complete bursts per selected mode, without continuous interfering tones. The legacy staggered/parallel modes include weak interfering tones at 735 and 2675 Hz unless disabled; sparse mode defaults to noise only. The mix is linearly peak-normalized if needed; the truth manifest records its gain. Use --snr-db 25 for a clean control or --snr-db 10 to challenge the detectors. Sample rates 12, 24 and 48 kHz are supported; use 48 kHz for the virtual audio input.
 
 ## Troubleshooting and safety
 
