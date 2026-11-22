@@ -262,6 +262,11 @@ class LiveCaptureManager:
                 channels=channels,
                 dtype="int16",
                 callback=callback,
+                # Some PulseAudio/PipeWire devices otherwise deliver only
+                # 32 frames per callback at 48 kHz (~1500 calls/second),
+                # overwhelming a bounded Python writer queue. A fixed
+                # 1024-frame block leaves approximately 21 ms per callback.
+                blocksize=1024,
             )
             session.stream.start()
             with session.lock:

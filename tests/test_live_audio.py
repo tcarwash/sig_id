@@ -31,7 +31,8 @@ class FakeAudio:
         return self.devices_list
 
     def InputStream(self, **kwargs):
-        return FakeStream(self, kwargs)
+        self.last_stream = FakeStream(self, kwargs)
+        return self.last_stream
 
 
 class FakeStream:
@@ -110,6 +111,7 @@ def test_live_capture_writes_wav_and_registers_capture(tmp_path):
     }]
     started = manager.start(device_id=1, sample_rate=8000, max_duration_seconds=5)
     assert started["state"] == "recording"
+    assert backend.last_stream.kwargs["blocksize"] == 1024
     result = manager.stop()
     capture = result["capture"]
     assert capture["source_kind"] == "live"
