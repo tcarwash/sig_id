@@ -96,7 +96,7 @@
       "id": "rtty",
       "family": "keyboard",
       "priority": 1,
-      "state": "planned",
+      "state": "experimental_implemented",
       "input_kind": "mono-audio",
       "reference_ids": [
         "ita2_itu"
@@ -104,14 +104,14 @@
       "depends_on": [
         "shared_fsk_timing"
       ],
-      "next_step": "ITA2 with framing/shift state and polarity tests",
+      "next_step": "Registered experimental decoder; synthetic conformance only. Acquire and review real-air ground truth before benchmark promotion.",
       "evidence_file": "docs/decoder-evidence/rtty.md"
     },
     {
       "id": "bpsk31",
       "family": "keyboard",
       "priority": 1,
-      "state": "planned",
+      "state": "experimental_implemented",
       "input_kind": "mono-audio",
       "reference_ids": [
         "psk31_arrl"
@@ -119,14 +119,14 @@
       "depends_on": [
         "shared_psk_timing"
       ],
-      "next_step": "Differential PSK and varicode",
+      "next_step": "Registered experimental decoder; synthetic conformance only. Acquire and review real-air ground truth before benchmark promotion.",
       "evidence_file": "docs/decoder-evidence/bpsk31.md"
     },
     {
       "id": "ax25",
       "family": "packet",
       "priority": 1,
-      "state": "planned",
+      "state": "experimental_implemented",
       "input_kind": "mono-audio",
       "reference_ids": [
         "ax25_tapr"
@@ -134,7 +134,7 @@
       "depends_on": [
         "shared_afsk_hdlc"
       ],
-      "next_step": "HDLC/NRZI/bit stuffing/FCS, with raw frames",
+      "next_step": "Registered experimental decoder; synthetic conformance only. Acquire and review real-air ground truth before benchmark promotion.",
       "evidence_file": "docs/decoder-evidence/ax25.md"
     },
     {

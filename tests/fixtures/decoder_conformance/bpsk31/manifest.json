@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "suite_id": "bpsk31-synthetic-v1",
+  "description": "Pinned BPSK31 positive and constant-carrier negative controls.",
+  "fixtures": [
+    {
+      "decoder_id": "bpsk31",
+      "carrier_hz": 1000.0,
+      "provenance": {
+        "kind": "synthetic",
+        "description": "Independent BPSK31 phase and published Varicode mapping; synthetic, not an air capture.",
+        "generator": "tools/build_decoder_conformance_bpsk31_fixtures.py",
+        "generator_version": "1"
+      },
+      "id": "bpsk31_cq_de",
+      "audio": {
+        "path": "bpsk31-cq-de.wav",
+        "sha256": "ab7da36643202aef1775369962f5812e5ec051ea8389196c9777057ea0cf011b"
+      },
+      "expected": {
+        "kind": "positive",
+        "text": "cq de"
+      }
+    },
+    {
+      "decoder_id": "bpsk31",
+      "carrier_hz": 1000.0,
+      "provenance": {
+        "kind": "synthetic",
+        "description": "Unmodulated selected-frequency carrier without BPSK symbols.",
+        "generator": "tools/build_decoder_conformance_bpsk31_fixtures.py",
+        "generator_version": "1"
+      },
+      "id": "bpsk31_constant_carrier",
+      "audio": {
+        "path": "bpsk31-carrier.wav",
+        "sha256": "0f5e2ce49533e42759fd160900883522d93d875e1991a32f02e5dbc89e108902"
+      },
+      "expected": {
+        "kind": "negative"
+      }
+    }
+  ]
+}

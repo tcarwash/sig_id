@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "suite_id": "ax25-bell202-synthetic-v1",
+  "description": "Pinned AX25 Bell 202 fixtures; synthetic only.",
+  "fixtures": [
+    {
+      "decoder_id": "ax25",
+      "provenance": {
+        "kind": "synthetic",
+        "description": "Independent Bell 202/AX.25 waveform generated from a test-side frame encoder, not radio audio.",
+        "generator": "tests/test_decode_ax25.py",
+        "generator_version": "1"
+      },
+      "id": "ax25_ui_hello",
+      "carrier_hz": 1200.0,
+      "audio": {
+        "path": "ax25-hello.wav",
+        "sha256": "adc67e96d44c22e79a2c69eaa603e5af0478a260b7d1fd8953c373dbc0287ceb"
+      },
+      "expected": {
+        "kind": "positive",
+        "text": "HELLO WORLD",
+        "frames": [
+          {
+            "payload_hex": "82a0a4a64040609c60868298986103f048454c4c4f20574f524c44f494",
+            "integrity": [
+              {
+                "kind": "crc",
+                "algorithm": "AX.25 X.25 FCS CRC-16",
+                "outcome": "passed"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "decoder_id": "ax25",
+      "provenance": {
+        "kind": "synthetic",
+        "description": "Frame body altered after FCS calculation, so its checksum is invalid.",
+        "generator": "tests/test_decode_ax25.py",
+        "generator_version": "1"
+      },
+      "id": "ax25_ui_bad_fcs",
+      "carrier_hz": 1200.0,
+      "audio": {
+        "path": "ax25-bad-fcs.wav",
+        "sha256": "b2a6df2eee047fb1355be964361fb813beae6372749b432511889ec67f83ed36"
+      },
+      "expected": {
+        "kind": "negative"
+      }
+    }
+  ]
+}

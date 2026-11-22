@@ -3033,7 +3033,7 @@ async function updateDecoderRecommendations(result, selection) {
     return;
   }
   if (!nativeDecoderBindings.length && !state.fldigiModes?.length) {
-    status.textContent = "No selectable decoder modes are connected. Signal ID will list native modes here once registered.";
+    status.textContent = "No saved-audio decoder is connected. You can run OnAir separately for other live receive modes; its decodes appear below when configured, but it cannot replay this selected WAV.";
     return;
   }
   status.textContent = `Finding connected decoders compatible with ${result.method}…`;
@@ -3046,7 +3046,7 @@ async function updateDecoderRecommendations(result, selection) {
     const count = suggestions.native.length + suggestions.fldigi.length;
     status.textContent = count
       ? `${count} available decoder choice${count === 1 ? "" : "s"} compatible with the proposed ${result.method} modulation — not verified protocols. Stage one, then start decoding explicitly.`
-      : `No connected decoder is compatible with the proposed ${result.method} modulation. This is not evidence the signal is unknown.`;
+      : `No connected saved-audio decoder is compatible with proposed ${result.method}. You may use OnAir separately for live reception; its results appear below when configured. It cannot replay this WAV.`;
     for (const mode of suggestions.native) {
       const button = document.createElement("button");
       button.type = "button";

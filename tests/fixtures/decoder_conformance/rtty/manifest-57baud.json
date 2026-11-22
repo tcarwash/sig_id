@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "suite_id": "rtty-ita2-57baud-synthetic-v1",
+  "description": "Pinned 57-baud Baudot positive and mark-only abstention controls; synthetic only.",
+  "fixtures": [
+    {
+      "decoder_id": "rtty",
+      "carrier_hz": 1500.0,
+      "provenance": {
+        "kind": "synthetic",
+        "description": "Independent ITA2/57-baud/170-Hz-shift/1.4-stop waveform; not on-air audio.",
+        "generator": "tools/build_decoder_conformance_rtty_fixtures.py",
+        "generator_version": "1"
+      },
+      "id": "rtty_57baud_cq_test",
+      "audio": {
+        "path": "rtty-57baud-cq-test.wav",
+        "sha256": "a8d12477730593b74d82f511ca0a8a21b74f4f6f82e2a6ca78d2f6a2e70a4253"
+      },
+      "expected": {
+        "kind": "positive",
+        "text": "CQ TEST"
+      }
+    },
+    {
+      "decoder_id": "rtty",
+      "carrier_hz": 1500.0,
+      "provenance": {
+        "kind": "synthetic",
+        "description": "Continuous mark tone without data transitions; 57-baud suite.",
+        "generator": "tools/build_decoder_conformance_rtty_fixtures.py",
+        "generator_version": "1"
+      },
+      "id": "rtty_57baud_mark_only",
+      "audio": {
+        "path": "rtty-57baud-mark-only.wav",
+        "sha256": "2c8b536401e84430c2f6430842ccb63bdfc2ed97f1f2e1d2d6c1a47e2ab82aa4"
+      },
+      "expected": {
+        "kind": "negative"
+      }
+    }
+  ]
+}
