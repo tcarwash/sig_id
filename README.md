@@ -34,6 +34,7 @@ Then open <http://127.0.0.1:8010>. Local audio capture also requires the platfor
 ## Project guides
 
 - [Operations](OPERATIONS.md): updates, model setup, backup and restore.
+- [Crowded-signal benchmark](docs/CROWDED_AUDIO_BENCHMARK.md): high-resolution split previews, real 40m replay, and accuracy metrics with reviewed references.
 - [Browser verification](tests/GUI.md): isolated UI workflow checks and their limits.
 - [Distributed collection](DISTRIBUTED_COLLECTION_PLAN.md): contribution and peer review design.
 - [Engineering and dataset reference](docs/README-REFERENCE.md): detailed features, research notes, and reproducible workflows.
