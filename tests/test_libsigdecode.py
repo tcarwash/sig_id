@@ -153,11 +153,25 @@ def test_saved_capture_decodes_with_our_library_without_external_apps(tmp_path):
             )
             assert upload.status_code == 200, upload.text
             capture_id = upload.json()["id"]
+            detector = {
+                "detector": "yolo",
+                "model_sha256": "a" * 64,
+                "model_version": "sha256:" + "a" * 64,
+                "confidence": 0.72,
+                "box_xyxy_normalized": [0.1, 0.2, 0.4, 0.7],
+                "image_width": 640, "image_height": 360,
+                "preprocessing_version": "test-roi-v1",
+                "window_sample_start": 0,
+                "window_sample_count": len(data),
+                "sample_rate": 12000,
+            }
             decoded = await client.post(
                 f"/api/captures/{capture_id}/decoder-backends/sigdecode/decode",
                 json={
                     "mode_id": "cw", "sample_start": 0,
                     "sample_count": len(data), "carrier_hz": 1100.0,
+                    "frequency_low_hz": 1050.0, "frequency_high_hz": 1150.0,
+                    "detector_evidence": detector,
                 },
             )
             assert decoded.status_code == 200, decoded.text
@@ -178,6 +192,75 @@ def test_saved_capture_decodes_with_our_library_without_external_apps(tmp_path):
             assert native_run["decoder_result"]["tokens"]
             assert native_run["decoder_result"]["evidence"]["estimated_wpm"] > 0
             assert native_run["decoder_result"]["source"] == "sigid-independent-implementation"
+            assert native_run["detector_evidence"]["native_trial_detector_source"] == "client_submitted"
+            assert native_run["detector_evidence"]["selection_bounds"] == {
+                "frequency_low_hz": 1050.0, "frequency_high_hz": 1150.0,
+            }
+            assert native_run["detector_evidence"]["model_sha256"] == "a" * 64
+            assert native_run["classifier_evidence"] == {}
+
+            from sigid.dataset import SignalLabel
+            region_id = app.state.capture_store.add_region(
+                capture_id, sample_start=0, sample_count=len(data),
+                frequency_low_hz=1050.0, frequency_high_hz=1150.0,
+                label=SignalLabel(evidence={
+                    "classifier_proposal": {
+                        "method": "2-FSK", "confidence": 0.51,
+                        "model_sha256": "b" * 64,
+                    },
+                    "detector_proposal": detector,
+                }),
+            )
+            region_decoded = await client.post(
+                f"/api/captures/{capture_id}/decoder-backends/sigdecode/decode",
+                json={"mode_id": "cw", "sample_start": 0,
+                      "sample_count": len(data), "carrier_hz": 1100.0,
+                      "region_id": region_id},
+            )
+            assert region_decoded.status_code == 200, region_decoded.text
+            saved_runs = (await client.get(
+                f"/api/captures/{capture_id}/decode-runs"
+            )).json()
+            saved_run = next(run for run in saved_runs
+                             if run["id"] == region_decoded.json()["run_id"])
+            assert saved_run["region_id"] == region_id
+            assert saved_run["classifier_evidence"]["model_sha256"] == "b" * 64
+            assert saved_run["classifier_evidence"]["method"] == "2-FSK"
+            assert saved_run["detector_evidence"]["native_trial_detector_source"] == "linked_region"
+            assert saved_run["detector_evidence"]["model_sha256"] == "a" * 64
+            wrong_link = await client.post(
+                f"/api/captures/{capture_id}/decoder-backends/sigdecode/decode",
+                json={"mode_id": "cw", "sample_start": 1,
+                      "sample_count": len(data) - 1, "region_id": region_id},
+            )
+            assert wrong_link.status_code == 422, wrong_link.text
+
+            wrong_rate = await client.post(
+                f"/api/captures/{capture_id}/decoder-backends/sigdecode/decode",
+                json={"mode_id": "cw", "sample_start": 0, "sample_count": len(data),
+                      "detector_evidence": {**detector, "sample_rate": 8000}},
+            )
+            assert wrong_rate.status_code == 422, wrong_rate.text
+            wrong_window = await client.post(
+                f"/api/captures/{capture_id}/decoder-backends/sigdecode/decode",
+                json={"mode_id": "cw", "sample_start": 0, "sample_count": len(data),
+                      "detector_evidence": {**detector, "window_sample_count": len(data) // 2}},
+            )
+            assert wrong_window.status_code == 422, wrong_window.text
+            wrong_support = await client.post(
+                f"/api/captures/{capture_id}/decoder-backends/sigdecode/decode",
+                json={"mode_id": "cw", "sample_start": 0, "sample_count": len(data),
+                      "detector_evidence": {**detector, "supporting_windows": [
+                          {"sample_start": len(data) - 10, "sample_count": 100},
+                      ]}},
+            )
+            assert wrong_support.status_code == 422, wrong_support.text
+            wrong_band = await client.post(
+                f"/api/captures/{capture_id}/decoder-backends/sigdecode/decode",
+                json={"mode_id": "cw", "sample_start": 0, "sample_count": len(data),
+                      "frequency_low_hz": 1050.0, "frequency_high_hz": 8000.0},
+            )
+            assert wrong_band.status_code == 422, wrong_band.text
 
             abstained = await client.post(
                 f"/api/captures/{capture_id}/decoder-backends/sigdecode/decode",
