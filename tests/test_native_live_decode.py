@@ -57,6 +57,10 @@ def fixture_snapshot(mode: str):
     ("", "", 650, 90, ("cw", "rtty")),
     ("", "", 1200, 960, ("ax25", "rtty")),
     ("", "", 1200, 290, ("rtty", "bpsk31")),
+    ("", "", 265, 300, ("cw", "rtty")),
+    ("FSK", "RTTY", 265, 300, ("cw", "rtty")),
+    ("", "", 2520, 380, ("bpsk31", "cw")),
+    ("FSK", "RTTY", 2520, 380, ("bpsk31", "cw")),
 ])
 def test_mode_hypotheses_are_explicit_and_separate_from_classifier(family, method, frequency, span, expected):
     track = {"frequency_low_hz": frequency - span / 2,
