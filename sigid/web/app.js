@@ -1614,6 +1614,9 @@ function renderCvDetections() {
     } else {
       row.append(summary, detail, button, adjust, reject);
     }
+    // Keep the CV identity and geometry first; supporting hypotheses and
+    // measurements follow them even when a saved box has editing controls.
+    row.prepend(summary, detail);
     const inspect = document.createElement("button");
     inspect.type = "button";
     inspect.textContent = detection.dsp_detail ? "Remeasure DSP" : "Inspect DSP";
