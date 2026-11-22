@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "suite_id": "rtty-ita2-synthetic-v1",
+  "description": "Pinned RTTY positive and mark-only abstention controls; synthetic only.",
+  "fixtures": [
+    {
+      "decoder_id": "rtty",
+      "carrier_hz": 1500.0,
+      "provenance": {
+        "kind": "synthetic",
+        "description": "Independent ITA2/45.45-baud 170-Hz-shift waveform from S.1 letter assignments; not on-air audio.",
+        "generator": "tools/build_decoder_conformance_rtty_fixtures.py",
+        "generator_version": "1"
+      },
+      "id": "rtty_cq_test",
+      "audio": {
+        "path": "rtty-cq-test.wav",
+        "sha256": "e8889ec97e40d6cd618a4a96114fc2467a034f9009551e28be3e6bd2ddd27c04"
+      },
+      "expected": {
+        "kind": "positive",
+        "text": "CQ TEST"
+      }
+    },
+    {
+      "decoder_id": "rtty",
+      "carrier_hz": 1500.0,
+      "provenance": {
+        "kind": "synthetic",
+        "description": "Continuous RTTY mark tone without data transitions.",
+        "generator": "tools/build_decoder_conformance_rtty_fixtures.py",
+        "generator_version": "1"
+      },
+      "id": "rtty_mark_only",
+      "audio": {
+        "path": "rtty-mark-only.wav",
+        "sha256": "2c8b536401e84430c2f6430842ccb63bdfc2ed97f1f2e1d2d6c1a47e2ab82aa4"
+      },
+      "expected": {
+        "kind": "negative"
+      }
+    }
+  ]
+}

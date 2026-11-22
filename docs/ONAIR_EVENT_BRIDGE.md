@@ -12,6 +12,8 @@ Signal ID can consume decoded-message notifications from a **separately running 
 
 **Not yet integrated:** selected-WAV replay into OnAir, automatic association of OnAir messages with Signal ID CV tracks, or the OnAir decoder engines themselves. The current OnAir remote API does not advertise a selected-audio decode endpoint. Correlating its RF-referenced events with audio-frequency CV boxes will require known radio tuning, synchronized capture timestamps and passband geometry.
 
+**Important for fallback decoding:** OnAir receives *its own* radio, sound-card or IQ file source. The Signal ID decoder selection is a cropped **mono demodulated audio** WAV; the existing OnAir bridge cannot submit that clip to OnAir. OnAir's documented `onair-cli --file` replay supports IQ recordings (for example SigMF or two-channel WAV IQ). It must not be advertised as a decoder for a Signal ID audio selection without a separately verified audio-to-IQ input protocol and machine-readable output contract. To inspect an unsupported signal now, select that mode inside OnAir and read its live decode events in Signal ID.
+
 ## Connect a local OnAir instance
 
 1. Install and launch OnAir separately. Under **View → Data feeds → Remote control API**, enable the local server and copy its bearer token. The example port in OnAir's documentation is `8765`.
@@ -31,4 +33,4 @@ Keep the token local and out of source control, public logs and chats. If your O
 
 Tests in `tests/test_onair_backend.py` use a local simulated OnAir HTTP server to verify token authentication, cursor advancement and restart, duplicate filtering, loopback/redirect policy, error reporting, and Signal ID API output. They do not validate actual OnAir RF decoding.
 
-Protocol reference: [OnAir Remote Control API](https://github.com/adswill/OnAir/blob/HEAD/docs/REMOTE-API.md).
+Protocol references: [OnAir Remote Control API](https://on-air.dev/docs/remote-api/) and [OnAir CLI/IQ replay](https://on-air.dev/docs/cli/).

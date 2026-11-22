@@ -24,13 +24,16 @@ Copied copyrighted expression requires its own licensing compliance review.
   and interprets the international Morse alphabet. It returns text,
   character timings and heuristic timing-fit measures. The fit score is
   NOT a calibrated probability. This is not a multi-station skimmer.
+- sigid/libsigdecode/rtty.py: experimental ITA2/Baudot FSK (45.45 to 100 baud profiles); conservative idle/noise abstention, explicit polarity and stop timing.
+- sigid/libsigdecode/bpsk31.py: experimental 31.25-baud differential BPSK / printable Varicode, requires a precise caller-supplied audio carrier.
+- sigid/libsigdecode/ax25.py: experimental 1200-baud Bell 202 AFSK, NRZI/HDLC and AX.25 UI FCS, with typed binary frames; not a generic packet modem.
 - sigid/local_decoder_backend.py: thin adapter, backend name 'sigdecode',
   selected WAV decoding and persisted decode-run records through the existing
   Signal ID API. No external decoder application or radio control is involved.
 - sigid/libsigdecode/cli.py: reproducible offline JSON decoding.
 
 From the UI: select a saved audio signal, open Decode, choose
-'Signal ID built-in decoders · CW (Morse)', then decode the selected window.
+'Signal ID built-in decoders' and the desired mode (CW, RTTY, BPSK31, or AX.25), then decode the selected window.
 The action reads 'Decode with Signal ID' for the in-project backend;
 external decoder selection remains available from the same menu.
 
@@ -38,7 +41,7 @@ CLI:
 
     python -m sigid.libsigdecode.cli recording.wav --mode cw --carrier-hz 1100 --start-seconds 0 --duration-seconds 20
 
-Input is mono PCM16 WAV, maximum 120 seconds. The caller chooses the CW
+Input is mono PCM16 WAV, maximum 120 seconds. The caller chooses the audio
 carrier, rather than assuming a CV/model guess is already correct. Actual
 accuracy on hand-transcribed on-air recordings remains to be measured.
 
@@ -64,10 +67,17 @@ ground truth, a bounded CPU budget, and optional black-box comparisons with
 reference implementations. FEC/CRC validity should be reported explicitly
 where available. Decoders must never block audio capture or transmit.
 
-Next slices: improve CW against reviewed IC-7300 Morse recordings; add
-RTTY/ITA2 framing atop native 2-FSK symbol analysis; PSK31/varicode;
-AX.25/NRZI/HDLC/CRC; and eventually native slot-aligned FT8/LDPC decoding.
+Next slices: obtain independently reviewed real recordings for CW, RTTY,
+BPSK31 and AX.25; benchmark false positives and noise limits against Fldigi
+and OnAir. Integrate APRS only after AX.25 FCS checks are reliable on air;
+then expand toward other modes including native FT8/FT4. All four native
+modes remain experimental, not validated from synthetic tests alone.
 External OnAir/WSJT-X/Fldigi adapters continue to work independently.
+The existing [OnAir event bridge](ONAIR_EVENT_BRIDGE.md) is an opt-in fallback
+for **live** decode events from a separately running OnAir receiver. It does
+not replay a selected Signal ID mono audio WAV. OnAir CLI IQ replay needs a
+true IQ input contract and verified result export before it can appear in the
+saved-audio decoder selector.
 
 ## Cautious decode semantics
 
@@ -81,7 +91,7 @@ and false-decode rates still require reviewed recordings.
 
 ## Agent implementation resources
 
-- [API contract](DECODER_API_SPEC.md) (implemented v0.1 vs proposed extensions)
+- [API contract](DECODER_API_SPEC.md) (implemented v0.2 vs proposed extensions)
 - [Agent playbook](DECODER_AGENT_PLAYBOOK.md)
 - [Evidence and protocol source index](DECODER_EVIDENCE_INDEX.md)
 - [Machine-readable work queue](decoder-work-items.json)

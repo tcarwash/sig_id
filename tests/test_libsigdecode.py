@@ -84,7 +84,7 @@ def test_uncertain_and_unkeyed_sources_are_not_verified_decodes():
 
 def test_registry_and_configuration_are_explicit():
     lib = create_library()
-    assert [s.id for s in lib.modes()] == ["cw"]
+    assert [s.id for s in lib.modes()] == ["cw", "rtty", "bpsk31", "ax25"]
     with pytest.raises(KeyError):
         lib.decode("ft8", DecodeWindow(cw_fixture("CQ"), 12000, carrier_hz=1100))
     with pytest.raises(ValueError):
