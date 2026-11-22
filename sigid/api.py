@@ -4875,6 +4875,10 @@ def create_app(
     def live_waterfall_module() -> FileResponse:
         return web_asset("live-waterfall.mjs", "text/javascript")
 
+    @app.get("/time-lens.mjs", include_in_schema=False)
+    def time_lens_module() -> FileResponse:
+        return web_asset("time-lens.mjs", "text/javascript")
+
     @app.get("/decoder-result.mjs", include_in_schema=False)
     def decoder_result_module() -> FileResponse:
         return web_asset("decoder-result.mjs", "text/javascript")

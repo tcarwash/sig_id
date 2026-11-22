@@ -46,6 +46,9 @@ on:
       - "sigid/classifier.py"
       - "sigid/api.py"
       - "sigid/tracking.py"
+      - "sigid/web/time-lens.mjs"
+      - "tests/test_time_lens.mjs"
+      - "docs/WATERFALL_TIME_LENS.md"
       - "sigid/web/app.js"
       - "sigid/web/index.html"
       - "sigid/web/style.css"
@@ -82,6 +85,6 @@ jobs:
       - name: Verify synthetic multi-modem signal lab
         run: python -m pytest -q tests/test_signal_lab.py
       - name: Verify decoder UI JavaScript tests
-        run: node --test tests/test_decoder_result.mjs tests/test_decoder_artifact_ui.mjs tests/test_decoder_mode_suggestions.mjs
+        run: node --test tests/test_decoder_result.mjs tests/test_decoder_artifact_ui.mjs tests/test_decoder_mode_suggestions.mjs tests/test_time_lens.mjs tests/test_live_waterfall.mjs tests/test_signal_overlays.mjs
       - name: Check live browser JavaScript syntax
         run: node --input-type=module --check < sigid/web/app.js

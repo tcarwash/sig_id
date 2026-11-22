@@ -1,5 +1,6 @@
 import { liveTimeLabels } from "/waterfall-window.mjs";
 import { decodeSpectrumPacket, LiveWaterfall, liveDisplayBounds } from "/live-waterfall.mjs";
+import { timeLensConfig, sampleToTimeLensRow, timeLensRowToSample, closestSpectrumRow } from "/time-lens.mjs";
 import { createDemodExport, downloadDemodExport } from "/demod-export.mjs";
 import { bitSelectionRange, bitstreamMetrics, bytesForBits, framingCandidates, transformBitstream, createBitAnnotation } from "/bit-inspector.mjs";
 import { narrowKnownModes } from "/mode-candidates.mjs";
@@ -21,6 +22,25 @@ function savedInspectorPreference(key, accepted, fallback) {
     return fallback;
   }
 }
+const TIME_LENS_KEY = "sig-id-waterfall-time-lens";
+const TIME_LENS_OPTIONS = ["linear", "gentle", "strong"];
+el("time-lens-mode").value = savedInspectorPreference(TIME_LENS_KEY, TIME_LENS_OPTIONS, "linear");
+function currentTimeLensMode() {
+  return state.liveView ? el("time-lens-mode").value : "linear";
+}
+function currentLiveDisplaySeconds() {
+  return timeLensConfig(currentTimeLensMode()).seconds;
+}
+el("time-lens-mode").addEventListener("change", () => {
+  const mode = el("time-lens-mode").value;
+  try { localStorage.setItem(TIME_LENS_KEY, mode); } catch { /* private session */ }
+  if (!state.liveView || !state.waterfall) return;
+  if (state.frozen) {
+    state.view.timeStartSample = state.view.timeEndSample - currentLiveDisplaySeconds() * state.waterfall.sample_rate;
+    reprojectSelection();
+    drawWaterfall();
+  } else applyLiveDisplay();
+});
 const FREQUENCY_NOTCH_KEY = "sig-id-frequency-notches";
 const NOTCH_COLORS = ["#ff6b6b", "#ffd166", "#65d6a6", "#68b7ff", "#d58cff", "#ff9f5a"];
 function loadFrequencyNotches() {
@@ -3256,7 +3276,7 @@ function attachLiveCapture(started, {resumed = false} = {}) {
     const modeDescription = captureMode === "record" ? "recording full audio" : captureMode === "scan_only" ? "audio stays in memory" : "only selected clips are saved";
     el("capture-meta").textContent = `${started.sample_rate.toLocaleString()} samples/s · ${started.device_name} · ${modeDescription}`;
     el("time-start").textContent = "Now";
-    el("time-end").textContent = "−30 s";
+    el("time-end").textContent = `−${currentLiveDisplaySeconds()} s`;
     el("audio-player").removeAttribute("src");
     el("waterfall-state").textContent = "Waiting for audio frames…";
     el("track-status").textContent = "Waiting for enough samples to analyze…";
@@ -4610,16 +4630,44 @@ function drawWaterfall() {
   for (let p=0;p<image.data.length;p+=4) {
     image.data[p]=8; image.data[p+1]=17; image.data[p+2]=35; image.data[p+3]=255;
   }
-  for (let index=view.rowStart;index<view.rowEnd;index++) {
-    const y = state.liveView
-      ? Math.floor((state.view.timeEndSample-data.sample_starts[index])/(state.view.timeEndSample-state.view.timeStartSample)*rows)
-      : view.rowEnd - 1 - index;
-    if (y<0 || y>=rows) continue;
-    for (let x=0;x<bins;x++) {
-      const level = Math.max(0,Math.min(255,Math.round((data.db[index][x+view.frequencyStart]+95)*255/75)));
-      const [r,g,b] = palette[level];
-      const p=(y*bins+x)*4;
-      image.data[p]=r; image.data[p+1]=g; image.data[p+2]=b;
+  const lens = currentTimeLensMode();
+  if (state.liveView && lens !== "linear") {
+    // Inverse-sample every output row; forward mapping would produce blank
+    // stripes in the magnified, newest seconds. Reuse colored source rows
+    // and never interpolate spectral data across true audio capture gaps.
+    const colored = new Map();
+    const maxGap = Math.max(data.hop_size * 3, data.sample_rate * 0.12);
+    const timeline = {...state.view, sampleRate: data.sample_rate};
+    for (let y=0; y<rows; y++) {
+      const sample = timeLensRowToSample(y + 0.5, timeline, rows, lens);
+      const index = closestSpectrumRow(data.sample_starts, sample, view.rowStart, view.rowEnd);
+      if (index < 0 || Math.abs(data.sample_starts[index] - sample) > maxGap) continue;
+      let rowBytes = colored.get(index);
+      if (!rowBytes) {
+        rowBytes = new Uint8ClampedArray(bins * 4);
+        const db = data.db[index];
+        for (let x=0; x<bins; x++) {
+          const level = Math.max(0,Math.min(255,Math.round((db[x+view.frequencyStart]+95)*255/75)));
+          const [r,g,b] = palette[level];
+          const p=x*4;
+          rowBytes[p]=r; rowBytes[p+1]=g; rowBytes[p+2]=b; rowBytes[p+3]=255;
+        }
+        colored.set(index,rowBytes);
+      }
+      image.data.set(rowBytes,y*bins*4);
+    }
+  } else {
+    for (let index=view.rowStart;index<view.rowEnd;index++) {
+      const y = state.liveView
+        ? Math.floor((state.view.timeEndSample-data.sample_starts[index])/(state.view.timeEndSample-state.view.timeStartSample)*rows)
+        : view.rowEnd - 1 - index;
+      if (y<0 || y>=rows) continue;
+      for (let x=0;x<bins;x++) {
+        const level = Math.max(0,Math.min(255,Math.round((data.db[index][x+view.frequencyStart]+95)*255/75)));
+        const [r,g,b] = palette[level];
+        const p=(y*bins+x)*4;
+        image.data[p]=r; image.data[p+1]=g; image.data[p+2]=b;
+      }
     }
   }
   context.putImageData(image, 0, 0);
@@ -4632,12 +4680,30 @@ function drawWaterfall() {
   if (state.liveView) {
     const labels = liveTimeLabels(Math.max(0, state.view.timeStartSample), state.view.timeEndSample, data.sample_rate);
     el("time-start").textContent = labels.end;
-    el("time-end").textContent = "−30 s";
+    el("time-end").textContent = `−${currentLiveDisplaySeconds()} s`;
   } else {
     el("time-start").textContent = `${lastTime.toFixed(2)} s`;
     el("time-end").textContent = `${firstTime.toFixed(2)} s`;
   }
+  el("time-lens-mode").disabled = !state.liveView;
+  updateTimeLensTickLabels();
   drawOverlays();
+}
+
+function updateTimeLensTickLabels() {
+  const ticks = el("time-lens-ticks");
+  ticks.replaceChildren();
+  if (!state.liveView || currentTimeLensMode() === "linear") return;
+  for (const ageSeconds of [1, 5, 15, 30]) {
+    const sample = state.view.timeEndSample - ageSeconds * state.waterfall.sample_rate;
+    const y = sampleToRow(sample);
+    if (y <= 8 || y >= overlayCanvas.height - 8) continue;
+    const tick = document.createElement("span");
+    tick.className = "time-lens-tick";
+    tick.textContent = `−${ageSeconds}s`;
+    tick.style.top = `${y / overlayCanvas.height * 100}%`;
+    ticks.append(tick);
+  }
 }
 
 function lowerBound(values, value) {
@@ -4667,7 +4733,7 @@ function resetWaterfallView(redraw = true) {
   state.view = {
     frequencyLowHz: 0,
     frequencyHighHz: Math.min(3000, data.sample_rate / 2),
-    timeStartSample: state.liveView ? timeEndSample - 30 * data.sample_rate : 0,
+    timeStartSample: state.liveView ? timeEndSample - currentLiveDisplaySeconds() * data.sample_rate : 0,
     timeEndSample,
     followTime: state.liveView,
   };
@@ -4691,7 +4757,9 @@ function reprojectSelection() {
 
 function sampleToRow(sample) {
   if (state.liveView && state.view) {
-    return (state.view.timeEndSample-sample)/(state.view.timeEndSample-state.view.timeStartSample)*overlayCanvas.height;
+    return sampleToTimeLensRow(sample,
+      {...state.view, sampleRate: state.waterfall.sample_rate},
+      overlayCanvas.height, currentTimeLensMode());
   }
   const starts = state.waterfall.sample_starts;
   let lo = 0;
@@ -4712,6 +4780,14 @@ function drawOverlays() {
   const view = waterfallViewBounds();
   const ctx = overlayCanvas.getContext("2d");
   ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+  if (state.liveView && currentTimeLensMode() !== "linear") {
+    ctx.fillStyle = "rgba(220, 236, 255, 0.20)";
+    for (const ageSeconds of [1, 5, 15, 30]) {
+      const sample = state.view.timeEndSample - ageSeconds * data.sample_rate;
+      const row = Math.round(sampleToRow(sample));
+      if (row > 0 && row < overlayCanvas.height) ctx.fillRect(0, row, overlayCanvas.width, 1);
+    }
+  }
   const lowHz = data.frequency_hz[view.frequencyStart];
   const highHz = data.frequency_hz[view.frequencyEnd - 1];
   const bins = view.frequencyEnd - view.frequencyStart;
@@ -8904,7 +8980,9 @@ showOutput("text");
 new ResizeObserver(() => { if (state.waterfall) { renderFrequencyNotches(); renderSignalLabels(); } }).observe(overlayCanvas.parentElement);
 
 function sampleAtCanvasRow(y) {
-  if (state.liveView) return state.view.timeEndSample - y / Math.max(1,overlayCanvas.height) * (state.view.timeEndSample-state.view.timeStartSample);
+  if (state.liveView) return timeLensRowToSample(y,
+    {...state.view, sampleRate: state.waterfall.sample_rate},
+    Math.max(1,overlayCanvas.height), currentTimeLensMode());
   const view=waterfallViewBounds();
   return state.waterfall.sample_starts[Math.max(view.rowStart, Math.min(view.rowEnd - 1, view.rowEnd - 1 - Math.round(y)))];
 }
@@ -8912,12 +8990,12 @@ function applyLiveDisplay() {
   if (!state.liveView || state.frozen || !liveDisplay?.data?.db.length) return;
   state.waterfall=liveDisplay.data;
   if (!state.view) resetWaterfallView(false);
-  const window=liveDisplayBounds(state.waterfall.sample_count,state.waterfall.sample_rate);
+  const window=liveDisplayBounds(state.waterfall.sample_count,state.waterfall.sample_rate,currentLiveDisplaySeconds());
   state.view.timeStartSample=window.startSample;
   state.view.timeEndSample=window.endSample;
   reprojectSelection();
   drawWaterfall();
-  el("waterfall-state").textContent=`30 s display · ${state.waterfall.gap_count} update gaps · 10 s analysis`;
+  el("waterfall-state").textContent=`${currentLiveDisplaySeconds()} s ${currentTimeLensMode() === "linear" ? "linear" : "time lens"} · ${state.waterfall.gap_count} update gaps · 10 s analysis`;
 }
 function startSpectrumStream(generation,sessionId) {
   if (spectrumPoll) clearTimeout(spectrumPoll);

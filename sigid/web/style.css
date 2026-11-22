@@ -278,6 +278,7 @@ h3 {
   margin-top: 12px;
 }
 .axis-y {
+  position: relative;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -290,6 +291,39 @@ h3 {
 .axis-y span:nth-child(2) {
   writing-mode: vertical-rl;
 }
+.time-lens-ticks {
+  position: absolute;
+  inset: 0 0 23px 0;
+  pointer-events: none;
+}
+.time-lens-tick {
+  position: absolute;
+  right: 5px;
+  transform: translateY(-50%);
+  color: #acd3ee;
+  font: 9px ui-monospace, monospace;
+  background: rgba(8, 17, 35, .82);
+  padding: 1px 2px;
+  border-radius: 2px;
+}
+.time-lens-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  font-size: 12px;
+  color: #b2c7d6;
+}
+.time-lens-control select {
+  max-width: 160px;
+  font: inherit;
+  border: 1px solid #375066;
+  border-radius: 5px;
+  background: #102338;
+  color: #e1eef6;
+  padding: 5px 6px;
+}
+.time-lens-control select:disabled { opacity: .45; }
 .waterfall-column {
   display: flex;
   flex-direction: column;
@@ -420,7 +454,8 @@ h3 {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
+  flex-wrap: wrap;
+  gap: 8px 14px;
   padding-left: 46px;
   min-height: 36px;
 }
