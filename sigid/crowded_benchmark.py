@@ -30,10 +30,10 @@ def _boxes(value: Any) -> list[dict[str, Any]]:
 
 
 def _bounds(box: dict[str, Any], rate: int) -> tuple[int, int, float, float]:
-    start = int(box.get("sample_start", round(float(box["start_seconds"]) * rate)))
-    count = int(box.get("sample_count", round(
-        (float(box["end_seconds"]) - float(box["start_seconds"])) * rate,
-    )))
+    start = int(box["sample_start"]) if "sample_start" in box else round(float(box["start_seconds"]) * rate)
+    count = int(box["sample_count"]) if "sample_count" in box else round(
+        (float(box["end_seconds"]) - float(box["start_seconds"])) * rate
+    )
     low = float(box["frequency_low_hz"])
     high = float(box["frequency_high_hz"])
     if start < 0 or count <= 0 or not np.isfinite((low, high)).all() or low < 0 or high <= low:
