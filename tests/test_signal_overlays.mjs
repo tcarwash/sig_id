@@ -37,7 +37,7 @@ test("labels distinguish spectral persistence from identification", () => {
       },
       0,
     ),
-    /^S4 .*candidate$/,
+    /^Candidate 4 · MFSK-like$/,
   );
   assert.match(
     signalCaption(
