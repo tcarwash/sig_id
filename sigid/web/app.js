@@ -2947,19 +2947,54 @@ async function updateDecoderRecommendations(result, selection) {
   }
 }
 
+const AUDIO_INPUT_NAME_KEY = "sig-id-audio-input-device-name";
+function updateAudioInputHint() {
+  const selected = el("audio-device").selectedOptions[0];
+  const name = selected?.dataset.deviceName || "";
+  const hint = el("audio-input-hint");
+  const outputMonitor = /(?:\\.monitor\\b|output.*monitor)/i.test(name);
+  if (outputMonitor) {
+    hint.textContent = "Playback/output monitor selected! This records what the computer sends TO the device, not the radio's receiver audio. Choose the USB Audio CODEC input instead.";
+  } else if (/USB Audio CODEC.*\\(hw:/i.test(name)) {
+    hint.textContent = "Direct USB Audio CODEC recording input selected. If it is busy, stop other applications recording from this interface.";
+  } else if (name) {
+    hint.textContent = `Selected recording input: ${name}. Check that it carries your receiver's audio.`;
+  } else {
+    hint.textContent = "Default input may be a microphone or playback monitor. For a USB-connected radio, explicitly choose its recording input.";
+  }
+  hint.classList.toggle("audio-input-warning", outputMonitor);
+}
 async function refreshAudioDevices() {
   try {
     const devices = await request("/api/audio/devices");
     const select = el("audio-device");
-    select.replaceChildren(new Option("Default input", ""));
-    for (const device of devices) select.add(new Option(`${device.name} · ${device.max_input_channels} ch`, String(device.id)));
+    const previousName = select.selectedOptions[0]?.dataset.deviceName || "";
+    let savedName = "";
+    try { savedName = localStorage.getItem(AUDIO_INPUT_NAME_KEY) || ""; } catch {}
+    const requestedName = state.liveDeviceName || previousName || savedName;
+    select.replaceChildren(new Option("Default input (may be microphone)", ""));
+    for (const device of devices) {
+      const outputMonitor = /(?:\\.monitor\\b|output.*monitor)/i.test(device.name);
+      const title = `${outputMonitor ? "⚠ Output monitor — " : ""}${device.name} · ${device.max_input_channels} ch`;
+      const option = new Option(title, String(device.id));
+      option.dataset.deviceName = device.name;
+      select.add(option);
+    }
+    const match = [...select.options].find(option => option.dataset.deviceName === requestedName);
+    if (match) select.value = match.value;
+    updateAudioInputHint();
     if (!state.liveMonitoring) {
       el("live-status").textContent = devices.length ? `${devices.length} input device${devices.length === 1 ? "" : "s"} available` : "No audio inputs found";
     }
   } catch (error) {
-    el("live-status").textContent = error.message;
+    if (!state.liveMonitoring) el("live-status").textContent = error.message;
   }
 }
+el("audio-device").addEventListener("change", () => {
+  const name = el("audio-device").selectedOptions[0]?.dataset.deviceName || "";
+  try { localStorage.setItem(AUDIO_INPUT_NAME_KEY, name); } catch {}
+  updateAudioInputHint();
+});
 
 function attachLiveCapture(started, {resumed = false} = {}) {
   // A reload must rejoin the server-owned capture rather than creating
@@ -2970,6 +3005,8 @@ function attachLiveCapture(started, {resumed = false} = {}) {
   el("live-capture-mode").value = captureMode;
   updateLiveCaptureModeControls();
     state.captureMode = captureMode;
+    state.liveDeviceName = started.device_name;
+    refreshAudioDevices();
     state.liveMonitoring = true;
     state.liveReviewReturn = null;
     el("live-start").disabled = true;
