@@ -3083,12 +3083,16 @@ async function updateDecoderRecommendations(result, selection) {
 }
 
 const AUDIO_INPUT_NAME_KEY = "sig-id-audio-input-device-name";
+function isSignalLabInput(name) { return name === "sigid_signal_lab.monitor"; }
 function updateAudioInputHint() {
   const selected = el("audio-device").selectedOptions[0];
   const name = selected?.dataset.deviceName || "";
   const hint = el("audio-input-hint");
-  const outputMonitor = /(?:\.monitor\b|output.*monitor)/i.test(name);
-  if (outputMonitor) {
+  const synthetic = isSignalLabInput(name);
+  const outputMonitor = !synthetic && /(?:\.monitor\b|output.*monitor)/i.test(name);
+  if (synthetic) {
+    hint.textContent = "Signal Lab synthetic test input selected. This monitor carries simulated audio, not your radio receiver or physical speaker output.";
+  } else if (outputMonitor) {
     hint.textContent = "Playback/output monitor selected! This records what the computer sends TO the device, not the radio's receiver audio. Choose the USB Audio CODEC input instead.";
   } else if (/USB Audio CODEC.*\(hw:/i.test(name)) {
     hint.textContent = "Direct USB Audio CODEC recording input selected. If it is busy, stop other applications recording from this interface.";
@@ -3108,9 +3112,14 @@ async function refreshAudioDevices() {
     try { savedName = localStorage.getItem(AUDIO_INPUT_NAME_KEY) || ""; } catch {}
     const requestedName = state.liveDeviceName || previousName || savedName;
     select.replaceChildren(new Option("Default input (may be microphone)", ""));
-    for (const device of devices) {
-      const outputMonitor = /(?:\.monitor\b|output.*monitor)/i.test(device.name);
-      const title = `${outputMonitor ? "⚠ Output monitor — " : ""}${device.name} · ${device.max_input_channels} ch`;
+    // Put the receive-only synthetic lab at the top, not after hardware
+    // inputs. It is a null-sink monitor, not a physical speaker monitor.
+    const orderedDevices = [...devices].sort((a, b) => Number(isSignalLabInput(b.name)) - Number(isSignalLabInput(a.name)));
+    for (const device of orderedDevices) {
+      const synthetic = isSignalLabInput(device.name);
+      const outputMonitor = !synthetic && /(?:\.monitor\b|output.*monitor)/i.test(device.name);
+      const title = synthetic ? `Signal Lab — synthetic test input · ${device.max_input_channels} ch`
+        : `${outputMonitor ? "⚠ Output monitor — " : ""}${device.name} · ${device.max_input_channels} ch`;
       const option = new Option(title, String(device.id));
       option.dataset.deviceName = device.name;
       select.add(option);
