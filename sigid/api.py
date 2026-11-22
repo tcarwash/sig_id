@@ -4823,6 +4823,14 @@ def create_app(
     def live_waterfall_module() -> FileResponse:
         return web_asset("live-waterfall.mjs", "text/javascript")
 
+    @app.get("/decoder-result.mjs", include_in_schema=False)
+    def decoder_result_module() -> FileResponse:
+        return web_asset("decoder-result.mjs", "text/javascript")
+
+    @app.get("/decoder-mode-suggestions.mjs", include_in_schema=False)
+    def decoder_mode_suggestions_module() -> FileResponse:
+        return web_asset("decoder-mode-suggestions.mjs", "text/javascript")
+
     @app.get("/style.css", include_in_schema=False)
     def stylesheet() -> FileResponse:
         return web_asset("style.css", "text/css")

@@ -55,6 +55,14 @@ def test_upload_waterfall_manual_label_audio_and_jsonl_export(tmp_path):
             assert (await client.get("/protocol-stencils.mjs")).status_code == 200
             assert (await client.get("/mode-candidates.mjs")).status_code == 200
             assert (await client.get("/signal-overlays.mjs")).status_code == 200
+            # All top-level ES-module imports must have matching HTTP routes.
+            # Missing routes silently prevent *every* UI handler from loading,
+            # including the Receive settings dialog.
+            for module in re.findall(r'^import .* from "/([^"]+)";',
+                                     (await client.get("/app.js")).text, re.MULTILINE):
+                response = await client.get(f"/{module}")
+                assert response.status_code == 200, (module, response.text[:100])
+                assert response.headers["content-type"].startswith("text/javascript"), module
             assert "How provisional boxes work" in (await client.get("/")).text
             assert "Find signals live or open a recording" in page
             assert 'id="empty-settings"' in page
