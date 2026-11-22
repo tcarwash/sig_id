@@ -5,6 +5,7 @@ import { bitSelectionRange, bitstreamMetrics, bytesForBits, framingCandidates, t
 import { narrowKnownModes } from "/mode-candidates.mjs";
 import { layoutSignalLabels, signalCaption, hitSignal } from "/signal-overlays.mjs";
 import { decodeSelectionKey, mayPresentDecodeResult } from "/decode-context.mjs";
+import { summarizeDecoderResult } from "/decoder-result.mjs";
 
 const el = (id) => document.getElementById(id);
 const state = { capture: null, waterfall: null, drag: null, resizeDrag: null, moveDrag: null, selection: null, regions: [], tracks: [], cvDetections: [], cvDetectionCache: new Map(), cvDismissedCount: 0, cvRejectedProposals: [], cvAvailable: false, cvSimilarAvailable: false, bitAnnotations: [], rawDemodAttempts: [], comparedRawAttemptIds: new Set(), rawRetrySample: null, protocolStencils: [], liveView: false, liveMonitoring: false, liveSessionId: null, liveReviewReturn: null, modelAvailable: false, modelTraining: false, view: null, demodExports: {}, selectedTrack: null, classifierProposal: null, frozen: false, labelModeId: null, modeSearchResults: [], modeSearchRequest: 0, applyingMode: false, adjustingGeometry: false, geometryDraft: false, adjustingCandidate: null, drawingSignalBox: false, batchBoxMode: false, batchBoxes: [], batchBoxUndo: [], batchReviewBox: null, batchSaveKey: null, batchSaveDigest: null, batchSaving: false, windowRegionEdits: new Map(), windowRegionDeletes: new Map(), windowMerges: [], windowIdentityLinks: [], identityLinkSelection: new Set(), comparedDecodeRunIds: new Set(), splitMode: false, splitChildren: [], splitParentSelection: null, mergeRegionIds: new Set(), selectionMergeRegions: [], excludedMergeCandidates: new Set(), modeProposalRegion: null, proposalCaptureRequest: 0, proposalEvidenceCaptures: [] };
@@ -671,12 +672,18 @@ el("native-decode-selection").addEventListener("click", async () => {
     });
     const text = (result.products || []).filter((product) => product.kind === "text")
       .map((product) => product.content).join("\n");
+    const evidenceProduct = (result.products || []).find((product) =>
+      product.kind === "metadata" && product.encoding === "utf-8");
+    let decoderEvidence = "";
+    try {
+      if (evidenceProduct) decoderEvidence = summarizeDecoderResult(JSON.parse(evidenceProduct.content));
+    } catch { /* external backends may return non-JSON metadata */ }
     if (state.liveView || state.capture?.id !== capture.id) return;
     if (ownsDecodeOutput(owner)) {
       el("native-decode-status").textContent = `${result.status.toUpperCase()} · ${result.application} · ${result.note}`;
       state.textOutputContext = `${result.application} · ${result.native_mode} · exact selected window`;
       el("output-context").textContent = state.textOutputContext;
-      el("decoded-text").textContent = text || "No decoded text in this window.";
+      el("decoded-text").textContent = `${decoderEvidence ? `${decoderEvidence}\n\n` : ""}${text || "No decoded text in this window."}`;
     }
     const runs = await request(`/api/captures/${encodeURIComponent(capture.id)}/decode-runs`);
     if (state.liveView || state.capture?.id !== capture.id) return;
@@ -4296,8 +4303,8 @@ function renderDecodeRuns() {
   state.comparedDecodeRunIds = new Set([...state.comparedDecodeRunIds].filter((id) => runIds.has(id)));
   if (!runs.length) {
     list.textContent = state.liveView
-      ? "No Fldigi receive runs for this live session yet."
-      : "No saved Fldigi receive runs for this capture.";
+      ? "No receive runs for this live session yet."
+      : "No saved decoder runs for this capture."
     updateDecodeRunComparisonControls(runs);
     return;
   }
@@ -4314,14 +4321,15 @@ function renderDecodeRuns() {
     const regionLink = run.region_id ? " · linked saved region" : "";
     const classifierLink = run.classifier_evidence?.model_sha256 ? " · classifier evidence saved" : "";
     const detectorLink = run.detector_evidence?.proposal_id ? ` · CV proposal ${run.detector_evidence.proposal_id.slice(-8)}` : "";
-    button.textContent = `${run.current_mode || "Fldigi"} · ${run.status}${carrier}${interval}${regionLink}${classifierLink}${detectorLink}`;
+    button.textContent = `${run.backend || "decoder"} · ${run.current_mode || "unknown mode"} · ${run.status}${carrier}${interval}${regionLink}${classifierLink}${detectorLink}`;
     button.addEventListener("click", () => {
       state.focusedDecodeAttempt = {selectionKey: decodeSelectionKey(state), runId: run.id};
       showOutput("text");
       state.textOutputContext = `Saved run ${run.id.slice(0,8)}${run.region_id ? ` · region ${run.region_id.slice(0,8)}` : ""}${run.classifier_evidence?.model_sha256 ? ` · classifier ${run.classifier_evidence.model_sha256.slice(0,8)}` : ""}${run.detector_evidence?.proposal_id ? ` · CV proposal ${run.detector_evidence.proposal_id.slice(-8)}` : ""} · ${run.output_scope} · ${run.association}`;
       el("output-context").textContent = state.textOutputContext;
       const classifierSummary = classifierEvidenceSummary(run.classifier_evidence);
-      el("decoded-text").textContent = `${run.status.toUpperCase()} · ${run.current_mode || "Fldigi"}\n${run.note}${classifierSummary ? `\n\n${classifierSummary}` : ""}\n\n${run.output_text || "No decoded text was recorded."}`;
+      const decoderSummary = summarizeDecoderResult(run.decoder_result);
+      el("decoded-text").textContent = `${run.status.toUpperCase()} · ${run.current_mode || "Decoder"}\n${run.note}${classifierSummary ? `\n\n${classifierSummary}` : ""}${decoderSummary ? `\n\n${decoderSummary}` : ""}\n\n${run.output_text || "No decoded text was recorded."}`;
       el("decoded-text").scrollTop = 0;
     });
     row.append(button);
@@ -4383,7 +4391,7 @@ function renderDecodeRuns() {
         : "Adds this run's text to the saved region's Notes draft. Save the label revision to keep it.";
       addText.addEventListener("click", () => {
         selectSavedRegion(linkedRegion);
-        const note = `[Fldigi ${run.current_mode || "decode"} · run ${run.id.slice(0, 8)}]\n${run.output_text.trim()}`;
+        const note = `[${run.backend || "decoder"} ${run.current_mode || "decode"} · unverified run ${run.id.slice(0, 8)}]\n${run.output_text.trim()}`;
         const notes = el("notes");
         if (notes.value.includes(note)) {
           el("label-state").textContent = "This decode is already in the label notes.";
@@ -4449,7 +4457,11 @@ function renderDecodeRunComparison(runs) {
     note.textContent = run.note || "No attempt note.";
     const output = document.createElement("pre");
     output.textContent = run.output_text || "No decoded text.";
+    const decoderSummary = summarizeDecoderResult(run.decoder_result);
+    const details = document.createElement("pre");
+    details.textContent = decoderSummary;
     card.append(heading, provenance, modes, note, output);
+    if (decoderSummary) card.append(details);
     panel.append(card);
   }
   panel.hidden = runs.length < 2;
