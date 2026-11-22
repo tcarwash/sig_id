@@ -56,6 +56,7 @@ from .laya import LayaError, classify as classify_with_laya, configured as laya_
 from .demod import demodulate_2fsk, demodulate_bpsk, demodulate_mfsk, demodulate_ook, demodulate_qpsk
 from .identification import decoder_shortlist, measure_audio_evidence
 from .frequency_refinement import MAX_REFINEMENT_SECONDS, refine_frequency_region
+from .timing_evidence import MAX_TIMING_SECONDS, measure_timing_evidence
 from .detection import detect_tracks
 from .fldigi import FldigiClient
 from .fldigi_backend import FldigiNativeBackend
@@ -1598,6 +1599,49 @@ def create_app(
             return Response(packet, media_type="application/octet-stream", headers={"Cache-Control": "no-store"})
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/api/live/dsp-evidence")
+    def live_dsp_evidence(
+        session_id: str = Query(min_length=1, max_length=128),
+        sample_start: int = Query(ge=0),
+        sample_count: int = Query(gt=0),
+        frequency_low_hz: float = Query(ge=0.0, le=3000),
+        frequency_high_hz: float = Query(gt=0.0, le=3000),
+    ) -> dict[str, Any]:
+        """On-demand DSP measurements; never changes a live capture or a decoder."""
+        snapshot = live_capture.analysis_audio()
+        if snapshot is None or not snapshot["active"] or snapshot["session_id"] != session_id:
+            raise HTTPException(status_code=409, detail="live capture session is no longer active")
+        rate = int(snapshot["sample_rate"])
+        ring_start = int(snapshot["sample_offset"])
+        ring_end = ring_start + int(snapshot["window_sample_count"])
+        if sample_start >= ring_end or sample_start + sample_count <= ring_start:
+            raise HTTPException(
+                status_code=409,
+                detail="signal is outside the recent live audio buffer; use a newer detection or saved capture",
+            )
+        # Never leave the bounded ring or allocate/calculate over a long
+        # user-selected window: the same evidence is available offline later.
+        start = max(ring_start, sample_start)
+        end = min(ring_end, sample_start + sample_count)
+        center = (start + end) // 2
+        length = min(end - start, MAX_TIMING_SECONDS * rate)
+        start = max(start, center - length // 2)
+        end = start + length
+        channels = int(snapshot["channels"])
+        pcm = np.frombuffer(snapshot["pcm"], dtype="<i2").reshape(-1, channels)
+        mono = pcm[(start - ring_start):(end - ring_start)].astype(np.float64).mean(axis=1) / 32768.0
+        try:
+            evidence = measure_timing_evidence(mono, rate, frequency_low_hz, frequency_high_hz)
+            spectral = measure_audio_evidence(mono, rate, frequency_low_hz, frequency_high_hz)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return {
+            "session_id": session_id, "sample_start": start, "sample_count": len(mono),
+            "frequency_low_hz": frequency_low_hz, "frequency_high_hz": frequency_high_hz,
+            "timing_evidence": evidence, "spectral_evidence": spectral,
+            "identity_status": "unverified", "decoder_invoked": False,
+        }
 
     @app.get("/api/live/cv-detections")
     def live_cv_detections(
@@ -3161,6 +3205,36 @@ def create_app(
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/api/captures/{capture_id}/dsp-evidence")
+    def capture_dsp_evidence(
+        capture_id: str,
+        sample_start: int = Query(ge=0),
+        sample_count: int = Query(gt=0),
+        frequency_low_hz: float = Query(ge=0.0, le=3000),
+        frequency_high_hz: float = Query(gt=0.0, le=3000),
+    ) -> dict[str, Any]:
+        try:
+            capture = store.capture(capture_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="capture not found") from exc
+        if sample_start + sample_count > int(capture["sample_count"]):
+            raise HTTPException(status_code=422, detail="requested region exceeds saved WAV")
+        rate = int(capture["sample_rate"])
+        length = min(sample_count, MAX_TIMING_SECONDS * rate)
+        start = sample_start + (sample_count - length) // 2
+        try:
+            audio_rate, mono = read_audio_range(capture["audio_path"], start, length)
+            evidence = measure_timing_evidence(mono, audio_rate, frequency_low_hz, frequency_high_hz)
+            spectral = measure_audio_evidence(mono, audio_rate, frequency_low_hz, frequency_high_hz)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return {
+            "capture_id": capture_id, "sample_start": start, "sample_count": len(mono),
+            "frequency_low_hz": frequency_low_hz, "frequency_high_hz": frequency_high_hz,
+            "timing_evidence": evidence, "spectral_evidence": spectral,
+            "identity_status": "unverified", "decoder_invoked": False,
+        }
 
     @app.post("/api/captures/{capture_id}/cv-detections")
     def detect_capture_signals(
