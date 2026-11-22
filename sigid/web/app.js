@@ -2953,38 +2953,22 @@ async function refreshAudioDevices() {
     const select = el("audio-device");
     select.replaceChildren(new Option("Default input", ""));
     for (const device of devices) select.add(new Option(`${device.name} · ${device.max_input_channels} ch`, String(device.id)));
-    el("live-status").textContent = devices.length ? `${devices.length} input device${devices.length === 1 ? "" : "s"} available` : "No audio inputs found";
+    if (!state.liveMonitoring) {
+      el("live-status").textContent = devices.length ? `${devices.length} input device${devices.length === 1 ? "" : "s"} available` : "No audio inputs found";
+    }
   } catch (error) {
     el("live-status").textContent = error.message;
   }
 }
 
-el("live-start").addEventListener("click", async () => {
-  stopSelectedAudioPlayback(null);
-  clearError();
-  if ((state.batchBoxes.length || state.windowRegionEdits.size || state.windowRegionDeletes.size || state.windowMerges.length || state.windowIdentityLinks.length)
-    && !await resolveWindowDraftsBeforeSwitch("starting live capture")) return;
-  try {
-    const device = el("audio-device").value;
-    const captureMode = el("live-capture-mode").value;
-    const noiseIntervalSeconds = Number(el("noise-interval-minutes").value) * 60;
-    const bandHopSettings = saveBandHopSettings();
-    const bandHopFrequencies = bandHopAvailable && captureMode === "unattended" && bandHopSettings.enabled
-      ? bandHopFrequenciesHz() : [];
-    const rigctlSettings = saveRigctlSettings();
-    const started = await request("/api/live/start", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        device_id: device === "" ? null : Number(device),
-        sample_rate: Number(el("audio-rate").value), channels: 1,
-        max_duration_seconds: captureMode === "unattended" ? 28800 : 600,
-        capture_mode: captureMode, noise_interval_seconds: noiseIntervalSeconds,
-        band_hop_frequencies_hz: bandHopFrequencies,
-        band_hop_dwell_seconds: bandHopSettings.dwellMinutes * 60,
-        rigctl_host: rigctlSettings.host,
-        rigctl_port: rigctlSettings.port,
-      }),
-    });
+function attachLiveCapture(started, {resumed = false} = {}) {
+  // A reload must rejoin the server-owned capture rather than creating
+  // another device stream (which can already hold the USB audio interface).
+  if (livePoll) clearInterval(livePoll);
+  if (spectrumPoll) clearTimeout(spectrumPoll);
+  const captureMode = started.capture_mode || "record";
+  el("live-capture-mode").value = captureMode;
+  updateLiveCaptureModeControls();
     state.captureMode = captureMode;
     state.liveMonitoring = true;
     state.liveReviewReturn = null;
@@ -3134,6 +3118,39 @@ el("live-start").addEventListener("click", async () => {
       } catch (error) { if (generation === state.liveGeneration) showError(error.message); }
       finally { pending = false; }
     }, 1000);
+  if (resumed) {
+    el("live-status").textContent =
+      `Rejoined existing ${captureMode === "record" ? "recording" : "live scan"} · ${started.device_name} · Stop and review is available`;
+  }
+}
+
+el("live-start").addEventListener("click", async () => {
+  stopSelectedAudioPlayback(null);
+  clearError();
+  if ((state.batchBoxes.length || state.windowRegionEdits.size || state.windowRegionDeletes.size || state.windowMerges.length || state.windowIdentityLinks.length)
+    && !await resolveWindowDraftsBeforeSwitch("starting live capture")) return;
+  try {
+    const device = el("audio-device").value;
+    const captureMode = el("live-capture-mode").value;
+    const noiseIntervalSeconds = Number(el("noise-interval-minutes").value) * 60;
+    const bandHopSettings = saveBandHopSettings();
+    const bandHopFrequencies = bandHopAvailable && captureMode === "unattended" && bandHopSettings.enabled
+      ? bandHopFrequenciesHz() : [];
+    const rigctlSettings = saveRigctlSettings();
+    const started = await request("/api/live/start", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        device_id: device === "" ? null : Number(device),
+        sample_rate: Number(el("audio-rate").value), channels: 1,
+        max_duration_seconds: captureMode === "unattended" ? 28800 : 600,
+        capture_mode: captureMode, noise_interval_seconds: noiseIntervalSeconds,
+        band_hop_frequencies_hz: bandHopFrequencies,
+        band_hop_dwell_seconds: bandHopSettings.dwellMinutes * 60,
+        rigctl_host: rigctlSettings.host,
+        rigctl_port: rigctlSettings.port,
+      }),
+    });
+    attachLiveCapture(started);
   } catch (error) { showError(error.message); }
 });
 
@@ -3204,6 +3221,20 @@ el("live-stop").addEventListener("click", async () => {
     }
   }
 });
+
+async function recoverLiveCapture() {
+  try {
+    const status = await request("/api/live");
+    if (status.active && status.session_id && !state.liveMonitoring) {
+      attachLiveCapture(status, {resumed: true});
+    }
+  } catch (error) {
+    el("live-status").textContent = `Could not check running live capture · ${error.message}`;
+  }
+}
+// A browser refresh does not stop the audio backend. Reconnect to the
+// session and restore Stop and review, waterfall updates, and track polling.
+recoverLiveCapture();
 
 function updateLiveReviewControls() {
   const reviewing = state.liveMonitoring && !state.liveView && Boolean(state.liveReviewReturn);
