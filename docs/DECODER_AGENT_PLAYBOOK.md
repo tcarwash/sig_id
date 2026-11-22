@@ -51,6 +51,11 @@ ham-radio decoder in Signal ID.
       version of source specification; record unanswered protocol fields.
 - [ ] Implement DecoderSpec and decode(DecodeWindow) with bounded CPU
       and memory use; handle unsupported rates/types with clear errors.
+- [ ] For packet bytes, CRC/FEC outcomes, or soft decisions use the
+      additive v0.2 `DecodedFrame`, `IntegrityCheck`, and `SoftBitSpan`
+      from `sigid.libsigdecode`; do not invent bespoke JSON result keys.
+      A passing frame check is not a human-verified mode identification.
+      Old text-only `LocalDecodeResult` constructors remain compatible.
 - [ ] Independently generate golden waveforms/payloads and include
       machine-readable expected bits/text/frame integrity.
 - [ ] Test corrupted frames, wrong speed/carrier/polarity, drift, weak

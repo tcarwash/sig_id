@@ -11,6 +11,10 @@ from typing import Any, Protocol
 
 import numpy as np
 
+from .artifacts import (
+    MAX_FRAMES, MAX_SOFT_SPANS, MAX_SOFT_VALUES, DecodedFrame, SoftBitSpan,
+)
+
 
 @dataclass(frozen=True, slots=True)
 class DecodeWindow:
@@ -70,12 +74,28 @@ class LocalDecodeResult:
     tokens: tuple[DecodedToken, ...] = ()
     evidence: dict[str, Any] = field(default_factory=dict)
     note: str = ""
+    frames: tuple[DecodedFrame, ...] = ()
+    soft_bits: tuple[SoftBitSpan, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.status not in ("decoded", "partial", "no_decode"):
+            raise ValueError("invalid local decoder result status")
+        if self.status == "no_decode" and self.text:
+            raise ValueError("no_decode results must not publish decoded text")
+        if len(self.frames) > MAX_FRAMES or not all(isinstance(f, DecodedFrame) for f in self.frames):
+            raise ValueError("decoder result contains too many or invalid frames")
+        if (len(self.soft_bits) > MAX_SOFT_SPANS
+                or not all(isinstance(s, SoftBitSpan) for s in self.soft_bits)
+                or sum(len(s.values) for s in self.soft_bits) > MAX_SOFT_VALUES):
+            raise ValueError("decoder result contains too much or invalid soft-bit evidence")
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "decoder_id": self.decoder_id, "version": self.version,
             "status": self.status, "text": self.text,
             "tokens": [token.to_dict() for token in self.tokens],
+            "frames": [frame.to_dict() for frame in self.frames],
+            "soft_bits": [span.to_dict() for span in self.soft_bits],
             "evidence": self.evidence, "note": self.note,
             "source": "sigid-independent-implementation",
         }
@@ -113,4 +133,11 @@ class DecoderLibrary:
         result = decoder.decode(window)
         if result.decoder_id != mode_id:
             raise ValueError("decoder result ID differs from requested decoder")
+        window_end = window.sample_start + len(window.samples)
+        for frame in result.frames:
+            if frame.start_sample < window.sample_start or frame.end_sample > window_end:
+                raise ValueError("decoded frame extends beyond original capture window")
+        for span in result.soft_bits:
+            if span.start_sample < window.sample_start or span.end_sample > window_end:
+                raise ValueError("soft-bit evidence extends beyond original capture window")
         return result

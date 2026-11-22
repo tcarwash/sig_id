@@ -26,7 +26,7 @@ class LocalDecoderBackend:
             application="Signal ID built-in decoders",
             connected=True, version="1",
             input_kinds=("mono-pcm-audio-window",),
-            product_kinds=("text", "metadata"),
+            product_kinds=("text", "binary", "metadata"),
             modes=tuple(
                 DecoderMode(
                     mode_id=item.id, display_name=item.name, native_mode=item.id,
@@ -61,20 +61,38 @@ class LocalDecoderBackend:
         ))
         details = output.to_dict()
         details["external_decoder_used"] = False
+        # Validate size/JSON before the HTTP adapter creates a saved run.
+        # CaptureStore imposes the same 1 MiB limit on persisted evidence.
+        metadata_text = json.dumps(details, ensure_ascii=True, allow_nan=False)
+        if len(metadata_text.encode("utf-8")) > 1024 * 1024:
+            raise ValueError("first-party decoder result evidence exceeds 1 MiB")
         # DecodeWindow was already cropped by the saved-selection API.
-        products = (
+        text_products = (
             (DecoderProduct("text", output.text, metadata={
                 "decoder_id": output.decoder_id, "status": output.status,
                 "verified": False,
             }),) if output.text else ()
-        ) + (DecoderProduct(
-            "metadata", json.dumps(details, ensure_ascii=True), "application/json",
+        )
+        # Binary frame products only accompany decoded/partial results.
+        # Abstained candidates remain visible as untrusted structured metadata.
+        frame_products = tuple(
+            DecoderProduct("binary", frame.payload, "application/octet-stream", metadata={
+                "decoder_id": output.decoder_id, "status": output.status,
+                "verified": False, "frame_index": index,
+                "start_sample": frame.start_sample, "end_sample": frame.end_sample,
+                "bit_length": frame.bit_length, "protocol_hint": frame.protocol_hint,
+                "integrity": [check.to_dict() for check in frame.integrity],
+            }) for index, frame in enumerate(output.frames)
+            if output.status != "no_decode" and frame.payload
+        )
+        products = text_products + frame_products + (DecoderProduct(
+            "metadata", metadata_text, "application/json",
         ),)
         return DecoderResult(
             backend_id=self.backend_id,
             application="Signal ID built-in decoders",
             mode_id=request.mode_id, native_mode=request.native_mode,
-            status="completed" if output.text else "completed_empty",
+            status="completed" if (output.text or frame_products) else "completed_empty",
             products=products,
             version=output.version,
             note=output.note,
