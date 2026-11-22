@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Signal ID local decoder JSON result, v0.1 (shape only)",
+  "description": "Schema compliance does not establish an authentic radio protocol decode.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "decoder_id",
+    "version",
+    "status",
+    "text",
+    "tokens",
+    "evidence",
+    "note",
+    "source"
+  ],
+  "properties": {
+    "decoder_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9_-]+$"
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "enum": [
+        "decoded",
+        "partial",
+        "no_decode"
+      ]
+    },
+    "text": {
+      "type": "string"
+    },
+    "tokens": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "text",
+          "start_sample",
+          "end_sample",
+          "pattern",
+          "confidence_hint"
+        ],
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "start_sample": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "end_sample": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "pattern": {
+            "type": "string"
+          },
+          "confidence_hint": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      }
+    },
+    "evidence": {
+      "type": "object"
+    },
+    "note": {
+      "type": "string"
+    },
+    "source": {
+      "const": "sigid-independent-implementation"
+    }
+  }
+}

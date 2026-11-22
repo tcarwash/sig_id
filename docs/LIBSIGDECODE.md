@@ -78,3 +78,10 @@ that audio, retaining candidate marks in structured metadata instead of
 publishing the text as a successful decode. The true mode and text in
 that audio have not been independently established. Real Morse accuracy
 and false-decode rates still require reviewed recordings.
+
+## Agent implementation resources
+
+- [API contract](DECODER_API_SPEC.md) (implemented v0.1 vs proposed extensions)
+- [Agent playbook](DECODER_AGENT_PLAYBOOK.md)
+- [Evidence and protocol source index](DECODER_EVIDENCE_INDEX.md)
+- [Machine-readable work queue](decoder-work-items.json)

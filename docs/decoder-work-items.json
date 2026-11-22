@@ -1,0 +1,632 @@
+{
+  "schema_version": 1,
+  "api_contract": "docs/DECODER_API_SPEC.md",
+  "agent_playbook": "docs/DECODER_AGENT_PLAYBOOK.md",
+  "evidence_index": "docs/DECODER_EVIDENCE_INDEX.md",
+  "internal_implementation": "sigid/libsigdecode",
+  "reference_catalog": "https://github.com/adswill/OnAir/blob/main/MODES.md",
+  "status_legend": {
+    "planned": "Not implemented in owned library",
+    "experimental_implemented": "Runs in library, synthetic tests only",
+    "benchmarked": "Reviewed on-air testing exists; must link evidence",
+    "validated": "Requires independently reviewed metrics and release review"
+  },
+  "references": {
+    "morse_itu": {
+      "title": "ITU-R M.1677-1 Morse",
+      "url": "https://www.itu.int/rec/R-REC-M.1677-1-200910-I/",
+      "kind": "primary"
+    },
+    "ita2_itu": {
+      "title": "ITU-T S.1 ITA2",
+      "url": "https://www.itu.int/rec/T-REC-S.1-199303-I",
+      "kind": "primary"
+    },
+    "psk31_arrl": {
+      "title": "ARRL PSK31 specification",
+      "url": "https://www.arrl.org/psk31-spec",
+      "kind": "published_protocol"
+    },
+    "ax25_tapr": {
+      "title": "AX.25 v2.2 specification",
+      "url": "https://tapr.org/pdf/AX25.2.2.pdf",
+      "kind": "primary"
+    },
+    "aprs10": {
+      "title": "APRS 1.0",
+      "url": "https://www.aprs.org/doc/APRS101.PDF",
+      "kind": "primary"
+    },
+    "aprs11": {
+      "title": "APRS 1.1 addendum",
+      "url": "https://www.aprs.org/aprs11.html",
+      "kind": "primary"
+    },
+    "ft4ft8_qex": {
+      "title": "FT4/FT8 protocol paper",
+      "url": "https://www.k0nr.com/wordpress/wp-content/uploads/2025/03/Protocols-FT4-FT8-QEX.pdf",
+      "kind": "authored_protocol"
+    },
+    "wsjtx_guide": {
+      "title": "WSJT-X guide",
+      "url": "https://wsjt.sourceforge.io/wsjtx-main_en.html",
+      "kind": "overview"
+    },
+    "olivia_arrl": {
+      "title": "Olivia draft specification",
+      "url": "https://www.arrl.org/olivia",
+      "kind": "draft"
+    },
+    "sstv_modes": {
+      "title": "SSTV mode reference",
+      "url": "https://sstv.org.uk/docs/modes/",
+      "kind": "secondary"
+    },
+    "m17_spec": {
+      "title": "M17 standard specification",
+      "url": "https://github.com/M17-Project/M17_spec",
+      "kind": "primary"
+    },
+    "freedv_spec": {
+      "title": "FreeDV protocol specifications",
+      "url": "https://freedv.org/freedv-specification/",
+      "kind": "primary"
+    },
+    "onair_catalog": {
+      "title": "OnAir mode list, comparison only",
+      "url": "https://github.com/adswill/OnAir/blob/main/MODES.md",
+      "kind": "coverage_orientation"
+    }
+  },
+  "work_items": [
+    {
+      "id": "cw",
+      "family": "morse",
+      "priority": 0,
+      "state": "experimental_implemented",
+      "input_kind": "mono-audio",
+      "reference_ids": [
+        "morse_itu"
+      ],
+      "depends_on": [],
+      "next_step": "Current experimental implementation; needs reviewed CW ground truth",
+      "evidence_file": "docs/decoder-evidence/cw.md"
+    },
+    {
+      "id": "rtty",
+      "family": "keyboard",
+      "priority": 1,
+      "state": "planned",
+      "input_kind": "mono-audio",
+      "reference_ids": [
+        "ita2_itu"
+      ],
+      "depends_on": [
+        "shared_fsk_timing"
+      ],
+      "next_step": "ITA2 with framing/shift state and polarity tests",
+      "evidence_file": "docs/decoder-evidence/rtty.md"
+    },
+    {
+      "id": "bpsk31",
+      "family": "keyboard",
+      "priority": 1,
+      "state": "planned",
+      "input_kind": "mono-audio",
+      "reference_ids": [
+        "psk31_arrl"
+      ],
+      "depends_on": [
+        "shared_psk_timing"
+      ],
+      "next_step": "Differential PSK and varicode",
+      "evidence_file": "docs/decoder-evidence/bpsk31.md"
+    },
+    {
+      "id": "ax25",
+      "family": "packet",
+      "priority": 1,
+      "state": "planned",
+      "input_kind": "mono-audio",
+      "reference_ids": [
+        "ax25_tapr"
+      ],
+      "depends_on": [
+        "shared_afsk_hdlc"
+      ],
+      "next_step": "HDLC/NRZI/bit stuffing/FCS, with raw frames",
+      "evidence_file": "docs/decoder-evidence/ax25.md"
+    },
+    {
+      "id": "aprs",
+      "family": "packet",
+      "priority": 1,
+      "state": "planned",
+      "input_kind": "mono-audio",
+      "reference_ids": [
+        "ax25_tapr",
+        "aprs10",
+        "aprs11"
+      ],
+      "depends_on": [
+        "ax25"
+      ],
+      "next_step": "Parse APRS payload only after FCS-checked AX.25",
+      "evidence_file": "docs/decoder-evidence/aprs.md"
+    },
+    {
+      "id": "ft8",
+      "family": "weak_signal",
+      "priority": 1,
+      "state": "planned",
+      "input_kind": "mono-audio",
+      "reference_ids": [
+        "ft4ft8_qex",
+        "wsjtx_guide"
+      ],
+      "depends_on": [
+        "shared_weak_signal_sync",
+        "shared_fec"
+      ],
+      "next_step": "UTC slot sync, 8-GFSK, LDPC, CRC",
+      "evidence_file": "docs/decoder-evidence/ft8.md"
+    },
+    {
+      "id": "ft4",
+      "family": "weak_signal",
+      "priority": 1,
+      "state": "planned",
+      "input_kind": "mono-audio",
+      "reference_ids": [
+        "ft4ft8_qex",
+        "wsjtx_guide"
+      ],
+      "depends_on": [
+        "shared_weak_signal_sync",
+        "shared_fec"
+      ],
+      "next_step": "Independent sync and FEC, not FT8 timing",
+      "evidence_file": "docs/decoder-evidence/ft4.md"
+    },
+    {
+      "id": "wspr",
+      "family": "weak_signal",
+      "priority": 1,
+      "state": "planned",
+      "input_kind": "mono-audio",
+      "reference_ids": [
+        "wsjtx_guide"
+      ],
+      "depends_on": [
+        "shared_weak_signal_sync",
+        "shared_fec"
+      ],
+      "next_step": "Needs complete WSPR bit-level vectors/spec review",
+      "evidence_file": "docs/decoder-evidence/wspr.md"
+    },
+    {
+      "id": "qpsk31",
+      "family": "keyboard",
+      "priority": 2,
+      "state": "planned",
+      "input_kind": "mono-audio",
+      "reference_ids": [
+        "psk31_arrl"
+      ],
+      "depends_on": [
+        "bpsk31",
+        "shared_fec"
+      ],
+      "next_step": "Confirm QPSK31 variant/FEC documentation",
+      "evidence_file": "docs/decoder-evidence/qpsk31.md"
+    },
+    {
+      "id": "hellschreiber",
+      "family": "keyboard_image",
+      "priority": 2,
+      "state": "planned",
+      "input_kind": "mono-audio",
+      "reference_ids": [],
+      "depends_on": [],
+      "next_step": "Find a public implementer-level timing/font spec",
+      "evidence_file": "docs/decoder-evidence/hellschreiber.md"
+    },
+    {
+      "id": "hf_packet_300",
+      "family": "packet",
+      "priority": 2,
+      "state": "planned",
+      "input_kind": "mono-audio",
+      "reference_ids": [
+        "ax25_tapr"
+      ],
+      "depends_on": [
+        "ax25"
+      ],
+      "next_step": "HF modem specification and field validation needed",
+      "evidence_file": "docs/decoder-evidence/hf_packet_300.md"
+    },
+    {
+      "id": "jt65",
+      "family": "weak_signal",
+      "priority": 2,
+      "state": "planned",
+      "input_kind": "mono-audio",
+      "reference_ids": [
+        "wsjtx_guide"
+      ],
+      "depends_on": [
+        "shared_weak_signal_sync",
+        "shared_fec"
+      ],
+      "next_step": "Full primary bit/sync spec still needed",
+      "evidence_file": "docs/decoder-evidence/jt65.md"
+    },
+    {
+      "id": "jt9",
+      "family": "weak_signal",
+      "priority": 2,
+      "state": "planned",
+      "input_kind": "mono-audio",
+      "reference_ids": [
+        "wsjtx_guide"
+      ],
+      "depends_on": [
+        "shared_weak_signal_sync",
+        "shared_fec"
+      ],
+      "next_step": "Full primary bit/sync spec still needed",
+      "evidence_file": "docs/decoder-evidence/jt9.md"
+    },
+    {
+      "id": "js8",
+      "family": "weak_signal",
+      "priority": 2,
+      "state": "planned",
+      "input_kind": "mono-audio",
+      "reference_ids": [
+        "wsjtx_guide"
+      ],
+      "depends_on": [
+        "shared_weak_signal_sync",
+        "shared_fec"
+      ],
+      "next_step": "WSJT guide is related only; locate JS8-specific protocol",
+      "evidence_file": "docs/decoder-evidence/js8.md"
+    },
+    {
+      "id": "olivia",
+      "family": "keyboard_fec",
+      "priority": 2,
+      "state": "planned",
+      "input_kind": "mono-audio",
+      "reference_ids": [
+        "olivia_arrl"
+      ],
+      "depends_on": [
+        "shared_fsk_timing",
+        "shared_fec"
+      ],
+      "next_step": "Walsh coding and timing",
+      "evidence_file": "docs/decoder-evidence/olivia.md"
+    },
+    {
+      "id": "contestia",
+      "family": "keyboard_fec",
+      "priority": 2,
+      "state": "planned",
+      "input_kind": "mono-audio",
+      "reference_ids": [
+        "olivia_arrl"
+      ],
+      "depends_on": [
+        "shared_fsk_timing",
+        "shared_fec"
+      ],
+      "next_step": "Related to Olivia, but requires separate reference",
+      "evidence_file": "docs/decoder-evidence/contestia.md"
+    },
+    {
+      "id": "mfsk",
+      "family": "keyboard_fec",
+      "priority": 2,
+      "state": "planned",
+      "input_kind": "mono-audio",
+      "reference_ids": [],
+      "depends_on": [
+        "shared_fsk_timing",
+        "shared_fec"
+      ],
+      "next_step": "Define MFSK variant before implementing",
+      "evidence_file": "docs/decoder-evidence/mfsk.md"
+    },
+    {
+      "id": "thor",
+      "family": "keyboard_fec",
+      "priority": 2,
+      "state": "planned",
+      "input_kind": "mono-audio",
+      "reference_ids": [],
+      "depends_on": [
+        "shared_fsk_timing",
+        "shared_fec"
+      ],
+      "next_step": "Mode-specific public protocol spec needed",
+      "evidence_file": "docs/decoder-evidence/thor.md"
+    },
+    {
+      "id": "dominoex",
+      "family": "keyboard_fec",
+      "priority": 2,
+      "state": "planned",
+      "input_kind": "mono-audio",
+      "reference_ids": [],
+      "depends_on": [
+        "shared_fsk_timing"
+      ],
+      "next_step": "Mode-specific public protocol spec needed",
+      "evidence_file": "docs/decoder-evidence/dominoex.md"
+    },
+    {
+      "id": "mt63",
+      "family": "keyboard_fec",
+      "priority": 2,
+      "state": "planned",
+      "input_kind": "mono-audio",
+      "reference_ids": [],
+      "depends_on": [
+        "shared_fec"
+      ],
+      "next_step": "Mode-specific spec and interleaver vectors needed",
+      "evidence_file": "docs/decoder-evidence/mt63.md"
+    },
+    {
+      "id": "sstv",
+      "family": "image",
+      "priority": 2,
+      "state": "planned",
+      "input_kind": "mono-audio",
+      "reference_ids": [
+        "sstv_modes"
+      ],
+      "depends_on": [
+        "shared_image_output"
+      ],
+      "next_step": "VIS, line timing, color reconstruction; input >120s requires new contract",
+      "evidence_file": "docs/decoder-evidence/sstv.md"
+    },
+    {
+      "id": "qrss",
+      "family": "morse",
+      "priority": 2,
+      "state": "planned",
+      "input_kind": "mono-audio",
+      "reference_ids": [
+        "morse_itu"
+      ],
+      "depends_on": [
+        "cw"
+      ],
+      "next_step": "Very slow keying, longer than existing bounded windows",
+      "evidence_file": "docs/decoder-evidence/qrss.md"
+    },
+    {
+      "id": "dfcw",
+      "family": "morse",
+      "priority": 2,
+      "state": "planned",
+      "input_kind": "mono-audio",
+      "reference_ids": [
+        "morse_itu"
+      ],
+      "depends_on": [
+        "cw"
+      ],
+      "next_step": "Dot/dash frequency split; duration beyond current bound",
+      "evidence_file": "docs/decoder-evidence/dfcw.md"
+    },
+    {
+      "id": "fsk441",
+      "family": "meteor_scatter",
+      "priority": 3,
+      "state": "planned",
+      "input_kind": "mono-audio",
+      "reference_ids": [
+        "wsjtx_guide"
+      ],
+      "depends_on": [
+        "shared_fsk_timing"
+      ],
+      "next_step": "Research detailed frame encoding and test vectors",
+      "evidence_file": "docs/decoder-evidence/fsk441.md"
+    },
+    {
+      "id": "msk144",
+      "family": "meteor_scatter",
+      "priority": 3,
+      "state": "planned",
+      "input_kind": "mono-audio",
+      "reference_ids": [
+        "wsjtx_guide"
+      ],
+      "depends_on": [
+        "shared_fec"
+      ],
+      "next_step": "Need full protocol timing and FEC spec",
+      "evidence_file": "docs/decoder-evidence/msk144.md"
+    },
+    {
+      "id": "q65",
+      "family": "weak_signal",
+      "priority": 3,
+      "state": "planned",
+      "input_kind": "mono-audio",
+      "reference_ids": [
+        "wsjtx_guide"
+      ],
+      "depends_on": [
+        "shared_weak_signal_sync",
+        "shared_fec"
+      ],
+      "next_step": "Need Q65-specific technical source",
+      "evidence_file": "docs/decoder-evidence/q65.md"
+    },
+    {
+      "id": "fst4",
+      "family": "weak_signal",
+      "priority": 3,
+      "state": "planned",
+      "input_kind": "mono-audio",
+      "reference_ids": [
+        "wsjtx_guide"
+      ],
+      "depends_on": [
+        "shared_weak_signal_sync",
+        "shared_fec"
+      ],
+      "next_step": "Need variant/slot handling",
+      "evidence_file": "docs/decoder-evidence/fst4.md"
+    },
+    {
+      "id": "fst4w",
+      "family": "weak_signal",
+      "priority": 3,
+      "state": "planned",
+      "input_kind": "mono-audio",
+      "reference_ids": [
+        "wsjtx_guide"
+      ],
+      "depends_on": [
+        "shared_weak_signal_sync",
+        "shared_fec"
+      ],
+      "next_step": "Longer than local 120-second contract in many modes",
+      "evidence_file": "docs/decoder-evidence/fst4w.md"
+    },
+    {
+      "id": "jt4",
+      "family": "weak_signal",
+      "priority": 3,
+      "state": "planned",
+      "input_kind": "mono-audio",
+      "reference_ids": [
+        "wsjtx_guide"
+      ],
+      "depends_on": [
+        "shared_weak_signal_sync"
+      ],
+      "next_step": "Need full JT4 protocol spec",
+      "evidence_file": "docs/decoder-evidence/jt4.md"
+    },
+    {
+      "id": "pi4",
+      "family": "beacon",
+      "priority": 3,
+      "state": "planned",
+      "input_kind": "mono-audio",
+      "reference_ids": [],
+      "depends_on": [
+        "shared_weak_signal_sync"
+      ],
+      "next_step": "Find PI4 beacon mode primary spec",
+      "evidence_file": "docs/decoder-evidence/pi4.md"
+    },
+    {
+      "id": "hamdrm",
+      "family": "image",
+      "priority": 3,
+      "state": "planned",
+      "input_kind": "mono-audio",
+      "reference_ids": [],
+      "depends_on": [
+        "shared_image_output",
+        "shared_fec"
+      ],
+      "next_step": "Potential long captures and image/FEC output extension",
+      "evidence_file": "docs/decoder-evidence/hamdrm.md"
+    },
+    {
+      "id": "m17",
+      "family": "digital_voice",
+      "priority": 3,
+      "state": "planned",
+      "input_kind": "iq-proposed",
+      "reference_ids": [
+        "m17_spec"
+      ],
+      "depends_on": [
+        "iq_window",
+        "shared_fec"
+      ],
+      "next_step": "Start with signaling and packet fields; speech codec separate",
+      "evidence_file": "docs/decoder-evidence/m17.md"
+    },
+    {
+      "id": "freedv",
+      "family": "digital_voice",
+      "priority": 3,
+      "state": "planned",
+      "input_kind": "mono-audio",
+      "reference_ids": [
+        "freedv_spec"
+      ],
+      "depends_on": [
+        "shared_fec"
+      ],
+      "next_step": "Waveform/codec license and binary outputs require review",
+      "evidence_file": "docs/decoder-evidence/freedv.md"
+    },
+    {
+      "id": "dstar",
+      "family": "digital_voice",
+      "priority": 3,
+      "state": "planned",
+      "input_kind": "iq-proposed",
+      "reference_ids": [],
+      "depends_on": [
+        "iq_window"
+      ],
+      "next_step": "Research legal codec and over-the-air spec first",
+      "evidence_file": "docs/decoder-evidence/dstar.md"
+    },
+    {
+      "id": "yaesu_fusion",
+      "family": "digital_voice",
+      "priority": 3,
+      "state": "planned",
+      "input_kind": "iq-proposed",
+      "reference_ids": [],
+      "depends_on": [
+        "iq_window"
+      ],
+      "next_step": "Public primary specification and codec license unresolved",
+      "evidence_file": "docs/decoder-evidence/yaesu_fusion.md"
+    },
+    {
+      "id": "lora_aprs",
+      "family": "packet",
+      "priority": 3,
+      "state": "planned",
+      "input_kind": "iq-proposed",
+      "reference_ids": [
+        "aprs10",
+        "aprs11"
+      ],
+      "depends_on": [
+        "iq_window",
+        "aprs"
+      ],
+      "next_step": "LoRa PHY not recoverable from ordinary SSB audio",
+      "evidence_file": "docs/decoder-evidence/lora_aprs.md"
+    }
+  ],
+  "infrastructure_dependencies": {
+    "shared_fsk_timing": "General sampled FSK carrier/clock recovery shared by RTTY and MFSK",
+    "shared_psk_timing": "General phase and symbol timing shared by PSK modes",
+    "shared_afsk_hdlc": "AFSK-to-bits, NRZI/HDLC bitstream common utilities",
+    "shared_fec": "Documented, independently tested error-correction building blocks",
+    "shared_weak_signal_sync": "UTC-slot and protocol-specific synchronization infrastructure",
+    "shared_image_output": "Typed image/scanline evidence outputs (proposed API extension)",
+    "iq_window": "Typed complex-IQ input contract (proposed API extension)"
+  }
+}

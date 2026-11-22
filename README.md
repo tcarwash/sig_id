@@ -36,6 +36,7 @@ Then open <http://127.0.0.1:8010>. Local audio capture also requires the platfor
 - [Operations](OPERATIONS.md): updates, model setup, backup and restore.
 - [OnAir event adapter](docs/ONAIR_EVENT_BRIDGE.md): receive-only decoded events from a separate OnAir application, setup and limits.
 - [Independent decoder library](docs/LIBSIGDECODE.md): in-project CW, modular decoder contract and ham-mode roadmap; external backends are optional.
+- [Decoder agent start page](docs/DECODER_AGENT_PLAYBOOK.md): implementation API, source/evidence links and machine-readable 36-mode work queue for parallel agents.
 - [Crowded-signal benchmark](docs/CROWDED_AUDIO_BENCHMARK.md): high-resolution split previews, real 40m replay, and accuracy metrics with reviewed references.
 - [Browser verification](tests/GUI.md): isolated UI workflow checks and their limits.
 - [Distributed collection](DISTRIBUTED_COLLECTION_PLAN.md): contribution and peer review design.
