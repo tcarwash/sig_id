@@ -62,6 +62,12 @@ def test_upload_waterfall_manual_label_audio_and_jsonl_export(tmp_path):
             assert 'id="empty-model-readiness"' in page
             assert 'class="topbar-nav"' in page
             assert "waterfall-layout" in (await client.get("/style.css")).text
+            app_js = (await client.get("/app.js")).text
+            assert "async function recoverLiveCapture()" in app_js
+            assert "attachLiveCapture(status, {resumed: true})" in app_js
+            assert "Playback/output monitor selected!" in app_js
+            assert "sig-id-audio-input-device-name" in app_js
+            assert 'id="audio-input-hint"' in page
             uploaded = await client.post(
                 "/api/captures",
                 files={"file": ("radio-passband.wav", audio, "audio/wav")},
