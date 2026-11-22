@@ -64,6 +64,7 @@ from .fldigi_replay import IsolatedFldigiReplay
 from .wsjtx_backend import WsjtxUdpBackend
 from .onair_backend import OnAirEventBackend
 from .local_decoder_backend import LocalDecoderBackend
+from .native_live_decode import NativeLiveRunner
 from .live_audio import LiveCaptureManager
 from .live_spectrum import spectrum_packet
 from .modes import MODE_REGISTRY_VERSION, find_modes, resolve_mode_label
@@ -917,6 +918,7 @@ def create_app(
     decode_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sig-id-fldigi-replay")
     model_training_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sig-id-model-training")
     decode_job_lock = Lock()
+    native_live_runner = NativeLiveRunner()
     model_training_lock = Lock()
     # The active pair belongs to the project model catalog, not the user's
     # capture store. Keep direct `sig-id-serve` starts aligned with the
@@ -980,6 +982,7 @@ def create_app(
             if callable(close_replay):
                 close_replay()
             decode_executor.shutdown(wait=True, cancel_futures=True)
+            native_live_runner.close()
             model_training_executor.shutdown(wait=False, cancel_futures=True)
             try:
                 stopped = await asyncio.to_thread(live_capture.shutdown)
@@ -997,6 +1000,7 @@ def create_app(
     app.state.fldigi = fldigi
     app.state.fldigi_replay = fldigi_replay
     app.state.decoder_backends = decoder_backends_registry
+    app.state.native_live_runner = native_live_runner
     app.state.classifier = classifier
     app.state.classifier_error = classifier_error
     app.state.classifier_model_path = str(Path(configured_model).expanduser().resolve()) if configured_model else None
@@ -1672,12 +1676,52 @@ def create_app(
             "identity_status": "unverified", "decoder_invoked": False,
         }
 
+    @app.get("/api/live/native-decode/status")
+    def native_live_decoder_status(session_id: str = Query(min_length=1, max_length=128)) -> dict[str, Any]:
+        # Reports live decoder CPU + per-mode latency independently of ML
+        # detection latency. No automatic identity labels are assigned.
+        return native_live_runner.status(session_id)
+
+    def enqueue_native_live_candidates(
+        session_id: str, detections: list[dict[str, Any]], snapshot: dict[str, Any],
+        *, enabled: bool,
+    ) -> dict[str, Any] | None:
+        queued = None
+        if enabled:
+            # One bounded job per UI scan. No queue backlog; low confidence
+            # classification does not suppress an independent modem attempt.
+            ranked = sorted(detections, key=lambda d: (
+                d.get("track_state") == "persistent",
+                bool((d.get("classifier_proposal") or d.get("model_proposal") or {}).get("method")),
+                float(d.get("confidence") or d.get("peak_snr_db") or 0),
+            ), reverse=True)
+            for item in ranked[:6]:
+                try:
+                    attempt = native_live_runner.submit(
+                        session_id=session_id, track=item, snapshot=snapshot, store=store)
+                except Exception as exc:
+                    logging.getLogger(__name__).exception("Native live decode admission failed")
+                    queued = {"status": "failed", "reason": str(exc)[:180]}
+                    break
+                if attempt["status"] == "queued":
+                    queued = attempt
+                    break
+                if attempt["status"] in ("skipped_busy", "skipped_budget", "skipped_cooldown"):
+                    break
+        for item in detections:
+            if item.get("track_id"):
+                evidence = native_live_runner.for_track(session_id, str(item["track_id"]))
+                if evidence is not None:
+                    item["native_decode_evidence"] = evidence
+        return queued
+
     @app.get("/api/live/cv-detections")
     def live_cv_detections(
         session_id: str = Query(min_length=1, max_length=128),
         confidence: float | None = Query(default=None, ge=0.0, le=1.0),
         include_classifier: bool = Query(default=True),
         auto_trial: bool = Query(default=False),
+        auto_native_decode: bool = Query(default=False),
         include_frequency_refinement: bool = Query(default=False),
     ) -> dict[str, Any]:
         detector = app.state.cv_detector
@@ -1873,8 +1917,11 @@ def create_app(
                     logging.getLogger(__name__).exception("Live CV decoder trial failed to start")
                     automatic_trial = {"status": "failed", "reason": str(exc)}
                 break
+        native_trial = enqueue_native_live_candidates(
+            session_id, detections, snapshot, enabled=auto_native_decode)
         return {
             "session_id": session_id, "warming_up": False,
+            "native_decode_trial": native_trial,
             "observed_seconds": len(mono) / snapshot["sample_rate"],
             "window_seconds": WINDOW_SECONDS, "padding": "leading_noise",
             "model_sha256": detector.model_sha256,
@@ -1902,6 +1949,7 @@ def create_app(
         include_tracks: bool = Query(default=True),
         include_classifier: bool = Query(default=True),
         auto_trial: bool = Query(default=False),
+        auto_native_decode: bool = Query(default=False),
         include_spectrum: bool = Query(default=True),
     ) -> dict[str, Any]:
         snapshot = live_capture.analysis_audio()
@@ -2119,9 +2167,13 @@ def create_app(
                     except Exception as exc:
                         automatic_trial = {"status": "failed", "reason": str(exc)}
                     break
+            native_trial = enqueue_native_live_candidates(
+                str(snapshot["session_id"]), tracks, snapshot,
+                enabled=auto_native_decode and include_tracks)
             return {
                 "active": True,
                 "warming_up": False,
+                "native_decode_trial": native_trial,
                 "session_id": snapshot["session_id"],
                 "sample_offset": snapshot["sample_offset"],
                 "sample_count": snapshot["sample_count"],

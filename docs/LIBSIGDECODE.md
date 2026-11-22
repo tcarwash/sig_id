@@ -34,6 +34,12 @@ Copied copyrighted expression requires its own licensing compliance review.
 
 From the UI: select a saved audio signal, open Decode, choose
 'Signal ID built-in decoders' and the desired mode (CW, RTTY, BPSK31, or AX.25), then decode the selected window.
+For active live monitoring, [automatic native decoding](NATIVE_LIVE_DECODING.md)
+can run bounded, isolated receive-only modem trials on persistent CV or
+narrow-tone tracks. It contributes independent evidence to classification and
+presents coherent output without assigning a verified identity. The isolated
+process and CPU admission budget keep modem decoding off the audio callback.
+
 The action reads 'Decode with Signal ID' for the in-project backend;
 external decoder selection remains available from the same menu.
 

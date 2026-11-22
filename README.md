@@ -37,6 +37,7 @@ Then open <http://127.0.0.1:8010>. Local audio capture also requires the platfor
 - [OnAir event adapter](docs/ONAIR_EVENT_BRIDGE.md): optional live fallback for modes not implemented natively; no saved-WAV replay, setup and limits.
 - [Independent decoder library](docs/LIBSIGDECODE.md): in-project CW, modular decoder contract and ham-mode roadmap; external backends are optional.
 - [Multi-mode Signal Lab](docs/SIGNAL_LAB.md): receive-only virtual loopback for CW/RTTY/BPSK31/AX.25, sparse one- or two-station bursts across widely spaced passband lanes, optional fully crowded stress mode and pinned decoded truth (never RF/PTT).
+- [Automatic native live decoding](docs/NATIVE_LIVE_DECODING.md): CPU-budgeted worker runs native modem attempts against persistent live detector tracks and surfaces unverified coherent output plus latency/CPU metrics.
 - [Decoder agent start page](docs/DECODER_AGENT_PLAYBOOK.md): implementation API, source/evidence links and machine-readable 36-mode work queue for parallel agents.
 - [Crowded-signal benchmark](docs/CROWDED_AUDIO_BENCHMARK.md): high-resolution split previews, real 40m replay, and accuracy metrics with reviewed references.
 - [Browser verification](tests/GUI.md): isolated UI workflow checks and their limits.
