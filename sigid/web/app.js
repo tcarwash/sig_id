@@ -3200,7 +3200,7 @@ function attachLiveCapture(started, {resumed = false} = {}) {
         if (useHeuristicTracks) lastNarrowAt = Date.now();
         const classifyHeuristicTracks = useHeuristicTracks && classifierEnabled && !preferCvTracks;
         const classifierCropCount = Number(el("classifier-crop-count").value) || 1;
-        const analysis = await request(`/api/live/analysis?fft_size=4096&hop_size=512&max_rows=${preferCvTracks ? 320 : 640}&maximum_tone_gap_hz=${preferCvTracks ? 35 : 800}&minimum_peak_db=${preferCvTracks ? -35 : -25}&include_spectrum=false&classifier_crop_count=${classifierCropCount}&include_tracks=${useHeuristicTracks}&include_classifier=${classifyHeuristicTracks}&auto_trial=${autoTrial && classifyHeuristicTracks}`);
+        const analysis = await request(`/api/live/analysis?fft_size=4096&hop_size=512&max_rows=${preferCvTracks ? 320 : 640}&maximum_tone_gap_hz=${preferCvTracks ? 35 : 800}&minimum_peak_db=${preferCvTracks ? -32 : -25}&include_spectrum=false&classifier_crop_count=${classifierCropCount}&include_tracks=${useHeuristicTracks}&include_classifier=${classifyHeuristicTracks}&auto_trial=${autoTrial && classifyHeuristicTracks}`);
         if (generation !== state.liveGeneration || !state.liveMonitoring) return;
         if (!state.liveView) return;
         state.liveWindowStartSample = Number.isFinite(analysis.sample_offset) ? analysis.sample_offset : null;
