@@ -12,6 +12,32 @@ Classifier method/family suggestions narrow the mode shortlist when available; *
 
 All modem DSP executes on a dedicated **single-worker child process**, not in the audio callback or the HTTP detection request. It owns no sound hardware, CAT/PTT, network decoder service or transmit action. It is fully separate from Fldigi, OnAir, and WSJT-X.
 
+## Acquisition-aware short-burst recovery
+
+The worker now uses a conservative, **up-to-two-segment search** before its
+single full-window fallback for RTTY and BPSK31. This handles arbitrary
+four-second crops containing a complete short message *between* truncated
+neighbors. Segment proposals depend only on audio tone energy and low-energy
+gaps, never on generated-text ground truth or an assumed fixture length.
+They are disabled for continuous carriers, noise-like windows, low-contrast
+weak signals and other modes. The existing four-second, single-process, CPU
+admission and session limits remain unchanged; a difficult candidate can
+incur additional decoder attempts within that single worker, but never a
+queued backlog.
+
+Persisted `decoder_result.live_acquisition` records the *original* and
+*chosen* absolute sample spans, trial statuses and counts. The workbench's
+existing native/external comparison shows those exact source bounds. Text
+and mode identity remain unverified unless the operator reviews them.
+
+The native mode shortlist now respects a named non-abstained classifier
+method first and keeps audio-frequency geometry as a second hypothesis;
+Signal Lab's low-CW / high-BPSK audio placement no longer overrides an
+explicit method suggestion. See the [synthetic SNR/acquisition benchmark](SIGNAL_CHAIN_SNR_BENCHMARK.md) for exact successes, noise controls and
+remaining weak-signal limitations. Current YOLO CV output can still miss a
+real-looking signal; the independent narrow-tone detector should remain
+available, and its frequency-only proposals do not identify a protocol.
+
 ## Admission and performance limits
 
 The following default admission controls are applied **per server**:

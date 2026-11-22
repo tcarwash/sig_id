@@ -31,3 +31,22 @@ test("generic modem evidence is mode-agnostic and does not invent confidence", (
   assert.equal(summarizeDecoderResult({source:"external", status:"decoded"}), "");
   assert.equal(summarizeDecoderResult(null), "");
 });
+
+
+test("live segmentation provenance appears in native and cross-backend result cards", () => {
+  const result = {source: "sigid-independent-implementation", decoder_id: "rtty",
+    version: "rtty-ita2-fsk-v2", status: "decoded", text: "CQ TEST",
+    evidence: {}, live_acquisition: {
+      confirmed_identity: false, original_sample_start: 1000,
+      original_sample_count: 48000, selected_sample_start: 17400,
+      selected_sample_count: 18500,
+      attempts: [{kind: "energy-gap-segment", status: "decoded", grade: "coherent-unverified"}],
+    }};
+  const summary = summarizeDecoderResult(result);
+  assert.match(summary, /Live audio window: samples 1000–49000/);
+  assert.match(summary, /Selected decoder window: samples 17400–35900/);
+  assert.match(summary, /energy-gap-segment.*coherent-unverified/);
+  assert.match(summary, /not verified message boundaries/);
+  assert.match(summary, /not a calibrated probability or confirmed identification/);
+  assert.doesNotMatch(summary, /confirmed mode/i);
+});
