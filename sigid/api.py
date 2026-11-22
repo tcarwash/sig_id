@@ -65,6 +65,7 @@ from .wsjtx_backend import WsjtxUdpBackend
 from .onair_backend import OnAirEventBackend
 from .local_decoder_backend import LocalDecoderBackend
 from .native_live_decode import NativeLiveRunner
+from .live_classifier_cache import LiveClassifierEvidenceCache
 from .live_audio import LiveCaptureManager
 from .live_spectrum import spectrum_packet
 from .modes import MODE_REGISTRY_VERSION, find_modes, resolve_mode_label
@@ -919,6 +920,7 @@ def create_app(
     model_training_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sig-id-model-training")
     decode_job_lock = Lock()
     native_live_runner = NativeLiveRunner()
+    classifier_evidence_cache = LiveClassifierEvidenceCache()
     model_training_lock = Lock()
     # The active pair belongs to the project model catalog, not the user's
     # capture store. Keep direct `sig-id-serve` starts aligned with the
@@ -1001,6 +1003,7 @@ def create_app(
     app.state.fldigi_replay = fldigi_replay
     app.state.decoder_backends = decoder_backends_registry
     app.state.native_live_runner = native_live_runner
+    app.state.classifier_evidence_cache = classifier_evidence_cache
     app.state.classifier = classifier
     app.state.classifier_error = classifier_error
     app.state.classifier_model_path = str(Path(configured_model).expanduser().resolve()) if configured_model else None
@@ -1715,6 +1718,10 @@ def create_app(
                     item["native_decode_evidence"] = evidence
         return queued
 
+    @app.get("/api/live/classifier-cache/status")
+    def live_classifier_cache_status(session_id: str = Query(min_length=1, max_length=128)) -> dict[str, Any]:
+        return classifier_evidence_cache.status(session_id)
+
     @app.get("/api/live/cv-detections")
     def live_cv_detections(
         session_id: str = Query(min_length=1, max_length=128),
@@ -1805,15 +1812,16 @@ def create_app(
             )
             target_count = max(1, round(model_window_seconds * sample_rate))
             ring_start = int(snapshot["sample_offset"])
-            max_scored = set(id(item) for item in sorted(
-                detections, key=lambda item: float(item["confidence"]), reverse=True
-            )[:32])
-            for detection in detections:
-                if id(detection) not in max_scored:
-                    detection["classifier_proposal"] = {
-                        "available": False, "reason": "32-box live classification limit reached",
-                    }
-                    continue
+            model_id = f"{classifier['metadata'].get('model_sha256', 'unknown')}:{id(classifier)}"
+            # Cached hypotheses are free to display; cap only fresh model
+            # invocations. Every deferred track gets its chance on a later
+            # scan once previously scored tracks can reuse their evidence.
+            classifier_scored = classifier_reused = classifier_deferred = 0
+            classifier_attempts = 0
+            for detection in sorted(detections, key=lambda item: (
+                item.get("track_state") == "persistent",
+                float(item.get("confidence") or 0),
+            ), reverse=True):
                 local_start = max(0, int(detection["sample_start"]) - ring_start)
                 local_end = min(len(mono), local_start + int(detection["sample_count"]))
                 if len(mono) < target_count:
@@ -1824,6 +1832,27 @@ def create_app(
                     continue
                 midpoint = (local_start + local_end) // 2
                 crop_start = max(0, min(len(mono) - target_count, midpoint - target_count // 2))
+                track_id = str(detection.get("track_id") or "")
+                low_hz = float(detection["frequency_low_hz"])
+                high_hz = float(detection["frequency_high_hz"])
+                cached = classifier_evidence_cache.lookup(
+                    session_id=session_id, track_id=track_id,
+                    model_id=model_id, sample_rate=sample_rate,
+                    sample_position=int(snapshot["sample_count"]),
+                    low_hz=low_hz, high_hz=high_hz,
+                ) if track_id else None
+                if cached is not None:
+                    detection["classifier_proposal"] = cached
+                    classifier_reused += 1
+                    continue
+                if classifier_attempts >= 8:
+                    classifier_deferred += 1
+                    detection["classifier_proposal"] = {
+                        "available": False,
+                        "reason": "8-new-classifications-per-scan CPU budget; waiting for next scan",
+                    }
+                    continue
+                classifier_attempts += 1
                 crop = mono[crop_start : crop_start + target_count]
                 try:
                     proposal = _classify_signal_crop(
@@ -1831,11 +1860,20 @@ def create_app(
                         float(detection["frequency_low_hz"]),
                         float(detection["frequency_high_hz"]),
                     )
-                    detection["classifier_proposal"] = {
+                    enriched = {
                         "sample_start": ring_start + crop_start,
                         "sample_count": target_count,
                         **proposal,
+                        "reuse_info": {"reused": False, "evidence_age_seconds": 0.0},
                     }
+                    detection["classifier_proposal"] = enriched
+                    classifier_evidence_cache.remember(
+                        session_id=session_id, track_id=track_id,
+                        model_id=model_id, sample_rate=sample_rate,
+                        sample_position=int(snapshot["sample_count"]),
+                        low_hz=low_hz, high_hz=high_hz, proposal=enriched,
+                    )
+                    classifier_scored += 1
                 except Exception as exc:
                     logging.getLogger(__name__).exception("Live CV classifier proposal failed")
                     detection["classifier_proposal"] = {"available": False, "reason": str(exc)}
@@ -1928,6 +1966,11 @@ def create_app(
             "preprocessing_version": PREPROCESSING_VERSION,
             "classifier_available": classifier_available,
             "classifier_scoring": classifier is not None and include_classifier,
+            "classifier_scored_this_scan": classifier_scored if classifier is not None and include_classifier else 0,
+            "classifier_reused_this_scan": classifier_reused if classifier is not None and include_classifier else 0,
+            "classifier_deferred_this_scan": classifier_deferred if classifier is not None and include_classifier else 0,
+            "classifier_attempts_this_scan": classifier_attempts if classifier is not None and include_classifier else 0,
+            "classifier_cache": classifier_evidence_cache.status(session_id),
             "frequency_refinement_enabled": include_frequency_refinement,
             "frequency_refinement_suggestions": sum(
                 bool(item.get("frequency_refinement", {}).get("split_suggested"))
@@ -4878,6 +4921,10 @@ def create_app(
     @app.get("/time-lens.mjs", include_in_schema=False)
     def time_lens_module() -> FileResponse:
         return web_asset("time-lens.mjs", "text/javascript")
+
+    @app.get("/live-candidate-history.mjs", include_in_schema=False)
+    def live_candidate_history_module() -> FileResponse:
+        return web_asset("live-candidate-history.mjs", "text/javascript")
 
     @app.get("/decoder-result.mjs", include_in_schema=False)
     def decoder_result_module() -> FileResponse:
