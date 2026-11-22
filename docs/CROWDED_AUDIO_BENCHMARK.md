@@ -7,7 +7,7 @@ signals coexist in a single audio passband.
 
 ## Conservative high-resolution refinement
 
-The optional \`sigid.frequency_refinement.refine_frequency_region\` stage
+The optional `sigid.frequency_refinement.refine_frequency_region` stage
 accepts a CV-selected time/frequency region. It analyzes at most 16 seconds,
 resamples high-rate input to 6 kHz, and uses a 4096-point Hann-window STFT
 (**about 1.46 Hz resolution** at 6 kHz). Each time frame is whitened against
@@ -22,10 +22,10 @@ or prove that separate frequencies represent separate stations.
 
 For a live capture, enable **Receive settings → Live signal analysis →
 Preview fine-frequency splits**. An opt-in query argument
-\`include_frequency_refinement=true\` is also available on:
+`include_frequency_refinement=true` is also available on:
 
-- \`GET /api/live/cv-detections\`
-- \`POST /api/captures/{capture_id}/cv-detections\`
+- `GET /api/live/cv-detections`
+- `POST /api/captures/{capture_id}/cv-detections`
 
 When a suggestion exists, the UI lists approximate sub-band frequencies and
 states **unverified; original box retained**. It never silently generates new
@@ -37,29 +37,29 @@ refinement does likewise. The option defaults to **off**.
 
 Use the read-only CLI on a local PCM16 WAV and a JSON CV proposal export:
 
-\`\`\`bash
+```bash
 sig-id-benchmark-crowded /path/to/40m-recording.wav \
   --cv-json /path/to/cv-boxes.json \
   --output /path/to/report.json
-\`\`\`
+```
 
 It also works without installation:
 
-\`\`\`bash
+```bash
 python -m sigid.crowded_benchmark /path/to/40m-recording.wav \
   --cv-json /path/to/cv-boxes.json
-\`\`\`
+```
 
-The \`cv-boxes.json\` file can be a list or an object with a \`detections\`
-array. Each entry needs \`sample_start\`, \`sample_count\`,
-\`frequency_low_hz\`, and \`frequency_high_hz\`, or
-\`start_seconds\`/\`end_seconds\` instead of the sample fields.
+The `cv-boxes.json` file can be a list or an object with a `detections`
+array. Each entry needs `sample_start`, `sample_count`,
+`frequency_low_hz`, and `frequency_high_hz`, or
+`start_seconds`/`end_seconds` instead of the sample fields.
 The benchmark stores input WAV SHA-256, source filename, region geometry,
 split/abstention decisions, and any supplied validation results. It does
 **not** upload audio, modify input, make decoder calls, or add database labels.
 
 To obtain actual accuracy metrics, independently review signal boundaries
-(including time) and supply \`--reference-json reviewed-bands.json\` with the
+(including time) and supply `--reference-json reviewed-bands.json` with the
 same box schema. The report then gives original-vs-refined one-to-one matches,
 missed references, unmatched proposals, precision, and recall **within the
 provided CV boxes**. The matcher requires at least half the shorter time
@@ -76,9 +76,9 @@ one-to-one recall improved from 1/2 (one broad box) to 2/2. These signals
 are deliberately **not claimed to be valid FT8 packets**.
 
 **Real 40m capture**: The preserved recording
-\`live-7d7ed981-d896-4cc0-9e9c-6c91499c98df.wav\`
+`live-7d7ed981-d896-4cc0-9e9c-6c91499c98df.wav`
 is approximately 599.72 seconds at 48 kHz, with WAV SHA-256
-\`4ab6af5e586fb1704ef7ae90fa923cf5a8d0d7ae87d3b1819cfa35cf83550d63\`.
+`4ab6af5e586fb1704ef7ae90fa923cf5a8d0d7ae87d3b1819cfa35cf83550d63`.
 Three CV regions observed around 225 seconds were replayed:
 
 | Original audio band | Refiner result | Suggestions |
@@ -106,6 +106,6 @@ audio remains local and is **not** committed to the repository.
    into separately tracked proposals. Keep operator confirmation and
    decoder-derived identity separate.
 
-Tests: \`tests/test_frequency_refinement.py\`,
-\`tests/test_crowded_benchmark.py\`, and
-\`tests/test_frequency_refinement_api.py\`.
+Tests: `tests/test_frequency_refinement.py`,
+`tests/test_crowded_benchmark.py`, and
+`tests/test_frequency_refinement_api.py`.
