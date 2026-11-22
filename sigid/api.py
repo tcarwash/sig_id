@@ -2592,6 +2592,22 @@ def create_app(
             if product.kind == "text" and isinstance(product.content, str)
         )
         product_kinds = sorted({product.kind for product in result.products})
+        owned_result = None
+        if result.backend_id == "sigdecode":
+            # Persist evidence returned by our decoder even for no_decode,
+            # without turning a classifier guess or text into a verified label.
+            metadata = next((
+                product.content for product in result.products
+                if product.kind == "metadata" and isinstance(product.content, str)
+            ), None)
+            try:
+                owned_result = json.loads(metadata) if metadata is not None else None
+            except (ValueError, TypeError) as exc:
+                raise HTTPException(status_code=503, detail="invalid first-party decoder evidence") from exc
+            if (not isinstance(owned_result, dict)
+                    or owned_result.get("source") != "sigid-independent-implementation"
+                    or owned_result.get("decoder_id") != settings.mode_id):
+                raise HTTPException(status_code=503, detail="missing or mismatched first-party decoder evidence")
         run_id = store.create_decoder_run(
             session_id=f"saved-capture:{capture_id}",
             capture_id=capture_id,
@@ -2618,6 +2634,8 @@ def create_app(
             "status": result.status,
             "note": result.note or f"Native decoder returned {', '.join(product_kinds) or 'no'} products; review before treating as a label.",
         })
+        if owned_result is not None:
+            store.save_decoder_result(run_id, owned_result)
         return {
             "run_id": run_id,
             "backend_id": result.backend_id, "application": result.application,

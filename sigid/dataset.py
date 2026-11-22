@@ -234,6 +234,7 @@ class CaptureStore:
                     association TEXT NOT NULL DEFAULT 'track_window_tentative',
                     classifier_evidence_json TEXT NOT NULL DEFAULT '{}',
                     detector_evidence_json TEXT NOT NULL DEFAULT '{}',
+                    decoder_result_json TEXT NOT NULL DEFAULT '{}',
                     created_utc TEXT NOT NULL,
                     updated_utc TEXT NOT NULL,
                     CHECK(sample_start IS NULL OR sample_start >= 0),
@@ -329,6 +330,8 @@ class CaptureStore:
                 db.execute("ALTER TABLE decoder_runs ADD COLUMN classifier_evidence_json TEXT NOT NULL DEFAULT '{}'")
             if "detector_evidence_json" not in columns:
                 db.execute("ALTER TABLE decoder_runs ADD COLUMN detector_evidence_json TEXT NOT NULL DEFAULT '{}'")
+            if "decoder_result_json" not in columns:
+                db.execute("ALTER TABLE decoder_runs ADD COLUMN decoder_result_json TEXT NOT NULL DEFAULT '{}'")
             db.execute("CREATE INDEX IF NOT EXISTS decoder_runs_by_region ON decoder_runs(region_id, created_utc DESC)")
             region_columns = {row[1] for row in db.execute("PRAGMA table_info(regions)")}
             if "origin" not in region_columns:
@@ -2371,6 +2374,26 @@ class CaptureStore:
             if cursor.rowcount != 1:
                 raise KeyError(f"unknown decoder run: {run_id}")
 
+    def save_decoder_result(self, run_id: str, result: dict[str, Any]) -> None:
+        """Preserve the full owned decode result, including partial/abstention evidence.
+
+        Only our first-party decoder adapter supplies this structure. Generic
+        external decoder products have their own provenance and must not be
+        silently presented as independently verified Signal ID results.
+        """
+        if not isinstance(result, dict):
+            raise ValueError("decoder result must be a JSON object")
+        payload = json.dumps(result, sort_keys=True, allow_nan=False)
+        if len(payload.encode("utf-8")) > 1024 * 1024:
+            raise ValueError("decoder result evidence exceeds 1 MiB")
+        with self._connect() as db:
+            cursor = db.execute(
+                "UPDATE decoder_runs SET decoder_result_json = ?, updated_utc = ? WHERE id = ?",
+                (payload, datetime.now(timezone.utc).isoformat(), run_id),
+            )
+            if cursor.rowcount != 1:
+                raise KeyError(f"unknown decoder run: {run_id}")
+
     def associate_decoder_runs(self, session_id: str, capture_id: str) -> int:
         with self._connect() as db:
             capture = db.execute("SELECT 1 FROM captures WHERE id = ?", (capture_id,)).fetchone()
@@ -2402,6 +2425,7 @@ class CaptureStore:
             item["attempted_modes"] = json.loads(item.pop("attempted_modes_json"))
             item["classifier_evidence"] = json.loads(item.pop("classifier_evidence_json"))
             item["detector_evidence"] = json.loads(item.pop("detector_evidence_json"))
+            item["decoder_result"] = json.loads(item.pop("decoder_result_json"))
             # Scope and association are explicit so shared live audio can never
             # be mistaken for an isolated decode of the candidate region.
             result.append(item)

@@ -171,7 +171,28 @@ def test_saved_capture_decodes_with_our_library_without_external_apps(tmp_path):
             assert evidence["external_decoder_used"] is False
             assert result["run_id"]
             runs = (await client.get(f"/api/captures/{capture_id}/decode-runs")).json()
-            assert any(run["backend"] == "sigdecode" for run in runs)
+            native_run = next(run for run in runs if run["id"] == result["run_id"])
+            assert native_run["backend"] == "sigdecode"
+            assert native_run["decoder_result"]["decoder_id"] == "cw"
+            assert native_run["decoder_result"]["status"] == "decoded"
+            assert native_run["decoder_result"]["tokens"]
+            assert native_run["decoder_result"]["evidence"]["estimated_wpm"] > 0
+            assert native_run["decoder_result"]["source"] == "sigid-independent-implementation"
+
+            abstained = await client.post(
+                f"/api/captures/{capture_id}/decoder-backends/sigdecode/decode",
+                json={"mode_id": "cw", "sample_start": 0,
+                      "sample_count": len(data), "carrier_hz": None},
+            )
+            assert abstained.status_code == 200, abstained.text
+            abstained_runs = (await client.get(
+                f"/api/captures/{capture_id}/decode-runs"
+            )).json()
+            abstained_run = next(run for run in abstained_runs
+                                 if run["id"] == abstained.json()["run_id"])
+            assert abstained_run["decoder_result"]["status"] == "no_decode"
+            assert abstained_run["decoder_result"]["text"] == ""
+            assert abstained_run["decoder_result"]["note"]
 
             invalid = await client.post(
                 f"/api/captures/{capture_id}/decoder-backends/sigdecode/decode",
@@ -201,3 +222,25 @@ def test_frequency_hopping_false_cw_candidates_abstain():
         result = create_library().decode("cw", DecodeWindow(audio, rate, carrier_hz=carrier))
         assert result.status == "no_decode", result.to_dict()
         assert not result.text
+
+
+def test_iq_only_mode_is_not_advertised_as_audio_selectable(tmp_path):
+    from sigid.libsigdecode.core import DecoderSpec
+    from sigid.decoder_backend import DecoderRequest
+
+    class IQOnlyDecoder:
+        spec = DecoderSpec(id="iq_test", name="IQ test", family="test",
+                           input_kind="complex-iq")
+
+        def decode(self, window):
+            raise AssertionError("IQ-only decoder must never receive mono audio")
+
+    backend = LocalDecoderBackend(DecoderLibrary((IQOnlyDecoder(),)))
+    mode = backend.info().modes[0]
+    assert not mode.selectable
+    assert "complex-iq" in mode.note
+    with pytest.raises(ValueError, match="audio decoding unsupported"):
+        backend.decode(DecoderRequest(
+            audio_path=tmp_path / "not-read.wav", sample_rate=12000,
+            mode_id="iq_test", native_mode="iq_test",
+        ))

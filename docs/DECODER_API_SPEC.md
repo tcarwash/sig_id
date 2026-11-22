@@ -151,6 +151,24 @@ or 'completed_empty' otherwise. Those are DIFFERENT from local result
 statuses 'decoded', 'partial', 'no_decode', which are in the metadata
 product. The response does not auto-accept a label or confirm a protocol.
 
+For first-party `sigdecode` results, the server also persists the full
+`LocalDecodeResult.to_dict()` in the associated saved decoder run under
+`decoder_result`. The existing GET
+`/api/captures/{capture_id}/decode-runs` response exposes this JSON
+object, including `no_decode` abstention evidence, original sample-index
+tokens, and mode-specific diagnostics. This is independent of
+`classifier_evidence` and `detector_evidence`: decoding is not
+identification and neither implies verified ground truth. Old runs and
+external decoder runs return an empty `decoder_result` object; this
+does not erase existing decoded text or other run metadata.
+
+The current saved decoder result limit is 1 MiB per run. The web UI
+shows a concise generic evidence summary and never promotes tentative
+tokens, non-calibrated confidence hints or an unverified interpretation
+into a confirmed decode. This persistence does not yet provide binary
+frames, image artifacts, or new input types. The mono-audio backend will
+not expose decoders requiring unsupported IQ input as selectable.
+
 HTTP 404: backend/capture missing; 422: invalid mode or selection;
 503: unavailable external decoder or decoder execution failure.
 A first-party decoder must not require Fldigi, WSJT-X or OnAir.

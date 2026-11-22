@@ -32,15 +32,21 @@ class LocalDecoderBackend:
                     mode_id=item.id, display_name=item.name, native_mode=item.id,
                     family=item.family, method="independent-audio",
                     protocol=item.name, variant=item.version,
-                    selectable=True, note=f"In-project {item.stage} decoder; no external app.",
+                    selectable=item.input_kind == "mono-audio",
+                    note=(f"In-project {item.stage} decoder; no external app."
+                          if item.input_kind == "mono-audio" else
+                          f"Requires {item.input_kind} input; audio-window bridge unavailable."),
                 ) for item in self.library.modes()
             ),
-            note="Built-in decoder library; no external application. CW is experimental, review decoded text.",
+            note="First-party decoder library; review all experimental and partial results before labeling.",
         )
 
     def decode(self, request: DecoderRequest) -> DecoderResult:
-        if request.mode_id not in {spec.id for spec in self.library.modes()}:
+        matching = next((spec for spec in self.library.modes() if spec.id == request.mode_id), None)
+        if matching is None:
             raise ValueError("requested mode is not an internal decoder")
+        if matching.input_kind != "mono-audio":
+            raise ValueError(f"{request.mode_id} requires {matching.input_kind}; audio decoding unsupported")
         path = Path(request.audio_path)
         with wave.open(str(path), "rb") as wav:
             if wav.getcomptype() != "NONE" or wav.getsampwidth() != 2 or wav.getnchannels() != 1:
