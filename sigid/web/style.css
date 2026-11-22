@@ -468,6 +468,10 @@ h3 {
   color: #98b8b8;
   max-width: 490px;
 }
+.audio-input-warning {
+  color: #f1be69;
+  font-weight: 600;
+}
 .empty-icon {
   font:
     70px Georgia,
