@@ -8,6 +8,7 @@ import { layoutSignalLabels, signalCaption, hitSignal } from "/signal-overlays.m
 import { decodeSelectionKey, mayPresentDecodeResult } from "/decode-context.mjs";
 import { summarizeDecoderResult } from "/decoder-result.mjs";
 import { matchingDecoderSuggestions } from "/decoder-mode-suggestions.mjs";
+import { pruneLiveCandidates } from "/live-candidate-history.mjs";
 
 const el = (id) => document.getElementById(id);
 const state = { capture: null, waterfall: null, drag: null, resizeDrag: null, moveDrag: null, selection: null, regions: [], tracks: [], cvDetections: [], cvDetectionCache: new Map(), cvDismissedCount: 0, cvRejectedProposals: [], cvAvailable: false, cvSimilarAvailable: false, bitAnnotations: [], rawDemodAttempts: [], comparedRawAttemptIds: new Set(), rawRetrySample: null, protocolStencils: [], liveView: false, liveMonitoring: false, liveSessionId: null, liveReviewReturn: null, modelAvailable: false, modelTraining: false, view: null, demodExports: {}, selectedTrack: null, classifierProposal: null, frozen: false, labelModeId: null, modeSearchResults: [], modeSearchRequest: 0, applyingMode: false, adjustingGeometry: false, geometryDraft: false, adjustingCandidate: null, drawingSignalBox: false, batchBoxMode: false, batchBoxes: [], batchBoxUndo: [], batchReviewBox: null, batchSaveKey: null, batchSaveDigest: null, batchSaving: false, windowRegionEdits: new Map(), windowRegionDeletes: new Map(), windowMerges: [], windowIdentityLinks: [], identityLinkSelection: new Set(), comparedDecodeRunIds: new Set(), splitMode: false, splitChildren: [], splitParentSelection: null, mergeRegionIds: new Set(), selectionMergeRegions: [], excludedMergeCandidates: new Set(), modeProposalRegion: null, proposalCaptureRequest: 0, proposalEvidenceCaptures: [] };
@@ -1462,15 +1463,22 @@ function mergeLiveCvDetections(incoming) {
     if (detection.decoder_trial) match.decoder_trial = detection.decoder_trial;
     if (detection.native_decode_evidence) match.native_decode_evidence = detection.native_decode_evidence;
     if (detection.frequency_refinement) match.frequency_refinement = detection.frequency_refinement;
-    if (detection.classifier_proposal?.available
-      && (!match.classifier_proposal?.available
-        || (detection.classifier_proposal.confidence || 0) > (match.classifier_proposal.confidence || 0))) {
+    // Replace the classifier hypothesis with the *latest* evaluation of the
+    // same track, even if its confidence decreases or the model abstains.
+    // Keeping the maximum-ever score made stale initial guesses look current.
+    if (Object.hasOwn(detection, "classifier_proposal")) {
       match.classifier_proposal = detection.classifier_proposal;
     }
     const windows = new Set([...(match.supporting_windows || []), ...(detection.supporting_windows || [])]);
     if (windows.size) match.supporting_windows = [...windows];
   }
-  state.cvDetections = retained.sort((left, right) => left.sample_start - right.sample_start);
+  const currentSample = state.waterfall?.sample_count ?? state.liveWindowEndSample;
+  state.cvDetections = pruneLiveCandidates(
+    retained.sort((left, right) => left.sample_start - right.sample_start),
+    currentSample, state.liveSampleRate,
+    {selectedTrackId: state.selectedTrack?.track_id,
+      selectedProposalId: state.selectedTrack?.cv_proposal_id},
+  );
 }
 
 function restoreCachedCvDetection(capture) {
@@ -1706,8 +1714,16 @@ function renderCvDetections() {
         : `CV box ${index + 1} · ${detection.track_state || "provisional"}`;
       const trial = detection.decoder_trial?.status ? ` · decoder ${detection.decoder_trial.status}` : "";
       const native = nativeLiveCaption(detection.native_decode_evidence);
-      summary.textContent = `${tracker} · ${(detection.confidence * 100).toFixed(1)}% detector · ${cvClassifierCaption(detection)}${native ? ` · ${native}` : ""}${trial}`;
+      const reused = detection.classifier_proposal?.reuse_info?.reused;
+      const modelAge = reused ? ` · ML evidence reused (${detection.classifier_proposal.reuse_info.evidence_age_seconds.toFixed(1)}s old)` : "";
+      summary.textContent = `${tracker} · ${(detection.confidence * 100).toFixed(1)}% detector · ${cvClassifierCaption(detection)}${modelAge}${native ? ` · ${native}` : ""}${trial}`;
       row.append(summary, detail);
+      const review = document.createElement("button");
+      review.type = "button";
+      review.textContent = "Inspect recent audio";
+      review.title = "Select up to 9.8 seconds from the current live audio ring; annotate manually or use the saved recording for longer signals.";
+      review.addEventListener("click", () => selectCvDetection(detection));
+      row.append(review);
       if (detection.track_id && detection.track_state === "persistent") {
         const tryButton = document.createElement("button");
         tryButton.type = "button";
@@ -1963,7 +1979,33 @@ function selectSavedRegionFromCandidate(region, candidate) {
 
 function selectCvDetection(detection) {
   const data = state.waterfall;
-  if (!data || state.liveView) return;
+  if (!data) return;
+  if (state.liveView) {
+    const ringStart = state.liveWindowStartSample;
+    const ringEnd = state.liveWindowEndSample;
+    const rate = state.liveSampleRate || data.sample_rate;
+    if (!Number.isFinite(ringStart) || !Number.isFinite(ringEnd)) {
+      el("cv-status").textContent = "Waiting for live audio ring boundaries; try again in a moment.";
+      return;
+    }
+    const end = Math.min(detection.sample_start + detection.sample_count, ringEnd);
+    const start = Math.max(detection.sample_start, ringStart, end - Math.round(9.8 * rate));
+    if (end - start < Math.round(0.25 * rate)) {
+      el("cv-status").textContent = "This detection has moved out of the ten-second audio ring. Stop and review the saved recording to annotate the full signal.";
+      return;
+    }
+    const candidate = {
+      ...detection, sample_start: start, sample_count: end - start,
+      modulation_hypothesis: "CV detected (unverified)",
+      tone_count_candidate: "unknown",
+      time_start_seconds: start / rate, time_end_seconds: end / rate,
+      detector_evidence: detection.detector_evidence || detectorEvidenceFor(detection),
+    };
+    selectTrack(candidate);
+    el("inspector-context").textContent = `Live CV track selected · ${candidate.frequency_low_hz.toFixed(0)}–${candidate.frequency_high_hz.toFixed(0)} Hz · last ${(candidate.sample_count/rate).toFixed(1)} s from the current audio ring · classifier and decoder proposals remain unverified`;
+    el("selection-details").textContent += " · correct the bounds and label explicitly to save a training candidate";
+    return;
+  }
   const savedRegion = matchingSavedRegionForCandidate(detection);
   if (savedRegion) {
     selectSavedRegionFromCandidate(savedRegion, detection);
@@ -3298,6 +3340,57 @@ function attachLiveCapture(started, {resumed = false} = {}) {
     let lastNarrowAt = 0;
     nativeLiveStatusLastAt = 0;
     lastNativeLiveResultId = null;
+    // CV is scheduled independently from heuristic spectrum analysis. Both
+    // reuse the same receive-only ring but a slow detector no longer waits
+    // for, or delays, the entire heuristic/control poll. Never backlog CV.
+    let cvPending = false;
+    async function refreshLiveCv({cvEnabled, classifierEnabled, autoTrial, autoNative}) {
+      if (cvPending || generation !== state.liveGeneration || !state.liveView || !state.waterfall) return;
+      if (cvEnabled && state.cvAvailable && Date.now() - lastLiveCvAt < 2500) return;
+      if (!cvEnabled && !state.cvDetections.length) {
+        el("cv-status").textContent = "CV paused · no CV boxes are being generated";
+        return;
+      }
+      cvPending = true;
+      try {
+        if (cvEnabled && state.cvAvailable && Date.now() - lastLiveCvAt >= 2500) {
+          lastLiveCvAt = Date.now();
+          try {
+            const fineRefinement = el("live-fine-refinement").checked;
+            const cvStarted = performance.now();
+            const cv = await request(`/api/live/cv-detections?session_id=${encodeURIComponent(started.session_id)}&include_classifier=${classifierEnabled}&auto_trial=${autoTrial}&auto_native_decode=${autoNative}&include_frequency_refinement=${fineRefinement}`);
+            if (generation === state.liveGeneration && state.liveView) {
+              mergeLiveCvDetections(cv.detections);
+              if (!fineRefinement) for (const detection of state.cvDetections) delete detection.frequency_refinement;
+              if (cv.automatic_trial?.run_id) watchDecoderTrial(cv.automatic_trial);
+              if (!classifierEnabled) {
+                for (const detection of state.cvDetections) delete detection.classifier_proposal;
+              }
+              renderCvDetections();
+              const cvDurationMs = Math.round(performance.now() - cvStarted);
+              const cacheSummary = classifierEnabled && cv.classifier_available
+                ? ` · ML ${cv.classifier_scored_this_scan || 0} scored / ${cv.classifier_reused_this_scan || 0} reused / ${cv.classifier_deferred_this_scan || 0} deferred`
+                : "";
+              const visibleLiveDetections = visibleCvDetections().length;
+              const visibleScannedDetections = (cv.detections || []).filter((item) => !frequencyNotchMatches(item)).length;
+              el("cv-status").textContent = cv.warming_up
+                ? `Live CV warming up · ${cv.observed_seconds.toFixed(2)} s of audio`
+                : `Live CV · ${visibleLiveDetections} visible boxes${state.cvDetections.length > visibleLiveDetections ? ` · ${state.cvDetections.length - visibleLiveDetections} suppressed by notches` : ""} · ${visibleScannedDetections} in latest scan · ${classifierEnabled ? (cv.classifier_available ? "classifier proposals attached" : "classifier unavailable") : "classifier paused"} · ${fineRefinement ? `${cv.frequency_refinement_suggestions || 0} DSP split previews · ` : ""}proposals are provisional · CV ${cvDurationMs}ms${cacheSummary}`;
+            }
+          } catch (error) {
+            if (generation === state.liveGeneration) el("cv-status").textContent = `Live CV unavailable · ${error.message}`;
+          }
+        } else if (!cvEnabled) {
+          state.cvDetections = [];
+          renderCvDetections();
+          el("cv-status").textContent = "CV paused · no CV boxes are being generated";
+        } else if (!state.cvAvailable) {
+          state.cvDetections = [];
+          renderCvDetections();
+          el("cv-status").textContent = "CV is selected but unavailable · check the detector model status";
+        }
+      } finally { cvPending = false; }
+    }
     livePoll = setInterval(async () => {
       if (pending) return;
       pending = true;
@@ -3331,44 +3424,18 @@ function attachLiveCapture(started, {resumed = false} = {}) {
         if (useHeuristicTracks) lastNarrowAt = Date.now();
         const classifyHeuristicTracks = useHeuristicTracks && classifierEnabled && !preferCvTracks;
         const classifierCropCount = Number(el("classifier-crop-count").value) || 1;
+        // Schedule CV now, not after /api/live/analysis. One guarded CV
+        // request can overlap with heuristic analysis, never queue up.
+        void refreshLiveCv({cvEnabled, classifierEnabled, autoTrial, autoNative});
+        const analysisStarted = performance.now();
         const analysis = await request(`/api/live/analysis?fft_size=4096&hop_size=512&max_rows=${preferCvTracks ? 320 : 640}&maximum_tone_gap_hz=${preferCvTracks ? 35 : 800}&minimum_peak_db=${preferCvTracks ? -32 : -25}&include_spectrum=false&classifier_crop_count=${classifierCropCount}&include_tracks=${useHeuristicTracks}&include_classifier=${classifyHeuristicTracks}&auto_trial=${autoTrial && classifyHeuristicTracks}&auto_native_decode=${autoNative && !preferCvTracks}`);
+        const analysisDurationMs = Math.round(performance.now() - analysisStarted);
         if (generation !== state.liveGeneration || !state.liveMonitoring) return;
         if (!state.liveView) return;
         state.liveWindowStartSample = Number.isFinite(analysis.sample_offset) ? analysis.sample_offset : null;
         state.liveWindowEndSample = Number.isFinite(analysis.sample_offset) && Number.isFinite(analysis.window_sample_count)
           ? analysis.sample_offset + analysis.window_sample_count : null;
         syncLiveAnnotationSaveButton();
-        if (cvEnabled && state.cvAvailable && Date.now() - lastLiveCvAt >= 2500) {
-          lastLiveCvAt = Date.now();
-          try {
-            const fineRefinement = el("live-fine-refinement").checked;
-            const cv = await request(`/api/live/cv-detections?session_id=${encodeURIComponent(started.session_id)}&include_classifier=${classifierEnabled}&auto_trial=${autoTrial}&auto_native_decode=${autoNative}&include_frequency_refinement=${fineRefinement}`);
-            if (generation === state.liveGeneration && state.liveView) {
-              mergeLiveCvDetections(cv.detections);
-              if (!fineRefinement) for (const detection of state.cvDetections) delete detection.frequency_refinement;
-              if (cv.automatic_trial?.run_id) watchDecoderTrial(cv.automatic_trial);
-              if (!classifierEnabled) {
-                for (const detection of state.cvDetections) delete detection.classifier_proposal;
-              }
-              renderCvDetections();
-              const visibleLiveDetections = visibleCvDetections().length;
-              const visibleScannedDetections = (cv.detections || []).filter((item) => !frequencyNotchMatches(item)).length;
-              el("cv-status").textContent = cv.warming_up
-                ? `Live CV warming up · ${cv.observed_seconds.toFixed(2)} s of audio`
-                : `Live CV · ${visibleLiveDetections} visible boxes${state.cvDetections.length > visibleLiveDetections ? ` · ${state.cvDetections.length - visibleLiveDetections} suppressed by notches` : ""} · ${visibleScannedDetections} in latest scan · ${classifierEnabled ? (cv.classifier_available ? "classifier proposals attached" : "classifier unavailable") : "classifier paused"} · ${fineRefinement ? `${cv.frequency_refinement_suggestions || 0} DSP split previews · ` : ""}proposals are provisional`;
-            }
-          } catch (error) {
-            if (generation === state.liveGeneration) el("cv-status").textContent = `Live CV unavailable · ${error.message}`;
-          }
-        } else if (!cvEnabled) {
-          state.cvDetections = [];
-          renderCvDetections();
-          el("cv-status").textContent = "CV paused · no CV boxes are being generated";
-        } else if (!state.cvAvailable) {
-          state.cvDetections = [];
-          renderCvDetections();
-          el("cv-status").textContent = "CV is selected but unavailable · check the detector model status";
-        }
         if (generation !== state.liveGeneration || !state.liveView) return;
         if (analysis.automatic_trial?.run_id) watchDecoderTrial(analysis.automatic_trial);
         if (state.frozen) return;
@@ -3398,9 +3465,9 @@ function attachLiveCapture(started, {resumed = false} = {}) {
               ? "CV unavailable; independent spectral tracking is the fallback."
               : null;
         el("track-status").textContent = preferCvTracks
-          ? `CV + narrow-tone detection · ${state.tracks.length} CW-like candidate${state.tracks.length === 1 ? "" : "s"} · unverified`
+          ? `CV + narrow-tone detection · ${state.tracks.length} CW-like candidate${state.tracks.length === 1 ? "" : "s"} · unverified · analysis ${analysisDurationMs}ms`
           : narrowEnabled
-            ? "Independent spectral tracking · signal families remain provisional"
+            ? `Independent spectral tracking · signal families remain provisional · analysis ${analysisDurationMs}ms`
             : "Narrow-tone tracking paused";
         drawWaterfall();
         renderTracks();

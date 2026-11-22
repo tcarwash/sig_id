@@ -1,5 +1,7 @@
 # Evidence-guided identification chain (first integration slice)
 
+See [live pipeline optimization](LIVE_PIPELINE_OPTIMIZATION.md) for independent CV scheduling, bounded model-score caching and direct live annotation.
+
 The intended receive path is:
 
 1. **Audio/WAV → spectrogram.** The sample timeline remains authoritative.
