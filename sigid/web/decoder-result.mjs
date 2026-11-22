@@ -30,6 +30,26 @@ export function summarizeDecoderResult(result) {
       lines.push(`${label}: ${evidence[key]}${units ? ` ${units}` : ""}`);
     }
   }
+  const acquisition = result.live_acquisition;
+  if (acquisition && typeof acquisition === "object") {
+    const originalStart = acquisition.original_sample_start;
+    const originalCount = acquisition.original_sample_count;
+    const chosenStart = acquisition.selected_sample_start;
+    const chosenCount = acquisition.selected_sample_count;
+    if ([originalStart, originalCount, chosenStart, chosenCount].every(Number.isInteger)
+        && originalStart >= 0 && originalCount > 0 && chosenStart >= originalStart
+        && chosenCount > 0 && chosenStart + chosenCount <= originalStart + originalCount) {
+      lines.push(`Live audio window: samples ${originalStart}–${originalStart + originalCount}`);
+      lines.push(`Selected decoder window: samples ${chosenStart}–${chosenStart + chosenCount}`);
+    }
+    const attempts = Array.isArray(acquisition.attempts) ? acquisition.attempts : [];
+    if (attempts.length) {
+      lines.push(`Acquisition trials (${attempts.length}): ${attempts.slice(0, 3).map((trial) =>
+        `${shortText(trial?.kind, 25)} · ${shortText(trial?.status, 20)} · ${shortText(trial?.grade, 30)}`
+      ).join(" | ")}`);
+    }
+    lines.push("Acquisition windows are proposals, not verified message boundaries.");
+  }
   const tokens = Array.isArray(result.tokens) ? result.tokens : [];
   if (tokens.length) {
     const preview = tokens.slice(0, 24).map((token) => {

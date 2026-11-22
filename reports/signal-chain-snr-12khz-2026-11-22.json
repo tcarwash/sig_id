@@ -1,0 +1,1649 @@
+{
+  "version": 1,
+  "provenance": "synthetic-signal-lab-only",
+  "not_on_air_validation": true,
+  "reference_noise_bandwidth_hz": 2500,
+  "seed": 71062,
+  "sample_rate_hz": 12000,
+  "cv_model_sha256": "698c124af6526a1993f21d67b5291e0c125e5e768e691291d7249a8fc9804a38",
+  "summary": {
+    "by_snr": {
+      "-15.0": {
+        "count": 4,
+        "oracle_exact": 0,
+        "four_sec_contains_payload": 0,
+        "four_sec_evaluable_complete_message": 3,
+        "noise_false_outputs": 0,
+        "cv_detected": 0,
+        "cv_scored": 4,
+        "cv_noise_boxes": 0,
+        "narrow_tone_matched": 0,
+        "narrow_tone_noise_candidates": 0
+      },
+      "-10.0": {
+        "count": 4,
+        "oracle_exact": 0,
+        "four_sec_contains_payload": 0,
+        "four_sec_evaluable_complete_message": 3,
+        "noise_false_outputs": 0,
+        "cv_detected": 0,
+        "cv_scored": 4,
+        "cv_noise_boxes": 0,
+        "narrow_tone_matched": 1,
+        "narrow_tone_noise_candidates": 0
+      },
+      "-5.0": {
+        "count": 4,
+        "oracle_exact": 0,
+        "four_sec_contains_payload": 0,
+        "four_sec_evaluable_complete_message": 3,
+        "noise_false_outputs": 0,
+        "cv_detected": 1,
+        "cv_scored": 4,
+        "cv_noise_boxes": 0,
+        "narrow_tone_matched": 3,
+        "narrow_tone_noise_candidates": 0
+      },
+      "0.0": {
+        "count": 4,
+        "oracle_exact": 2,
+        "four_sec_contains_payload": 1,
+        "four_sec_evaluable_complete_message": 3,
+        "noise_false_outputs": 0,
+        "cv_detected": 0,
+        "cv_scored": 4,
+        "cv_noise_boxes": 0,
+        "narrow_tone_matched": 3,
+        "narrow_tone_noise_candidates": 0
+      },
+      "10.0": {
+        "count": 4,
+        "oracle_exact": 3,
+        "four_sec_contains_payload": 3,
+        "four_sec_evaluable_complete_message": 3,
+        "noise_false_outputs": 0,
+        "cv_detected": 2,
+        "cv_scored": 4,
+        "cv_noise_boxes": 0,
+        "narrow_tone_matched": 4,
+        "narrow_tone_noise_candidates": 0
+      },
+      "25.0": {
+        "count": 4,
+        "oracle_exact": 4,
+        "four_sec_contains_payload": 3,
+        "four_sec_evaluable_complete_message": 3,
+        "noise_false_outputs": 0,
+        "cv_detected": 2,
+        "cv_scored": 4,
+        "cv_noise_boxes": 0,
+        "narrow_tone_matched": 4,
+        "narrow_tone_noise_candidates": 0
+      }
+    },
+    "by_mode": {
+      "ax25": {
+        "count": 6,
+        "oracle_exact": 2,
+        "four_sec_contains_payload": 2,
+        "four_sec_evaluable_complete_message": 6,
+        "noise_false_outputs": 0,
+        "cv_detected": 1,
+        "cv_scored": 6,
+        "cv_noise_boxes": 0,
+        "narrow_tone_matched": 2,
+        "narrow_tone_noise_candidates": 0
+      },
+      "bpsk31": {
+        "count": 6,
+        "oracle_exact": 2,
+        "four_sec_contains_payload": 2,
+        "four_sec_evaluable_complete_message": 6,
+        "noise_false_outputs": 0,
+        "cv_detected": 2,
+        "cv_scored": 6,
+        "cv_noise_boxes": 0,
+        "narrow_tone_matched": 4,
+        "narrow_tone_noise_candidates": 0
+      },
+      "cw": {
+        "count": 6,
+        "oracle_exact": 2,
+        "four_sec_contains_payload": 0,
+        "four_sec_evaluable_complete_message": 0,
+        "noise_false_outputs": 0,
+        "cv_detected": 0,
+        "cv_scored": 6,
+        "cv_noise_boxes": 0,
+        "narrow_tone_matched": 5,
+        "narrow_tone_noise_candidates": 0
+      },
+      "rtty": {
+        "count": 6,
+        "oracle_exact": 3,
+        "four_sec_contains_payload": 3,
+        "four_sec_evaluable_complete_message": 6,
+        "noise_false_outputs": 0,
+        "cv_detected": 2,
+        "cv_scored": 6,
+        "cv_noise_boxes": 0,
+        "narrow_tone_matched": 4,
+        "narrow_tone_noise_candidates": 0
+      }
+    }
+  },
+  "cases": [
+    {
+      "mode": "cw",
+      "snr_db": -15.0,
+      "seed": 71062,
+      "sample_rate": 12000,
+      "mono_sha256": "2f2b1a29fb6509660f2b3a6906597152d4655e9582b1ef9178d9df1a53c17cbd",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "carrier_hz": 260.0,
+      "message_count": 3,
+      "message_text": "CQ TEST",
+      "oracle": {
+        "status": "no_decode",
+        "grade": "none",
+        "text": "",
+        "correct": false,
+        "wall_ms": 5.02,
+        "cpu_ms": 5.02
+      },
+      "midburst_four_second": {
+        "start_sample": 16200,
+        "sample_count": 48000,
+        "fully_embedded_messages": 0,
+        "status": "no_decode",
+        "grade": "none",
+        "text": "",
+        "correct_payload": false,
+        "nonempty_tentative": false,
+        "wall_ms": 4.66,
+        "cpu_ms": 4.66
+      },
+      "noise_only": {
+        "start_sample": 312000,
+        "sample_count": 48000,
+        "grade": "none",
+        "status": "no_decode",
+        "false_output": false,
+        "text": ""
+      },
+      "cv": {
+        "model_sha256": "698c124af6526a1993f21d67b5291e0c125e5e768e691291d7249a8fc9804a38",
+        "matched_truth": false,
+        "matched_boxes": 0,
+        "active_boxes": 0,
+        "unmatched_active_boxes": 0,
+        "noise_only_boxes": 0,
+        "active_wall_ms": 1379.93,
+        "noise_wall_ms": 214.12
+      },
+      "heuristic": {
+        "active": {
+          "matched_truth": false,
+          "all_tracks": 0,
+          "narrow_candidates": 0,
+          "wall_ms": 24.85
+        },
+        "noise_only": {
+          "matched_truth": false,
+          "all_tracks": 0,
+          "narrow_candidates": 0,
+          "wall_ms": 24.36
+        }
+      }
+    },
+    {
+      "mode": "cw",
+      "snr_db": -10.0,
+      "seed": 71063,
+      "sample_rate": 12000,
+      "mono_sha256": "070ad3110ac85e151e1440cc4a04c7b09a6f2431e033ad94a827df4bb3e0bac4",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "carrier_hz": 260.0,
+      "message_count": 3,
+      "message_text": "CQ TEST",
+      "oracle": {
+        "status": "no_decode",
+        "grade": "none",
+        "text": "",
+        "correct": false,
+        "wall_ms": 4.64,
+        "cpu_ms": 4.65
+      },
+      "midburst_four_second": {
+        "start_sample": 16200,
+        "sample_count": 48000,
+        "fully_embedded_messages": 0,
+        "status": "no_decode",
+        "grade": "none",
+        "text": "",
+        "correct_payload": false,
+        "nonempty_tentative": false,
+        "wall_ms": 4.47,
+        "cpu_ms": 4.47
+      },
+      "noise_only": {
+        "start_sample": 312000,
+        "sample_count": 48000,
+        "grade": "none",
+        "status": "no_decode",
+        "false_output": false,
+        "text": ""
+      },
+      "cv": {
+        "model_sha256": "698c124af6526a1993f21d67b5291e0c125e5e768e691291d7249a8fc9804a38",
+        "matched_truth": false,
+        "matched_boxes": 0,
+        "active_boxes": 0,
+        "unmatched_active_boxes": 0,
+        "noise_only_boxes": 0,
+        "active_wall_ms": 246.48,
+        "noise_wall_ms": 290.96
+      },
+      "heuristic": {
+        "active": {
+          "matched_truth": true,
+          "all_tracks": 1,
+          "narrow_candidates": 1,
+          "wall_ms": 25.48
+        },
+        "noise_only": {
+          "matched_truth": false,
+          "all_tracks": 0,
+          "narrow_candidates": 0,
+          "wall_ms": 24.7
+        }
+      }
+    },
+    {
+      "mode": "cw",
+      "snr_db": -5.0,
+      "seed": 71064,
+      "sample_rate": 12000,
+      "mono_sha256": "d03915b97ba38ddc8c937d8b4c93e21a2434a3474ce774d1298dd139b44a488f",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "carrier_hz": 260.0,
+      "message_count": 3,
+      "message_text": "CQ TEST",
+      "oracle": {
+        "status": "decoded",
+        "grade": "coherent-unverified",
+        "text": "ECQ TEST",
+        "correct": false,
+        "wall_ms": 8.21,
+        "cpu_ms": 7.36
+      },
+      "midburst_four_second": {
+        "start_sample": 16200,
+        "sample_count": 48000,
+        "fully_embedded_messages": 0,
+        "status": "decoded",
+        "grade": "coherent-unverified",
+        "text": "FQ TEST",
+        "correct_payload": false,
+        "nonempty_tentative": true,
+        "wall_ms": 7.53,
+        "cpu_ms": 7.24
+      },
+      "noise_only": {
+        "start_sample": 312000,
+        "sample_count": 48000,
+        "grade": "none",
+        "status": "no_decode",
+        "false_output": false,
+        "text": ""
+      },
+      "cv": {
+        "model_sha256": "698c124af6526a1993f21d67b5291e0c125e5e768e691291d7249a8fc9804a38",
+        "matched_truth": false,
+        "matched_boxes": 0,
+        "active_boxes": 0,
+        "unmatched_active_boxes": 0,
+        "noise_only_boxes": 0,
+        "active_wall_ms": 158.47,
+        "noise_wall_ms": 211.22
+      },
+      "heuristic": {
+        "active": {
+          "matched_truth": true,
+          "all_tracks": 3,
+          "narrow_candidates": 3,
+          "wall_ms": 37.61
+        },
+        "noise_only": {
+          "matched_truth": false,
+          "all_tracks": 0,
+          "narrow_candidates": 0,
+          "wall_ms": 24.29
+        }
+      }
+    },
+    {
+      "mode": "cw",
+      "snr_db": 0.0,
+      "seed": 71065,
+      "sample_rate": 12000,
+      "mono_sha256": "e0b1463e41a23712be36fb874f7c71d0125765da3c82120de049ea8eeca8d6ba",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "carrier_hz": 260.0,
+      "message_count": 3,
+      "message_text": "CQ TEST",
+      "oracle": {
+        "status": "decoded",
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "correct": true,
+        "wall_ms": 4.76,
+        "cpu_ms": 4.77
+      },
+      "midburst_four_second": {
+        "start_sample": 16200,
+        "sample_count": 48000,
+        "fully_embedded_messages": 0,
+        "status": "decoded",
+        "grade": "coherent-unverified",
+        "text": "FQ TEST",
+        "correct_payload": false,
+        "nonempty_tentative": true,
+        "wall_ms": 4.78,
+        "cpu_ms": 4.78
+      },
+      "noise_only": {
+        "start_sample": 312000,
+        "sample_count": 48000,
+        "grade": "none",
+        "status": "no_decode",
+        "false_output": false,
+        "text": ""
+      },
+      "cv": {
+        "model_sha256": "698c124af6526a1993f21d67b5291e0c125e5e768e691291d7249a8fc9804a38",
+        "matched_truth": false,
+        "matched_boxes": 0,
+        "active_boxes": 0,
+        "unmatched_active_boxes": 0,
+        "noise_only_boxes": 0,
+        "active_wall_ms": 153.83,
+        "noise_wall_ms": 185.45
+      },
+      "heuristic": {
+        "active": {
+          "matched_truth": true,
+          "all_tracks": 2,
+          "narrow_candidates": 2,
+          "wall_ms": 37.41
+        },
+        "noise_only": {
+          "matched_truth": false,
+          "all_tracks": 0,
+          "narrow_candidates": 0,
+          "wall_ms": 24.79
+        }
+      }
+    },
+    {
+      "mode": "cw",
+      "snr_db": 10.0,
+      "seed": 71066,
+      "sample_rate": 12000,
+      "mono_sha256": "900471270bd0c081bf3feaf2aae8adcdee9d766685dc7da9c34afd6187a3205f",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "carrier_hz": 260.0,
+      "message_count": 3,
+      "message_text": "CQ TEST",
+      "oracle": {
+        "status": "decoded",
+        "grade": "coherent-unverified",
+        "text": "ECQ TEST",
+        "correct": false,
+        "wall_ms": 5.96,
+        "cpu_ms": 5.07
+      },
+      "midburst_four_second": {
+        "start_sample": 16200,
+        "sample_count": 48000,
+        "fully_embedded_messages": 0,
+        "status": "decoded",
+        "grade": "coherent-unverified",
+        "text": "FQ TEST",
+        "correct_payload": false,
+        "nonempty_tentative": true,
+        "wall_ms": 4.61,
+        "cpu_ms": 4.61
+      },
+      "noise_only": {
+        "start_sample": 312000,
+        "sample_count": 48000,
+        "grade": "none",
+        "status": "no_decode",
+        "false_output": false,
+        "text": ""
+      },
+      "cv": {
+        "model_sha256": "698c124af6526a1993f21d67b5291e0c125e5e768e691291d7249a8fc9804a38",
+        "matched_truth": false,
+        "matched_boxes": 0,
+        "active_boxes": 0,
+        "unmatched_active_boxes": 0,
+        "noise_only_boxes": 0,
+        "active_wall_ms": 165.71,
+        "noise_wall_ms": 165.34
+      },
+      "heuristic": {
+        "active": {
+          "matched_truth": true,
+          "all_tracks": 2,
+          "narrow_candidates": 2,
+          "wall_ms": 32.99
+        },
+        "noise_only": {
+          "matched_truth": false,
+          "all_tracks": 0,
+          "narrow_candidates": 0,
+          "wall_ms": 24.05
+        }
+      }
+    },
+    {
+      "mode": "cw",
+      "snr_db": 25.0,
+      "seed": 71067,
+      "sample_rate": 12000,
+      "mono_sha256": "673e38f7a31c6b69a63afb3b3fe6ba57fb4828764a63f8865cbdfd6a740138ee",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "carrier_hz": 260.0,
+      "message_count": 3,
+      "message_text": "CQ TEST",
+      "oracle": {
+        "status": "decoded",
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "correct": true,
+        "wall_ms": 4.79,
+        "cpu_ms": 4.79
+      },
+      "midburst_four_second": {
+        "start_sample": 16200,
+        "sample_count": 48000,
+        "fully_embedded_messages": 0,
+        "status": "decoded",
+        "grade": "coherent-unverified",
+        "text": "FQ TEST",
+        "correct_payload": false,
+        "nonempty_tentative": true,
+        "wall_ms": 4.9,
+        "cpu_ms": 4.9
+      },
+      "noise_only": {
+        "start_sample": 312000,
+        "sample_count": 48000,
+        "grade": "none",
+        "status": "no_decode",
+        "false_output": false,
+        "text": ""
+      },
+      "cv": {
+        "model_sha256": "698c124af6526a1993f21d67b5291e0c125e5e768e691291d7249a8fc9804a38",
+        "matched_truth": false,
+        "matched_boxes": 0,
+        "active_boxes": 0,
+        "unmatched_active_boxes": 0,
+        "noise_only_boxes": 0,
+        "active_wall_ms": 407.0,
+        "noise_wall_ms": 181.1
+      },
+      "heuristic": {
+        "active": {
+          "matched_truth": true,
+          "all_tracks": 2,
+          "narrow_candidates": 2,
+          "wall_ms": 35.09
+        },
+        "noise_only": {
+          "matched_truth": false,
+          "all_tracks": 0,
+          "narrow_candidates": 0,
+          "wall_ms": 24.54
+        }
+      }
+    },
+    {
+      "mode": "rtty",
+      "snr_db": -15.0,
+      "seed": 71062,
+      "sample_rate": 12000,
+      "mono_sha256": "4b8f152690c65014570b8f015243d62f2e8f38eb7d403445580a7a68273c1c05",
+      "fixture_sha256": "e8889ec97e40d6cd618a4a96114fc2467a034f9009551e28be3e6bd2ddd27c04",
+      "carrier_hz": 740.0,
+      "message_count": 6,
+      "message_text": "CQ TEST",
+      "oracle": {
+        "status": "no_decode",
+        "grade": "none",
+        "text": "",
+        "correct": false,
+        "wall_ms": 280.23,
+        "cpu_ms": 280.17
+      },
+      "midburst_four_second": {
+        "start_sample": 16200,
+        "sample_count": 48000,
+        "fully_embedded_messages": 1,
+        "status": "no_decode",
+        "grade": "none",
+        "text": "",
+        "correct_payload": false,
+        "nonempty_tentative": false,
+        "wall_ms": 597.36,
+        "cpu_ms": 597.22
+      },
+      "noise_only": {
+        "start_sample": 312000,
+        "sample_count": 48000,
+        "grade": "none",
+        "status": "no_decode",
+        "false_output": false,
+        "text": ""
+      },
+      "cv": {
+        "model_sha256": "698c124af6526a1993f21d67b5291e0c125e5e768e691291d7249a8fc9804a38",
+        "matched_truth": false,
+        "matched_boxes": 0,
+        "active_boxes": 0,
+        "unmatched_active_boxes": 0,
+        "noise_only_boxes": 0,
+        "active_wall_ms": 168.49,
+        "noise_wall_ms": 156.79
+      },
+      "heuristic": {
+        "active": {
+          "matched_truth": false,
+          "all_tracks": 0,
+          "narrow_candidates": 0,
+          "wall_ms": 27.68
+        },
+        "noise_only": {
+          "matched_truth": false,
+          "all_tracks": 0,
+          "narrow_candidates": 0,
+          "wall_ms": 26.0
+        }
+      }
+    },
+    {
+      "mode": "rtty",
+      "snr_db": -10.0,
+      "seed": 71063,
+      "sample_rate": 12000,
+      "mono_sha256": "ccdf3b6f32a9eb48ec50c24339a441193180d3da508494141b0cfedb4836f0e6",
+      "fixture_sha256": "e8889ec97e40d6cd618a4a96114fc2467a034f9009551e28be3e6bd2ddd27c04",
+      "carrier_hz": 740.0,
+      "message_count": 6,
+      "message_text": "CQ TEST",
+      "oracle": {
+        "status": "no_decode",
+        "grade": "none",
+        "text": "",
+        "correct": false,
+        "wall_ms": 283.98,
+        "cpu_ms": 283.95
+      },
+      "midburst_four_second": {
+        "start_sample": 16200,
+        "sample_count": 48000,
+        "fully_embedded_messages": 1,
+        "status": "no_decode",
+        "grade": "none",
+        "text": "",
+        "correct_payload": false,
+        "nonempty_tentative": false,
+        "wall_ms": 564.71,
+        "cpu_ms": 564.62
+      },
+      "noise_only": {
+        "start_sample": 312000,
+        "sample_count": 48000,
+        "grade": "none",
+        "status": "no_decode",
+        "false_output": false,
+        "text": ""
+      },
+      "cv": {
+        "model_sha256": "698c124af6526a1993f21d67b5291e0c125e5e768e691291d7249a8fc9804a38",
+        "matched_truth": false,
+        "matched_boxes": 0,
+        "active_boxes": 0,
+        "unmatched_active_boxes": 0,
+        "noise_only_boxes": 0,
+        "active_wall_ms": 300.08,
+        "noise_wall_ms": 395.62
+      },
+      "heuristic": {
+        "active": {
+          "matched_truth": false,
+          "all_tracks": 0,
+          "narrow_candidates": 0,
+          "wall_ms": 24.42
+        },
+        "noise_only": {
+          "matched_truth": false,
+          "all_tracks": 0,
+          "narrow_candidates": 0,
+          "wall_ms": 24.44
+        }
+      }
+    },
+    {
+      "mode": "rtty",
+      "snr_db": -5.0,
+      "seed": 71064,
+      "sample_rate": 12000,
+      "mono_sha256": "f17c8c25fed5b70a4aefd61d3090ede849dd63b6430be820b081f03512803797",
+      "fixture_sha256": "e8889ec97e40d6cd618a4a96114fc2467a034f9009551e28be3e6bd2ddd27c04",
+      "carrier_hz": 740.0,
+      "message_count": 6,
+      "message_text": "CQ TEST",
+      "oracle": {
+        "status": "decoded",
+        "grade": "coherent-unverified",
+        "text": "CQ TST",
+        "correct": false,
+        "wall_ms": 304.11,
+        "cpu_ms": 308.82
+      },
+      "midburst_four_second": {
+        "start_sample": 16200,
+        "sample_count": 48000,
+        "fully_embedded_messages": 1,
+        "status": "no_decode",
+        "grade": "none",
+        "text": "",
+        "correct_payload": false,
+        "nonempty_tentative": false,
+        "wall_ms": 568.44,
+        "cpu_ms": 568.34
+      },
+      "noise_only": {
+        "start_sample": 312000,
+        "sample_count": 48000,
+        "grade": "none",
+        "status": "no_decode",
+        "false_output": false,
+        "text": ""
+      },
+      "cv": {
+        "model_sha256": "698c124af6526a1993f21d67b5291e0c125e5e768e691291d7249a8fc9804a38",
+        "matched_truth": false,
+        "matched_boxes": 0,
+        "active_boxes": 0,
+        "unmatched_active_boxes": 0,
+        "noise_only_boxes": 0,
+        "active_wall_ms": 259.93,
+        "noise_wall_ms": 260.38
+      },
+      "heuristic": {
+        "active": {
+          "matched_truth": true,
+          "all_tracks": 2,
+          "narrow_candidates": 2,
+          "wall_ms": 27.63
+        },
+        "noise_only": {
+          "matched_truth": false,
+          "all_tracks": 0,
+          "narrow_candidates": 0,
+          "wall_ms": 24.55
+        }
+      }
+    },
+    {
+      "mode": "rtty",
+      "snr_db": 0.0,
+      "seed": 71065,
+      "sample_rate": 12000,
+      "mono_sha256": "4370f66842741eb639fe7969781271a176d4c0a6957edc5ea359da4d80e3a5ef",
+      "fixture_sha256": "e8889ec97e40d6cd618a4a96114fc2467a034f9009551e28be3e6bd2ddd27c04",
+      "carrier_hz": 740.0,
+      "message_count": 6,
+      "message_text": "CQ TEST",
+      "oracle": {
+        "status": "decoded",
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "correct": true,
+        "wall_ms": 295.9,
+        "cpu_ms": 295.84
+      },
+      "midburst_four_second": {
+        "start_sample": 16200,
+        "sample_count": 48000,
+        "fully_embedded_messages": 1,
+        "status": "decoded",
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "correct_payload": true,
+        "nonempty_tentative": true,
+        "wall_ms": 293.44,
+        "cpu_ms": 293.36
+      },
+      "noise_only": {
+        "start_sample": 312000,
+        "sample_count": 48000,
+        "grade": "none",
+        "status": "no_decode",
+        "false_output": false,
+        "text": ""
+      },
+      "cv": {
+        "model_sha256": "698c124af6526a1993f21d67b5291e0c125e5e768e691291d7249a8fc9804a38",
+        "matched_truth": false,
+        "matched_boxes": 0,
+        "active_boxes": 0,
+        "unmatched_active_boxes": 0,
+        "noise_only_boxes": 0,
+        "active_wall_ms": 155.48,
+        "noise_wall_ms": 438.73
+      },
+      "heuristic": {
+        "active": {
+          "matched_truth": true,
+          "all_tracks": 2,
+          "narrow_candidates": 2,
+          "wall_ms": 32.64
+        },
+        "noise_only": {
+          "matched_truth": false,
+          "all_tracks": 0,
+          "narrow_candidates": 0,
+          "wall_ms": 26.82
+        }
+      }
+    },
+    {
+      "mode": "rtty",
+      "snr_db": 10.0,
+      "seed": 71066,
+      "sample_rate": 12000,
+      "mono_sha256": "174c30c49c22e051e2fad786d26abd14c7d6d7f6ee9a6c7f844185e916c01c4b",
+      "fixture_sha256": "e8889ec97e40d6cd618a4a96114fc2467a034f9009551e28be3e6bd2ddd27c04",
+      "carrier_hz": 740.0,
+      "message_count": 6,
+      "message_text": "CQ TEST",
+      "oracle": {
+        "status": "decoded",
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "correct": true,
+        "wall_ms": 275.07,
+        "cpu_ms": 274.85
+      },
+      "midburst_four_second": {
+        "start_sample": 16200,
+        "sample_count": 48000,
+        "fully_embedded_messages": 1,
+        "status": "decoded",
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "correct_payload": true,
+        "nonempty_tentative": true,
+        "wall_ms": 284.91,
+        "cpu_ms": 284.8
+      },
+      "noise_only": {
+        "start_sample": 312000,
+        "sample_count": 48000,
+        "grade": "none",
+        "status": "no_decode",
+        "false_output": false,
+        "text": ""
+      },
+      "cv": {
+        "model_sha256": "698c124af6526a1993f21d67b5291e0c125e5e768e691291d7249a8fc9804a38",
+        "matched_truth": true,
+        "matched_boxes": 1,
+        "active_boxes": 1,
+        "unmatched_active_boxes": 0,
+        "noise_only_boxes": 0,
+        "active_wall_ms": 154.63,
+        "noise_wall_ms": 149.73
+      },
+      "heuristic": {
+        "active": {
+          "matched_truth": true,
+          "all_tracks": 2,
+          "narrow_candidates": 2,
+          "wall_ms": 37.4
+        },
+        "noise_only": {
+          "matched_truth": false,
+          "all_tracks": 0,
+          "narrow_candidates": 0,
+          "wall_ms": 24.89
+        }
+      }
+    },
+    {
+      "mode": "rtty",
+      "snr_db": 25.0,
+      "seed": 71067,
+      "sample_rate": 12000,
+      "mono_sha256": "29a2ce2c10ad5d13a219db5ffba472f8ccf380637839614e9dea8bd1833a13d9",
+      "fixture_sha256": "e8889ec97e40d6cd618a4a96114fc2467a034f9009551e28be3e6bd2ddd27c04",
+      "carrier_hz": 740.0,
+      "message_count": 6,
+      "message_text": "CQ TEST",
+      "oracle": {
+        "status": "decoded",
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "correct": true,
+        "wall_ms": 291.12,
+        "cpu_ms": 291.08
+      },
+      "midburst_four_second": {
+        "start_sample": 16200,
+        "sample_count": 48000,
+        "fully_embedded_messages": 1,
+        "status": "decoded",
+        "grade": "coherent-unverified",
+        "text": "CQ TEST",
+        "correct_payload": true,
+        "nonempty_tentative": true,
+        "wall_ms": 312.55,
+        "cpu_ms": 312.48
+      },
+      "noise_only": {
+        "start_sample": 312000,
+        "sample_count": 48000,
+        "grade": "none",
+        "status": "no_decode",
+        "false_output": false,
+        "text": ""
+      },
+      "cv": {
+        "model_sha256": "698c124af6526a1993f21d67b5291e0c125e5e768e691291d7249a8fc9804a38",
+        "matched_truth": true,
+        "matched_boxes": 1,
+        "active_boxes": 1,
+        "unmatched_active_boxes": 0,
+        "noise_only_boxes": 0,
+        "active_wall_ms": 172.18,
+        "noise_wall_ms": 154.15
+      },
+      "heuristic": {
+        "active": {
+          "matched_truth": true,
+          "all_tracks": 2,
+          "narrow_candidates": 2,
+          "wall_ms": 41.24
+        },
+        "noise_only": {
+          "matched_truth": false,
+          "all_tracks": 0,
+          "narrow_candidates": 0,
+          "wall_ms": 24.18
+        }
+      }
+    },
+    {
+      "mode": "bpsk31",
+      "snr_db": -15.0,
+      "seed": 71062,
+      "sample_rate": 12000,
+      "mono_sha256": "419f92d0bc3eb6c499564d947638fe0f27465b26fdb6783b6749753164e32749",
+      "fixture_sha256": "ab7da36643202aef1775369962f5812e5ec051ea8389196c9777057ea0cf011b",
+      "carrier_hz": 2520.0,
+      "message_count": 6,
+      "message_text": "cq de",
+      "oracle": {
+        "status": "no_decode",
+        "grade": "none",
+        "text": "",
+        "correct": false,
+        "wall_ms": 3.37,
+        "cpu_ms": 3.37
+      },
+      "midburst_four_second": {
+        "start_sample": 16200,
+        "sample_count": 48000,
+        "fully_embedded_messages": 1,
+        "status": "no_decode",
+        "grade": "none",
+        "text": "",
+        "correct_payload": false,
+        "nonempty_tentative": false,
+        "wall_ms": 5.01,
+        "cpu_ms": 5.01
+      },
+      "noise_only": {
+        "start_sample": 312000,
+        "sample_count": 48000,
+        "grade": "none",
+        "status": "no_decode",
+        "false_output": false,
+        "text": ""
+      },
+      "cv": {
+        "model_sha256": "698c124af6526a1993f21d67b5291e0c125e5e768e691291d7249a8fc9804a38",
+        "matched_truth": false,
+        "matched_boxes": 0,
+        "active_boxes": 0,
+        "unmatched_active_boxes": 0,
+        "noise_only_boxes": 0,
+        "active_wall_ms": 151.52,
+        "noise_wall_ms": 147.29
+      },
+      "heuristic": {
+        "active": {
+          "matched_truth": false,
+          "all_tracks": 0,
+          "narrow_candidates": 0,
+          "wall_ms": 24.56
+        },
+        "noise_only": {
+          "matched_truth": false,
+          "all_tracks": 0,
+          "narrow_candidates": 0,
+          "wall_ms": 24.78
+        }
+      }
+    },
+    {
+      "mode": "bpsk31",
+      "snr_db": -10.0,
+      "seed": 71063,
+      "sample_rate": 12000,
+      "mono_sha256": "5980cfbdf273ad02b5929ada646dbda2cd0ec4355539e6e343eb12c95ea6a66f",
+      "fixture_sha256": "ab7da36643202aef1775369962f5812e5ec051ea8389196c9777057ea0cf011b",
+      "carrier_hz": 2520.0,
+      "message_count": 6,
+      "message_text": "cq de",
+      "oracle": {
+        "status": "no_decode",
+        "grade": "none",
+        "text": "",
+        "correct": false,
+        "wall_ms": 3.37,
+        "cpu_ms": 3.37
+      },
+      "midburst_four_second": {
+        "start_sample": 16200,
+        "sample_count": 48000,
+        "fully_embedded_messages": 1,
+        "status": "no_decode",
+        "grade": "none",
+        "text": "",
+        "correct_payload": false,
+        "nonempty_tentative": false,
+        "wall_ms": 5.04,
+        "cpu_ms": 5.04
+      },
+      "noise_only": {
+        "start_sample": 312000,
+        "sample_count": 48000,
+        "grade": "none",
+        "status": "no_decode",
+        "false_output": false,
+        "text": ""
+      },
+      "cv": {
+        "model_sha256": "698c124af6526a1993f21d67b5291e0c125e5e768e691291d7249a8fc9804a38",
+        "matched_truth": false,
+        "matched_boxes": 0,
+        "active_boxes": 0,
+        "unmatched_active_boxes": 0,
+        "noise_only_boxes": 0,
+        "active_wall_ms": 138.44,
+        "noise_wall_ms": 144.61
+      },
+      "heuristic": {
+        "active": {
+          "matched_truth": false,
+          "all_tracks": 0,
+          "narrow_candidates": 0,
+          "wall_ms": 24.71
+        },
+        "noise_only": {
+          "matched_truth": false,
+          "all_tracks": 0,
+          "narrow_candidates": 0,
+          "wall_ms": 24.64
+        }
+      }
+    },
+    {
+      "mode": "bpsk31",
+      "snr_db": -5.0,
+      "seed": 71064,
+      "sample_rate": 12000,
+      "mono_sha256": "75f84a78b7f867d4a992addb988d08c00fb2ba80b122138b6d8b6c752b3de6d8",
+      "fixture_sha256": "ab7da36643202aef1775369962f5812e5ec051ea8389196c9777057ea0cf011b",
+      "carrier_hz": 2520.0,
+      "message_count": 6,
+      "message_text": "cq de",
+      "oracle": {
+        "status": "no_decode",
+        "grade": "none",
+        "text": "",
+        "correct": false,
+        "wall_ms": 5.4,
+        "cpu_ms": 5.4
+      },
+      "midburst_four_second": {
+        "start_sample": 16200,
+        "sample_count": 48000,
+        "fully_embedded_messages": 1,
+        "status": "no_decode",
+        "grade": "none",
+        "text": "",
+        "correct_payload": false,
+        "nonempty_tentative": false,
+        "wall_ms": 11.34,
+        "cpu_ms": 11.34
+      },
+      "noise_only": {
+        "start_sample": 312000,
+        "sample_count": 48000,
+        "grade": "none",
+        "status": "no_decode",
+        "false_output": false,
+        "text": ""
+      },
+      "cv": {
+        "model_sha256": "698c124af6526a1993f21d67b5291e0c125e5e768e691291d7249a8fc9804a38",
+        "matched_truth": true,
+        "matched_boxes": 1,
+        "active_boxes": 1,
+        "unmatched_active_boxes": 0,
+        "noise_only_boxes": 0,
+        "active_wall_ms": 144.07,
+        "noise_wall_ms": 154.64
+      },
+      "heuristic": {
+        "active": {
+          "matched_truth": true,
+          "all_tracks": 1,
+          "narrow_candidates": 1,
+          "wall_ms": 35.55
+        },
+        "noise_only": {
+          "matched_truth": false,
+          "all_tracks": 0,
+          "narrow_candidates": 0,
+          "wall_ms": 25.5
+        }
+      }
+    },
+    {
+      "mode": "bpsk31",
+      "snr_db": 0.0,
+      "seed": 71065,
+      "sample_rate": 12000,
+      "mono_sha256": "f58d2ac73d96ce4ce9b0e1a09dad46d242f6282aaf402a523aecdaa2398b4925",
+      "fixture_sha256": "ab7da36643202aef1775369962f5812e5ec051ea8389196c9777057ea0cf011b",
+      "carrier_hz": 2520.0,
+      "message_count": 6,
+      "message_text": "cq de",
+      "oracle": {
+        "status": "no_decode",
+        "grade": "none",
+        "text": "",
+        "correct": false,
+        "wall_ms": 5.5,
+        "cpu_ms": 5.51
+      },
+      "midburst_four_second": {
+        "start_sample": 16200,
+        "sample_count": 48000,
+        "fully_embedded_messages": 1,
+        "status": "no_decode",
+        "grade": "none",
+        "text": "",
+        "correct_payload": false,
+        "nonempty_tentative": false,
+        "wall_ms": 11.23,
+        "cpu_ms": 11.2
+      },
+      "noise_only": {
+        "start_sample": 312000,
+        "sample_count": 48000,
+        "grade": "none",
+        "status": "no_decode",
+        "false_output": false,
+        "text": ""
+      },
+      "cv": {
+        "model_sha256": "698c124af6526a1993f21d67b5291e0c125e5e768e691291d7249a8fc9804a38",
+        "matched_truth": false,
+        "matched_boxes": 0,
+        "active_boxes": 0,
+        "unmatched_active_boxes": 0,
+        "noise_only_boxes": 0,
+        "active_wall_ms": 159.18,
+        "noise_wall_ms": 143.45
+      },
+      "heuristic": {
+        "active": {
+          "matched_truth": true,
+          "all_tracks": 1,
+          "narrow_candidates": 1,
+          "wall_ms": 31.54
+        },
+        "noise_only": {
+          "matched_truth": false,
+          "all_tracks": 0,
+          "narrow_candidates": 0,
+          "wall_ms": 24.34
+        }
+      }
+    },
+    {
+      "mode": "bpsk31",
+      "snr_db": 10.0,
+      "seed": 71066,
+      "sample_rate": 12000,
+      "mono_sha256": "04a5c0b3631c7f845faa9edfaab94e4e24c14d6b7f7b7271d92bd4e47db57a65",
+      "fixture_sha256": "ab7da36643202aef1775369962f5812e5ec051ea8389196c9777057ea0cf011b",
+      "carrier_hz": 2520.0,
+      "message_count": 6,
+      "message_text": "cq de",
+      "oracle": {
+        "status": "decoded",
+        "grade": "coherent-unverified",
+        "text": "cq de",
+        "correct": true,
+        "wall_ms": 5.55,
+        "cpu_ms": 5.55
+      },
+      "midburst_four_second": {
+        "start_sample": 16200,
+        "sample_count": 48000,
+        "fully_embedded_messages": 1,
+        "status": "decoded",
+        "grade": "coherent-unverified",
+        "text": "cq de",
+        "correct_payload": true,
+        "nonempty_tentative": true,
+        "wall_ms": 5.74,
+        "cpu_ms": 5.74
+      },
+      "noise_only": {
+        "start_sample": 312000,
+        "sample_count": 48000,
+        "grade": "none",
+        "status": "no_decode",
+        "false_output": false,
+        "text": ""
+      },
+      "cv": {
+        "model_sha256": "698c124af6526a1993f21d67b5291e0c125e5e768e691291d7249a8fc9804a38",
+        "matched_truth": true,
+        "matched_boxes": 1,
+        "active_boxes": 1,
+        "unmatched_active_boxes": 0,
+        "noise_only_boxes": 0,
+        "active_wall_ms": 150.67,
+        "noise_wall_ms": 174.69
+      },
+      "heuristic": {
+        "active": {
+          "matched_truth": true,
+          "all_tracks": 1,
+          "narrow_candidates": 1,
+          "wall_ms": 32.35
+        },
+        "noise_only": {
+          "matched_truth": false,
+          "all_tracks": 0,
+          "narrow_candidates": 0,
+          "wall_ms": 24.03
+        }
+      }
+    },
+    {
+      "mode": "bpsk31",
+      "snr_db": 25.0,
+      "seed": 71067,
+      "sample_rate": 12000,
+      "mono_sha256": "6e7ff85ce574e70fdb80be43c053a7d773ef0b1e1dc976477f883a243dfbf899",
+      "fixture_sha256": "ab7da36643202aef1775369962f5812e5ec051ea8389196c9777057ea0cf011b",
+      "carrier_hz": 2520.0,
+      "message_count": 6,
+      "message_text": "cq de",
+      "oracle": {
+        "status": "decoded",
+        "grade": "coherent-unverified",
+        "text": "cq de",
+        "correct": true,
+        "wall_ms": 5.33,
+        "cpu_ms": 8.85
+      },
+      "midburst_four_second": {
+        "start_sample": 16200,
+        "sample_count": 48000,
+        "fully_embedded_messages": 1,
+        "status": "decoded",
+        "grade": "coherent-unverified",
+        "text": "cq de",
+        "correct_payload": true,
+        "nonempty_tentative": true,
+        "wall_ms": 5.78,
+        "cpu_ms": 6.05
+      },
+      "noise_only": {
+        "start_sample": 312000,
+        "sample_count": 48000,
+        "grade": "none",
+        "status": "no_decode",
+        "false_output": false,
+        "text": ""
+      },
+      "cv": {
+        "model_sha256": "698c124af6526a1993f21d67b5291e0c125e5e768e691291d7249a8fc9804a38",
+        "matched_truth": false,
+        "matched_boxes": 0,
+        "active_boxes": 0,
+        "unmatched_active_boxes": 0,
+        "noise_only_boxes": 0,
+        "active_wall_ms": 176.64,
+        "noise_wall_ms": 165.8
+      },
+      "heuristic": {
+        "active": {
+          "matched_truth": true,
+          "all_tracks": 1,
+          "narrow_candidates": 1,
+          "wall_ms": 31.76
+        },
+        "noise_only": {
+          "matched_truth": false,
+          "all_tracks": 0,
+          "narrow_candidates": 0,
+          "wall_ms": 34.08
+        }
+      }
+    },
+    {
+      "mode": "ax25",
+      "snr_db": -15.0,
+      "seed": 71062,
+      "sample_rate": 12000,
+      "mono_sha256": "88d547f0003918ca4423f1ca872e79d0c2742fc52c7e40feedfc858bfb35c9e1",
+      "fixture_sha256": "adc67e96d44c22e79a2c69eaa603e5af0478a260b7d1fd8953c373dbc0287ceb",
+      "carrier_hz": 1200.0,
+      "message_count": 17,
+      "message_text": "HELLO WORLD",
+      "oracle": {
+        "status": "no_decode",
+        "grade": "none",
+        "text": "",
+        "correct": false,
+        "wall_ms": 2.19,
+        "cpu_ms": 8.43
+      },
+      "midburst_four_second": {
+        "start_sample": 16200,
+        "sample_count": 48000,
+        "fully_embedded_messages": 7,
+        "status": "no_decode",
+        "grade": "none",
+        "text": "",
+        "correct_payload": false,
+        "nonempty_tentative": false,
+        "wall_ms": 21.11,
+        "cpu_ms": 23.22
+      },
+      "noise_only": {
+        "start_sample": 312000,
+        "sample_count": 48000,
+        "grade": "none",
+        "status": "no_decode",
+        "false_output": false,
+        "text": ""
+      },
+      "cv": {
+        "model_sha256": "698c124af6526a1993f21d67b5291e0c125e5e768e691291d7249a8fc9804a38",
+        "matched_truth": false,
+        "matched_boxes": 0,
+        "active_boxes": 0,
+        "unmatched_active_boxes": 0,
+        "noise_only_boxes": 0,
+        "active_wall_ms": 149.53,
+        "noise_wall_ms": 160.22
+      },
+      "heuristic": {
+        "active": {
+          "matched_truth": false,
+          "all_tracks": 0,
+          "narrow_candidates": 0,
+          "wall_ms": 25.41
+        },
+        "noise_only": {
+          "matched_truth": false,
+          "all_tracks": 0,
+          "narrow_candidates": 0,
+          "wall_ms": 25.28
+        }
+      }
+    },
+    {
+      "mode": "ax25",
+      "snr_db": -10.0,
+      "seed": 71063,
+      "sample_rate": 12000,
+      "mono_sha256": "e1e77d908a16bcbd53ac7c1f4622b8334f1e8bc5a078aec423a1e3c4dc3d1892",
+      "fixture_sha256": "adc67e96d44c22e79a2c69eaa603e5af0478a260b7d1fd8953c373dbc0287ceb",
+      "carrier_hz": 1200.0,
+      "message_count": 17,
+      "message_text": "HELLO WORLD",
+      "oracle": {
+        "status": "no_decode",
+        "grade": "none",
+        "text": "",
+        "correct": false,
+        "wall_ms": 2.18,
+        "cpu_ms": 7.45
+      },
+      "midburst_four_second": {
+        "start_sample": 16200,
+        "sample_count": 48000,
+        "fully_embedded_messages": 7,
+        "status": "no_decode",
+        "grade": "none",
+        "text": "",
+        "correct_payload": false,
+        "nonempty_tentative": false,
+        "wall_ms": 20.16,
+        "cpu_ms": 20.15
+      },
+      "noise_only": {
+        "start_sample": 312000,
+        "sample_count": 48000,
+        "grade": "none",
+        "status": "no_decode",
+        "false_output": false,
+        "text": ""
+      },
+      "cv": {
+        "model_sha256": "698c124af6526a1993f21d67b5291e0c125e5e768e691291d7249a8fc9804a38",
+        "matched_truth": false,
+        "matched_boxes": 0,
+        "active_boxes": 0,
+        "unmatched_active_boxes": 0,
+        "noise_only_boxes": 0,
+        "active_wall_ms": 140.48,
+        "noise_wall_ms": 142.95
+      },
+      "heuristic": {
+        "active": {
+          "matched_truth": false,
+          "all_tracks": 0,
+          "narrow_candidates": 0,
+          "wall_ms": 25.04
+        },
+        "noise_only": {
+          "matched_truth": false,
+          "all_tracks": 0,
+          "narrow_candidates": 0,
+          "wall_ms": 26.82
+        }
+      }
+    },
+    {
+      "mode": "ax25",
+      "snr_db": -5.0,
+      "seed": 71064,
+      "sample_rate": 12000,
+      "mono_sha256": "e98edddefd4dfb33de1225c87fb04482f455c6b62fd7a8ee72b0f5faf523de31",
+      "fixture_sha256": "adc67e96d44c22e79a2c69eaa603e5af0478a260b7d1fd8953c373dbc0287ceb",
+      "carrier_hz": 1200.0,
+      "message_count": 17,
+      "message_text": "HELLO WORLD",
+      "oracle": {
+        "status": "no_decode",
+        "grade": "none",
+        "text": "",
+        "correct": false,
+        "wall_ms": 2.07,
+        "cpu_ms": 9.67
+      },
+      "midburst_four_second": {
+        "start_sample": 16200,
+        "sample_count": 48000,
+        "fully_embedded_messages": 7,
+        "status": "no_decode",
+        "grade": "none",
+        "text": "",
+        "correct_payload": false,
+        "nonempty_tentative": false,
+        "wall_ms": 19.74,
+        "cpu_ms": 19.73
+      },
+      "noise_only": {
+        "start_sample": 312000,
+        "sample_count": 48000,
+        "grade": "none",
+        "status": "no_decode",
+        "false_output": false,
+        "text": ""
+      },
+      "cv": {
+        "model_sha256": "698c124af6526a1993f21d67b5291e0c125e5e768e691291d7249a8fc9804a38",
+        "matched_truth": false,
+        "matched_boxes": 0,
+        "active_boxes": 0,
+        "unmatched_active_boxes": 0,
+        "noise_only_boxes": 0,
+        "active_wall_ms": 145.04,
+        "noise_wall_ms": 144.92
+      },
+      "heuristic": {
+        "active": {
+          "matched_truth": false,
+          "all_tracks": 0,
+          "narrow_candidates": 0,
+          "wall_ms": 24.35
+        },
+        "noise_only": {
+          "matched_truth": false,
+          "all_tracks": 0,
+          "narrow_candidates": 0,
+          "wall_ms": 24.55
+        }
+      }
+    },
+    {
+      "mode": "ax25",
+      "snr_db": 0.0,
+      "seed": 71065,
+      "sample_rate": 12000,
+      "mono_sha256": "49760b67699a41b335609d85aa2d9cdb4384a3bc376f5a7191fe8471126bec70",
+      "fixture_sha256": "adc67e96d44c22e79a2c69eaa603e5af0478a260b7d1fd8953c373dbc0287ceb",
+      "carrier_hz": 1200.0,
+      "message_count": 17,
+      "message_text": "HELLO WORLD",
+      "oracle": {
+        "status": "no_decode",
+        "grade": "none",
+        "text": "",
+        "correct": false,
+        "wall_ms": 2.09,
+        "cpu_ms": 7.84
+      },
+      "midburst_four_second": {
+        "start_sample": 16200,
+        "sample_count": 48000,
+        "fully_embedded_messages": 7,
+        "status": "no_decode",
+        "grade": "none",
+        "text": "",
+        "correct_payload": false,
+        "nonempty_tentative": false,
+        "wall_ms": 20.06,
+        "cpu_ms": 20.06
+      },
+      "noise_only": {
+        "start_sample": 312000,
+        "sample_count": 48000,
+        "grade": "none",
+        "status": "no_decode",
+        "false_output": false,
+        "text": ""
+      },
+      "cv": {
+        "model_sha256": "698c124af6526a1993f21d67b5291e0c125e5e768e691291d7249a8fc9804a38",
+        "matched_truth": false,
+        "matched_boxes": 0,
+        "active_boxes": 0,
+        "unmatched_active_boxes": 0,
+        "noise_only_boxes": 0,
+        "active_wall_ms": 323.26,
+        "noise_wall_ms": 172.67
+      },
+      "heuristic": {
+        "active": {
+          "matched_truth": false,
+          "all_tracks": 0,
+          "narrow_candidates": 0,
+          "wall_ms": 24.92
+        },
+        "noise_only": {
+          "matched_truth": false,
+          "all_tracks": 0,
+          "narrow_candidates": 0,
+          "wall_ms": 24.84
+        }
+      }
+    },
+    {
+      "mode": "ax25",
+      "snr_db": 10.0,
+      "seed": 71066,
+      "sample_rate": 12000,
+      "mono_sha256": "a794366438a6e7559dc7810f7d08e6afc60c92d784e92d7ad05c09e8141142cf",
+      "fixture_sha256": "adc67e96d44c22e79a2c69eaa603e5af0478a260b7d1fd8953c373dbc0287ceb",
+      "carrier_hz": 1200.0,
+      "message_count": 17,
+      "message_text": "HELLO WORLD",
+      "oracle": {
+        "status": "decoded",
+        "grade": "frame-integrity-passed",
+        "text": "HELLO WORLD",
+        "correct": true,
+        "wall_ms": 0.84,
+        "cpu_ms": 5.71
+      },
+      "midburst_four_second": {
+        "start_sample": 16200,
+        "sample_count": 48000,
+        "fully_embedded_messages": 7,
+        "status": "decoded",
+        "grade": "frame-integrity-passed",
+        "text": "HELLO WORLD",
+        "correct_payload": true,
+        "nonempty_tentative": true,
+        "wall_ms": 5.22,
+        "cpu_ms": 7.18
+      },
+      "noise_only": {
+        "start_sample": 312000,
+        "sample_count": 48000,
+        "grade": "none",
+        "status": "no_decode",
+        "false_output": false,
+        "text": ""
+      },
+      "cv": {
+        "model_sha256": "698c124af6526a1993f21d67b5291e0c125e5e768e691291d7249a8fc9804a38",
+        "matched_truth": false,
+        "matched_boxes": 0,
+        "active_boxes": 0,
+        "unmatched_active_boxes": 0,
+        "noise_only_boxes": 0,
+        "active_wall_ms": 193.88,
+        "noise_wall_ms": 152.18
+      },
+      "heuristic": {
+        "active": {
+          "matched_truth": true,
+          "all_tracks": 2,
+          "narrow_candidates": 2,
+          "wall_ms": 32.8
+        },
+        "noise_only": {
+          "matched_truth": false,
+          "all_tracks": 0,
+          "narrow_candidates": 0,
+          "wall_ms": 23.77
+        }
+      }
+    },
+    {
+      "mode": "ax25",
+      "snr_db": 25.0,
+      "seed": 71067,
+      "sample_rate": 12000,
+      "mono_sha256": "a1131090330ed456271d980ecd140312fff9ac7ccaa3d9f7ba65878d1057296c",
+      "fixture_sha256": "adc67e96d44c22e79a2c69eaa603e5af0478a260b7d1fd8953c373dbc0287ceb",
+      "carrier_hz": 1200.0,
+      "message_count": 17,
+      "message_text": "HELLO WORLD",
+      "oracle": {
+        "status": "decoded",
+        "grade": "frame-integrity-passed",
+        "text": "HELLO WORLD",
+        "correct": true,
+        "wall_ms": 1.18,
+        "cpu_ms": 1.65
+      },
+      "midburst_four_second": {
+        "start_sample": 16200,
+        "sample_count": 48000,
+        "fully_embedded_messages": 7,
+        "status": "decoded",
+        "grade": "frame-integrity-passed",
+        "text": "HELLO WORLD",
+        "correct_payload": true,
+        "nonempty_tentative": true,
+        "wall_ms": 5.48,
+        "cpu_ms": 5.47
+      },
+      "noise_only": {
+        "start_sample": 312000,
+        "sample_count": 48000,
+        "grade": "none",
+        "status": "no_decode",
+        "false_output": false,
+        "text": ""
+      },
+      "cv": {
+        "model_sha256": "698c124af6526a1993f21d67b5291e0c125e5e768e691291d7249a8fc9804a38",
+        "matched_truth": true,
+        "matched_boxes": 1,
+        "active_boxes": 1,
+        "unmatched_active_boxes": 0,
+        "noise_only_boxes": 0,
+        "active_wall_ms": 683.67,
+        "noise_wall_ms": 224.1
+      },
+      "heuristic": {
+        "active": {
+          "matched_truth": true,
+          "all_tracks": 2,
+          "narrow_candidates": 2,
+          "wall_ms": 32.04
+        },
+        "noise_only": {
+          "matched_truth": false,
+          "all_tracks": 0,
+          "narrow_candidates": 0,
+          "wall_ms": 28.2
+        }
+      }
+    }
+  ]
+}
