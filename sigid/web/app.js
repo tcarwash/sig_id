@@ -161,6 +161,11 @@ function bandHopFrequenciesHz() {
 }
 el("live-cv-enabled").checked = savedInspectorPreference("sig-id-live-cv-enabled", ["on", "off"], "on") === "on";
 el("live-classifier-enabled").checked = savedInspectorPreference("sig-id-live-classifier-enabled", ["on", "off"], "on") === "on";
+el("cv-debug-bounds").checked = savedInspectorPreference("sig-id-cv-debug-bounds", ["on", "off"], "off") === "on";
+el("cv-debug-bounds").addEventListener("change", () => {
+  try { localStorage.setItem("sig-id-cv-debug-bounds", el("cv-debug-bounds").checked ? "on" : "off"); } catch {}
+  if (state.waterfall) drawOverlays();
+});
 el("live-fine-refinement").checked = savedInspectorPreference("sig-id-live-fine-refinement", ["on", "off"], "off") === "on";
 el("live-fine-refinement").addEventListener("change", () => {
   try { localStorage.setItem("sig-id-live-fine-refinement", el("live-fine-refinement").checked ? "on" : "off"); } catch {}
@@ -1477,6 +1482,64 @@ el("cv-scan").addEventListener("click", async () => {
   }
 });
 
+function cvRankedAlternatives(detection) {
+  const candidates = detection.classifier_proposal?.ranked_candidates || [];
+  if (!candidates.length) return "";
+  return candidates.slice(0, 3).map((candidate) => {
+    const label = candidate.mode_id || candidate.family || "unknown";
+    const score = Number(candidate.relative_model_score);
+    return Number.isFinite(score)
+      ? `${label} ${(score * 100).toFixed(0)}%`
+      : label;
+  }).join(" · ");
+}
+
+function cvTimingEvidenceCaption(detection) {
+  if (detection.dsp_error) return `DSP inspection failed: ${detection.dsp_error}`;
+  const timing = detection.dsp_detail?.timing_evidence;
+  if (!timing) return "";
+  if (!timing.available) return `DSP timing unavailable · ${timing.reason || "insufficient data"}`;
+  const rate = Number.isFinite(timing.symbol_rate_baud_candidate)
+    ? `clock ~${timing.symbol_rate_baud_candidate.toFixed(2)} baud / ${(timing.symbol_period_seconds_candidate * 1000).toFixed(0)} ms`
+    : `no reliable transition clock · ${timing.reason || "inconclusive"}`;
+  const tones = Number.isFinite(timing.tone_spacing_hz_candidate)
+    ? ` · tone grid ~${timing.tone_spacing_hz_candidate.toFixed(2)} Hz`
+    : "";
+  return `DSP: ${rate}${tones} · ${timing.transition_count} transitions · not protocol verified`;
+}
+
+async function inspectCvTimingEvidence(detection, button) {
+  button.disabled = true;
+  button.textContent = "Analyzing DSP…";
+  const options = new URLSearchParams({
+    sample_start: String(detection.sample_start),
+    sample_count: String(detection.sample_count),
+    frequency_low_hz: String(detection.frequency_low_hz),
+    frequency_high_hz: String(detection.frequency_high_hz),
+  });
+  const live = state.liveView;
+  const captureId = state.capture?.id;
+  const sessionId = state.liveSessionId;
+  try {
+    const endpoint = live
+      ? `/api/live/dsp-evidence?session_id=${encodeURIComponent(sessionId)}&${options}`
+      : `/api/captures/${encodeURIComponent(captureId)}/dsp-evidence?${options}`;
+    const evidence = await request(endpoint);
+    if (!state.cvDetections.includes(detection)
+      || live !== state.liveView
+      || (live && sessionId !== state.liveSessionId)
+      || (!live && captureId !== state.capture?.id)) return;
+    detection.dsp_detail = evidence;
+    detection.dsp_error = null;
+  } catch (error) {
+    if (state.cvDetections.includes(detection)) {
+      detection.dsp_error = error.message;
+    }
+  } finally {
+    if (state.cvDetections.includes(detection)) renderCvDetections();
+  }
+}
+
 function renderCvDetections() {
   const list = el("cv-detection-list");
   if (!list) return;
@@ -1497,6 +1560,20 @@ function renderCvDetections() {
     const detail = document.createElement("div");
     detail.className = "region-detail";
     detail.textContent = `${detection.frequency_low_hz.toFixed(0)}–${detection.frequency_high_hz.toFixed(0)} Hz · ${(detection.sample_start / detection.sample_rate).toFixed(2)}–${((detection.sample_start + detection.sample_count) / detection.sample_rate).toFixed(2)} s`;
+    const alternatives = cvRankedAlternatives(detection);
+    if (alternatives) {
+      const evidence = document.createElement("div");
+      evidence.className = "region-detail cv-model-alternatives";
+      evidence.textContent = `ML alternatives (relative, uncalibrated): ${alternatives}`;
+      row.append(evidence);
+    }
+    const timingCaption = cvTimingEvidenceCaption(detection);
+    if (timingCaption) {
+      const timing = document.createElement("div");
+      timing.className = "region-detail cv-timing-evidence";
+      timing.textContent = timingCaption;
+      row.append(timing);
+    }
     const fine = detection.frequency_refinement;
     if (fine?.split_suggested && Array.isArray(fine.subbands)) {
       const bands = fine.subbands.map((item) =>
@@ -1537,6 +1614,12 @@ function renderCvDetections() {
     } else {
       row.append(summary, detail, button, adjust, reject);
     }
+    const inspect = document.createElement("button");
+    inspect.type = "button";
+    inspect.textContent = detection.dsp_detail ? "Remeasure DSP" : "Inspect DSP";
+    inspect.title = "On-demand, read-only frequency-transition and tone-grid measurements. This does not identify a protocol or run a decoder.";
+    inspect.addEventListener("click", () => inspectCvTimingEvidence(detection, inspect));
+    row.append(inspect);
     list.append(row);
   }
   if (!detections.length) {
@@ -4543,6 +4626,25 @@ function drawOverlays() {
     ctx.lineWidth = candidate ? 3 : 2;
     ctx.globalAlpha = pendingMerge || excluded ? 0.45 : 1;
     ctx.setLineDash(pendingMerge ? [1, 4] : [2, 3]);
+    if (el("cv-debug-bounds").checked) {
+      ctx.save();
+      ctx.globalAlpha = 0.13;
+      ctx.fillStyle = detection.track_state === "persistent" ? "#52d6d0" : "#bd8cff";
+      ctx.fillRect(bounds.left, bounds.top, bounds.width, bounds.height);
+      ctx.restore();
+      // The center line is the midpoint of the CV proposal, NOT a
+      // demodulated carrier or an independently measured station center.
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(bounds.left + bounds.width / 2, bounds.top);
+      ctx.lineTo(bounds.left + bounds.width / 2, bounds.top + bounds.height);
+      ctx.strokeStyle = detection.track_state === "persistent" ? "#52d6d0" : "#bd8cff";
+      ctx.globalAlpha = 0.6;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([2, 5]);
+      ctx.stroke();
+      ctx.restore();
+    }
     ctx.strokeRect(bounds.left, bounds.top, bounds.width, bounds.height);
     ctx.globalAlpha = 1;
   }
@@ -7073,7 +7175,9 @@ function renderSignalLabels() {
     if (end < 0 || start >= overlayCanvas.height || detection.frequency_high_hz < low || detection.frequency_low_hz > high) continue;
     items.push({
       cvDetection: detection,
-      text: `CV${index + 1} · ${(100 * (detection.confidence || 0)).toFixed(0)}% detector\n${state.liveView ? cvClassifierCaption(detection) : `Needs label${detection.classifier_proposal ? ` · ${cvClassifierCaption(detection)}` : ""}`}`,
+      text: el("cv-debug-bounds").checked
+        ? `CV${index + 1} · ${Math.round(detection.frequency_low_hz)}–${Math.round(detection.frequency_high_hz)} Hz · ${(100 * (detection.confidence || 0)).toFixed(0)}% detect`
+        : `CV${index + 1} · ${(100 * (detection.confidence || 0)).toFixed(0)}% detector\n${state.liveView ? cvClassifierCaption(detection) : `Needs label${detection.classifier_proposal ? ` · ${cvClassifierCaption(detection)}` : ""}`}`,
       needsLabel: !state.liveView,
       selected: Boolean(detection.cv_proposal_id && state.selectedTrack?.cv_proposal_id === detection.cv_proposal_id),
       x: (detection.frequency_low_hz - low) / Math.max(1, high - low) * width,
