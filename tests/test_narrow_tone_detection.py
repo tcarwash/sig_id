@@ -47,6 +47,26 @@ def test_original_narrow_tone_detector_recovers_keyed_carrier():
     )) == []
 
 
+
+def test_narrow_grouping_keeps_keyed_carrier_separate_from_nearby_tone():
+    rate = 12000
+    audio = keyed_tone_audio(rate)
+    t = np.arange(audio.size) / rate
+    audio += 0.16 * np.sin(2 * np.pi * 1290 * t)
+    spectrum = waterfall_samples(
+        audio, rate, fft_size=4096, hop_size=512, max_rows=320,
+        sample_offset=0, total_sample_count=audio.size,
+    )
+    full = detect_tracks(spectrum)
+    narrow = detect_tracks(spectrum, maximum_tone_gap_hz=35)
+    assert any(row["tone_count_candidate"] >= 2 for row in full)
+    assert any(row["tone_count_candidate"] == 1
+               and abs(row["center_hz"] - 1100) <= 25 for row in narrow)
+    assert any(row["tone_count_candidate"] == 1
+               and abs(row["center_hz"] - 1290) <= 25 for row in narrow)
+    assert all(row["protocol"] is None for row in narrow)
+
+
 def test_live_analysis_exposes_tone_tracks_when_classifier_disabled(tmp_path, monkeypatch):
     rate = 12000
     pcm = np.round(np.clip(keyed_tone_audio(rate), -1, 1) * 32767).astype("<i2")
