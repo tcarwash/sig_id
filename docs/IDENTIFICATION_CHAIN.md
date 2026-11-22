@@ -13,7 +13,7 @@ The intended receive path is:
    scores other families' experts too; the joint score is a relative ranking,
    **not** a real-world calibrated protocol probability. Existing model
    abstention/novelty handling remains authoritative.
-5. **Independent audio evidence.** The \`audio-roi-spectral-v1\` helper measures
+5. **Independent audio evidence.** The `audio-roi-spectral-v1` helper measures
    a bounded selected interval: frequency resolution, excess-power occupied
    bandwidth, spectral flatness, peaks, possible tone spacing, and a burst
    activity fraction when temporal variation supports it. Peaks alone do not
@@ -21,7 +21,7 @@ The intended receive path is:
 6. **Conservative decoder shortlist.** Up to three modes are ordered using the
    ranked hypotheses and the existing family fallbacks, but automatically
    tried modes are still limited to the project's loopback-tested set:
-   \`RTTY\`, \`THOR16\`, \`BPSK31\`. A higher-scoring candidate does not become a
+   `RTTY`, `THOR16`, `BPSK31`. A higher-scoring candidate does not become a
    confirmed identity. Unknown and competing hypotheses remain visible.
 7. **Decoder evidence + review.** Isolated replay and output association stay
    unchanged. Text is tentative, and labels require their existing evidence
@@ -29,26 +29,35 @@ The intended receive path is:
 
 ## Where the first slice is wired
 
-- Saved capture \`POST /api/captures/{id}/classify\` returns
-  \`ranked_candidates\`, \`dsp_evidence\`, and \`decoder_shortlist\`.
+- Saved capture `POST /api/captures/{id}/classify` returns
+  `ranked_candidates`, `dsp_evidence`, and `decoder_shortlist`.
   Classifier evidence attached to a saved region keeps the same fields.
-- \`GET /api/live/cv-detections\` exposes the fields per classified CV box.
-- \`GET /api/live/analysis\` exposes them on ranked heuristic tracks; an
-  explicitly enabled \`auto_trial\` forwards the model-ordered shortlist
-  to the existing isolated live trial queue.
-- \`FldigiTrackTrialRequest.candidate_modes\` is optional and every entry is
+- `GET /api/live/cv-detections` now associates CV boxes with
+  **persistent, session-scoped CV track IDs**. Separately configured heuristic
+  tracks retain their own IDs. On explicit `auto_trial=true`, accepted model
+  proposals can schedule a bounded, receive-only isolated decoder trial with
+  detector/classifier provenance.
+- `GET /api/live/analysis` still supports the heuristic fallback, including
+  optional trials when CV is unavailable or disabled.
+- The browser reconnects to an existing server-owned live capture after a
+  refresh, restoring the live waterfall and Stop and review.
+- `FldigiTrackTrialRequest.candidate_modes` is optional and every entry is
   checked against the loopback-tested allowlist at the queue boundary.
+- Opt-in `include_frequency_refinement=true` adds fine-resolution, frequency-
+  only DSP split **previews** to live and saved CV detections. These are
+  proposals, not new tracks, automatic labels, or decoder results. See
+  [Crowded-signal benchmark](CROWDED_AUDIO_BENCHMARK.md) for reproducible
+  synthetic and archived 40m real-audio checks.
 
-These two live discovery paths are **not yet unified**: CV box output does not
-automatically become a persistent live track with its own decode worker.
-This slice does not replace the existing audio detector with CV when the CV
-model is unavailable.
+CV and heuristic detectors share the *isolated receive-only decoder queue*,
+but not their track registries. CV remains optional; the heuristic path is
+available when the model is unavailable.
 
 ## Tests and next gates
 
-\`\`\`bash
-python -m pytest -q tests/test_identification.py tests/test_classifier_api.py tests/test_tracking.py tests/test_api.py
-\`\`\`
+```bash
+python -m pytest -q tests/test_identification.py tests/test_classifier_api.py tests/test_tracking.py tests/test_api.py tests/test_frequency_refinement.py tests/test_crowded_benchmark.py tests/test_frequency_refinement_api.py
+```
 
 Before widening automatic identification, benchmark the whole chain on
 held-out real captures: false detections/hour, correct *family* top-3,
@@ -73,6 +82,6 @@ Next engineering slices:
 
 The staged evidence, modulation measurements, and validation philosophy
 were informed by [OnAir](https://github.com/adswill/OnAir), particularly
-its \`docs/IDENTIFIER.md\` and \`docs/SIGNAL-LAB.md\`. This first slice is
+its `docs/IDENTIFIER.md` and `docs/SIGNAL-LAB.md`. This first slice is
 written independently in Python and does not include OnAir source code.
 Review licensing before ever importing/reusing upstream implementation.
