@@ -35,6 +35,28 @@ using `/data` for their output paths, then set `SIG_ID_MODEL_PATH=/data/models/m
 in `.env` and recreate the service. Leave this setting blank for manual operation.
 A missing or invalid model leaves capture and manual analysis usable.
 
+### Live radio USB audio and capture recovery
+
+For radios exposing a USB sound card (such as the IC-7300), choose the
+**recording/input** side of the CODEC in **Receive settings → Audio input**.
+On Linux the direct device often looks like `USB Audio CODEC: - (hw:0,0)`.
+Do not choose `alsa_output.*.monitor`: that is a **playback monitor** and
+may record silence even while the radio is receiving. Signal ID now warns
+when a monitor is selected and remembers the chosen input by device name.
+
+A direct ALSA `hw:` input may be exclusive. If a new capture fails or has
+no audio, check whether another audio application—or an older Signal ID
+instance on another port—is holding the device. Stop its capture cleanly
+before starting the new one. On Linux `fuser -v /dev/snd/pcmC0D0c`
+shows processes using card 0's capture device; card numbers vary.
+
+Live capture belongs to the server, not the browser tab. Refreshing the
+page now **rejoins the existing capture** and restores **Stop and review**,
+the waterfall, and live-track polling. Stop finalizes full recordings or
+ends scan-only capture. Avoid killing the server to clear a capture unless
+the API is unresponsive, because graceful Stop also preserves its WAV
+and metadata.
+
 ### Optional YOLO signal detector
 
 CV inference is off unless `SIG_ID_CV_MODEL_PATH` points to a trained detector. The
