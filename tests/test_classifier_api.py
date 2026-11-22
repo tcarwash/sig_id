@@ -270,7 +270,7 @@ def test_live_candidate_gets_bounded_model_proposal_and_model_ranking(tmp_path, 
     })
     monkeypatch.setattr(
         "sigid.api.detect_tracks",
-        lambda spectrum, threshold_db: [
+        lambda spectrum, threshold_db, maximum_tone_gap_hz=800.0: [
             {
                 "id": "short", "sample_start": 0, "sample_count": 500,
                 "center_hz": 2400.0, "bandwidth_hz": 200.0, "peak_snr_db": 40.0,
