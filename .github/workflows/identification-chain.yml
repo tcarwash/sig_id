@@ -5,6 +5,9 @@ on:
     paths:
       - "sigid/identification.py"
       - "sigid/libsigdecode/**"
+      - "sigid/signal_lab.py"
+      - "tests/test_signal_lab.py"
+      - "docs/SIGNAL_LAB.md"
       - "sigid/local_decoder_backend.py"
       - "sigid/conformance.py"
       - "tests/test_decoder_conformance.py"
@@ -72,6 +75,8 @@ jobs:
           python -m sigid.conformance tests/fixtures/decoder_conformance/rtty/manifest.json --json-out /tmp/rtty-conformance.json
           python -m sigid.conformance tests/fixtures/decoder_conformance/bpsk31/manifest.json --json-out /tmp/bpsk31-conformance.json
           python -m sigid.conformance tests/fixtures/decoder_conformance/ax25/manifest.json --json-out /tmp/ax25-conformance.json
+      - name: Verify synthetic multi-modem signal lab
+        run: python -m pytest -q tests/test_signal_lab.py
       - name: Verify decoder UI JavaScript tests
         run: node --test tests/test_decoder_result.mjs tests/test_decoder_artifact_ui.mjs tests/test_decoder_mode_suggestions.mjs
       - name: Check live browser JavaScript syntax
