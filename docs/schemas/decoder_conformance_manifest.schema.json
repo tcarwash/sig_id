@@ -1,0 +1,316 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Signal ID decoder conformance manifest v1",
+  "description": "Editor schema; runtime also validates checksum, WAV bounds, uniqueness, and provenance.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "suite_id",
+    "fixtures"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "suite_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+    },
+    "description": {
+      "type": "string"
+    },
+    "fixtures": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "decoder_id",
+          "provenance",
+          "audio",
+          "expected"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]*$"
+          },
+          "decoder_id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]*$"
+          },
+          "provenance": {
+            "type": "object",
+            "required": [
+              "kind",
+              "description"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "synthetic",
+                  "reviewed_air",
+                  "unreviewed_air"
+                ]
+              },
+              "description": {
+                "type": "string",
+                "minLength": 1
+              },
+              "generator": {
+                "type": "string"
+              },
+              "generator_version": {
+                "type": "string"
+              },
+              "reviewer": {
+                "type": "string",
+                "minLength": 1
+              },
+              "truth_basis": {
+                "type": "string",
+                "minLength": 1
+              },
+              "source_reference": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "reviewed_air"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "reviewer",
+                "truth_basis",
+                "source_reference"
+              ]
+            }
+          },
+          "audio": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "sha256"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "pattern": "\\.wav$"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "file_start_sample": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "window_offset_samples": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "sample_count": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          },
+          "carrier_hz": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "exclusiveMinimum": 0
+          },
+          "expected": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "negative"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "observe"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind"
+                ],
+                "anyOf": [
+                  {
+                    "required": [
+                      "text"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "frames"
+                    ]
+                  }
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "positive"
+                  },
+                  "text": {
+                    "type": "string"
+                  },
+                  "frames": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 32,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "payload_hex"
+                      ],
+                      "properties": {
+                        "payload_hex": {
+                          "type": "string",
+                          "pattern": "^(?:[0-9a-fA-F]{2})*$"
+                        },
+                        "bit_length": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "integrity": {
+                          "type": "array",
+                          "maxItems": 8,
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "kind",
+                              "algorithm",
+                              "outcome"
+                            ],
+                            "properties": {
+                              "kind": {
+                                "enum": [
+                                  "crc",
+                                  "fec",
+                                  "checksum",
+                                  "parity"
+                                ]
+                              },
+                              "algorithm": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "outcome": {
+                                "enum": [
+                                  "passed",
+                                  "failed",
+                                  "not_checked"
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "allowed_statuses": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {
+                      "enum": [
+                        "decoded",
+                        "partial"
+                      ]
+                    }
+                  },
+                  "max_character_error_rate": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "provenance": {
+                  "properties": {
+                    "kind": {
+                      "const": "unreviewed_air"
+                    }
+                  }
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "expected": {
+                  "properties": {
+                    "kind": {
+                      "const": "observe"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "expected": {
+                  "properties": {
+                    "kind": {
+                      "const": "observe"
+                    }
+                  }
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "provenance": {
+                  "properties": {
+                    "kind": {
+                      "const": "unreviewed_air"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "suite_id": "cw-synthetic-v1",
+  "description": "Deterministic synthetic vectors; not a reviewed on-air benchmark.",
+  "fixtures": [
+    {
+      "id": "cw_cq_test",
+      "decoder_id": "cw",
+      "provenance": {
+        "kind": "synthetic",
+        "description": "Independent textbook Morse generator, 1:3:7 timing with 7ms key ramp, plus adjacent tone and seeded AWGN.",
+        "generator": "tools/build_decoder_conformance_cw_fixtures.py",
+        "generator_version": "1"
+      },
+      "audio": {
+        "path": "cw-cq-test.wav",
+        "sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+        "window_offset_samples": 0,
+        "file_start_sample": 17000
+      },
+      "carrier_hz": 1100.0,
+      "expected": {
+        "kind": "positive",
+        "text": "CQ TEST",
+        "allowed_statuses": [
+          "decoded"
+        ]
+      }
+    },
+    {
+      "id": "cw_sos",
+      "decoder_id": "cw",
+      "provenance": {
+        "kind": "synthetic",
+        "description": "Independent textbook Morse generator, 1:3:7 timing with 7ms key ramp, plus adjacent tone and seeded AWGN.",
+        "generator": "tools/build_decoder_conformance_cw_fixtures.py",
+        "generator_version": "1"
+      },
+      "audio": {
+        "path": "cw-sos.wav",
+        "sha256": "2c9fe7b96dc683168e6892ed3492fc55169f5a32a6dee1168c3670c881bd9c6f",
+        "window_offset_samples": 0,
+        "file_start_sample": 17000
+      },
+      "carrier_hz": 1100.0,
+      "expected": {
+        "kind": "positive",
+        "text": "SOS",
+        "allowed_statuses": [
+          "decoded"
+        ]
+      }
+    },
+    {
+      "id": "cw_constant_carrier",
+      "decoder_id": "cw",
+      "provenance": {
+        "kind": "synthetic",
+        "description": "Independent synthetic negative audio; no transmitted Morse message.",
+        "generator": "tools/build_decoder_conformance_cw_fixtures.py",
+        "generator_version": "1"
+      },
+      "audio": {
+        "path": "cw-carrier.wav",
+        "sha256": "7b33963d17a8af28c04200e370bb54b36f6938c719a55482a2df44dfa3dea994",
+        "window_offset_samples": 0,
+        "file_start_sample": 17000
+      },
+      "carrier_hz": 1100.0,
+      "expected": {
+        "kind": "negative"
+      }
+    },
+    {
+      "id": "cw_noise_floor",
+      "decoder_id": "cw",
+      "provenance": {
+        "kind": "synthetic",
+        "description": "Independent synthetic negative audio; no transmitted Morse message.",
+        "generator": "tools/build_decoder_conformance_cw_fixtures.py",
+        "generator_version": "1"
+      },
+      "audio": {
+        "path": "cw-noise.wav",
+        "sha256": "6d03a58c59c710fa2a9e87f4dd6393e6c811e832db27d476a8d61c1a1cc1dc8c",
+        "window_offset_samples": 0,
+        "file_start_sample": 17000
+      },
+      "carrier_hz": 1100.0,
+      "expected": {
+        "kind": "negative"
+      }
+    },
+    {
+      "id": "cw_unrelated_hopping",
+      "decoder_id": "cw",
+      "provenance": {
+        "kind": "synthetic",
+        "description": "Independent synthetic negative audio; no transmitted Morse message.",
+        "generator": "tools/build_decoder_conformance_cw_fixtures.py",
+        "generator_version": "1"
+      },
+      "audio": {
+        "path": "cw-hopping.wav",
+        "sha256": "62db58d6410a71bf40ce06b9e56980b17b7eacc7358f2c326c368bf670e9b6a4",
+        "window_offset_samples": 0,
+        "file_start_sample": 17000
+      },
+      "carrier_hz": 1100.0,
+      "expected": {
+        "kind": "negative"
+      }
+    }
+  ]
+}
