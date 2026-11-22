@@ -66,7 +66,16 @@ spectral detector runs periodically (about every 3 seconds, with a reduced
 320-row analysis budget). When CV is preferred, spectral results are limited
 to strongly detected **single-tone narrow candidates** and tone grouping
 uses a 35 Hz maximum gap instead of the general detector's 800 Hz default.
-Without CV, the general multi-tone tracker keeps its original 800 Hz grouping.
+It also lowers the hard absolute peak gate to **−32 dB** (from −25 dB)
+while retaining the 18 dB above-row-floor threshold. In the retained
+IC-7300 recording, the 1699 Hz keyed signal was often around −50 dB and
+only exceeded −25 dB during occasional stronger marks; at −32 dB the
+independent spectral tracker recovered its narrow carrier. A still lower
+−35 dB gate sometimes admitted extra tone sidebands on loud synthetic
+signals, so −32 dB was selected as the conservative compromise. These are
+display/detection heuristics, not calibrated receiver power units.
+Without CV, the general multi-tone tracker keeps its original 800 Hz grouping
+and its −25 dB peak floor.
 Independent narrow-tone detection remains available even if the classifier is
 disabled; it must never silently depend on a trained model. The two detection
 routes keep separate track IDs and are not counted as independently verified
