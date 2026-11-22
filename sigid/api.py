@@ -1867,6 +1867,7 @@ def create_app(
         hop_size: int = Query(default=512, ge=1, le=8192),
         max_rows: int = Query(default=640, ge=1, le=8192),
         threshold_db: float = Query(default=18.0, ge=1.0, le=60.0),
+        minimum_peak_db: float = Query(default=-25.0, ge=-120.0, le=0.0),
         maximum_tone_gap_hz: float = Query(default=800.0, ge=10.0, le=1500.0),
         classifier_crop_count: int = Query(default=1, ge=1, le=20),
         include_tracks: bool = Query(default=True),
@@ -1904,6 +1905,7 @@ def create_app(
             if include_tracks:
                 detections = detect_tracks(
                     spectrum, threshold_db=threshold_db,
+                    minimum_peak_db=minimum_peak_db,
                     maximum_tone_gap_hz=maximum_tone_gap_hz,
                 )
                 registry = app.state.live_track_registry
