@@ -61,6 +61,12 @@ def test_upload_waterfall_manual_label_audio_and_jsonl_export(tmp_path):
             assert 'id="empty-live-start"' in page
             assert 'id="empty-model-readiness"' in page
             assert 'class="topbar-nav"' in page
+            assert 'id="cv-debug-bounds"' in page
+            assert 'id="cv-detection-list"' in page
+            assert "Inspect DSP" in page
+            app_js = (await client.get("/app.js")).text
+            assert "function inspectCvTimingEvidence" in app_js
+            assert "function cvRankedAlternatives" in app_js
             assert "waterfall-layout" in (await client.get("/style.css")).text
             app_js = (await client.get("/app.js")).text
             assert "async function recoverLiveCapture()" in app_js
