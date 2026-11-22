@@ -234,6 +234,7 @@ def wav_write(path: Path, samples: np.ndarray, rate: int, *,
 def render(*, modes: list[str], output: Path, fixture_root: Path = FIXTURES,
            duration: float = 48.0, sample_rate: int = RATE, seed: int = 71062,
            snr_db: float = 19.0, level: float = 0.17,
+           snr_reference_hz: float | None = None,
            gap_seconds: float = 0.9, carrier_overrides: dict[str, float] | None = None,
            allow_overlap: bool = False, stereo: bool = True,
            traffic: str = "staggered", max_active: int = 1,
@@ -242,8 +243,16 @@ def render(*, modes: list[str], output: Path, fixture_root: Path = FIXTURES,
         raise ValueError("duration must be 15–300 seconds")
     if sample_rate not in (12000, 24000, 48000):
         raise ValueError("sample rate must be 12000, 24000 or 48000")
-    if not 0 <= snr_db <= 55 or not 0.02 <= level <= 0.3:
-        raise ValueError("SNR must be 0–55 dB and signal level 0.02–0.3 RMS")
+    if not np.isfinite(snr_db) or not -30 <= snr_db <= 55:
+        raise ValueError("SNR must be finite and between -30 and +55 dB")
+    if not np.isfinite(level) or not 0.02 <= level <= 0.3:
+        raise ValueError("signal level must be finite and between 0.02 and 0.3 RMS")
+    # Default to the historical full Nyquist noise bandwidth. A narrower
+    # reference, such as 2500 Hz for weak-signal ham measurements, requires
+    # *more* full-band AWGN to achieve the requested in-band SNR.
+    reference_hz = sample_rate / 2 if snr_reference_hz is None else snr_reference_hz
+    if not np.isfinite(reference_hz) or not 100 <= reference_hz <= sample_rate / 2:
+        raise ValueError("SNR reference bandwidth must be 100 Hz through Nyquist")
     if not 0.2 <= gap_seconds <= 10:
         raise ValueError("gap must be between 0.2 and 10 seconds")
     if traffic not in {"staggered", "sparse", "parallel"}:
@@ -379,7 +388,8 @@ def render(*, modes: list[str], output: Path, fixture_root: Path = FIXTURES,
         if not any(item["mode"] == station.fixture.mode for item in truth):
             raise ValueError(f"{station.fixture.mode}: no complete transmission fits "
                              "in the requested duration; increase --duration")
-    noise_rms = level / (10 ** (snr_db / 20))
+    reference_noise_rms = level / (10 ** (snr_db / 20))
+    noise_rms = reference_noise_rms * np.sqrt((sample_rate / 2) / reference_hz)
     audio += rng.normal(0, noise_rms, total_frames)
     # Continuous fixed QRM lines can dominate a sparse waterfall and trigger
     # narrow-tone false positives, so omit them in sparse mode by default.
@@ -406,8 +416,13 @@ def render(*, modes: list[str], output: Path, fixture_root: Path = FIXTURES,
         "bursts_per_mode": bursts_per_mode if traffic == "sparse" else None,
         "continuous_qrm": qrm,
         "snr_db_nominal_per_station": snr_db,
+        "snr_reference_hz": reference_hz,
+        "snr_definition": "signal RMS power relative to AWGN integrated over SNR reference bandwidth",
         "signal_rms_before_overlap": level,
+        "signal_rms_after_global_gain": round(level * gain, 8),
         "background_noise_rms": round(noise_rms, 8),
+        "background_noise_rms_after_global_gain": round(noise_rms * gain, 8),
+        "reference_noise_rms_before_global_gain": round(reference_noise_rms, 8),
         "peak_before_scaling": round(peak_before_scaling, 5),
         "master_gain": round(gain, 6),
         "fixture_root": str(fixture_root.resolve()),
@@ -539,6 +554,7 @@ def start_loop(state_dir: Path, settings: argparse.Namespace) -> dict:
     result = render(modes=modes, output=output, fixture_root=settings.fixtures_root,
                     duration=settings.duration, sample_rate=settings.rate,
                     seed=settings.seed, snr_db=settings.snr_db, level=settings.level,
+                    snr_reference_hz=settings.snr_reference_hz,
                     gap_seconds=settings.gap, carrier_overrides=carriers,
                     allow_overlap=settings.allow_overlap, traffic=settings.traffic,
                     max_active=settings.max_active, bursts_per_mode=settings.bursts_per_mode,
@@ -595,7 +611,10 @@ def _add_render_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--rate", type=int, default=RATE, choices=(12000, 24000, 48000))
     parser.add_argument("--seed", type=int, default=71062)
     parser.add_argument("--snr-db", type=float, default=19,
-                        help="nominal station signal-to-white-noise dB (default 19)")
+                        help="station signal-to-AWGN SNR in dB (-30 to +55; default +19)")
+    parser.add_argument("--snr-reference-hz", type=float, default=None,
+                        help="noise reference bandwidth in Hz; default full Nyquist, "
+                             "use 2500 for ham weak-signal SNR convention")
     parser.add_argument("--level", type=float, default=0.17,
                         help="each station's target RMS before overlap (default 0.17)")
     parser.add_argument("--gap", type=float, default=0.9,
@@ -647,7 +666,8 @@ def main(argv: list[str] | None = None) -> int:
             info = render(modes=modes, output=args.output,
                           fixture_root=args.fixtures_root, duration=args.duration,
                           sample_rate=args.rate, seed=args.seed, snr_db=args.snr_db,
-                          level=args.level, gap_seconds=args.gap,
+                          level=args.level, snr_reference_hz=args.snr_reference_hz,
+                          gap_seconds=args.gap,
                           carrier_overrides=parse_carriers(args.carriers, modes),
                           allow_overlap=args.allow_overlap, traffic=args.traffic,
                           max_active=args.max_active, bursts_per_mode=args.bursts_per_mode,
