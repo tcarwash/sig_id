@@ -216,6 +216,68 @@ def test_multi_group_reuses_passband_only_in_different_time_slots(tmp_path):
                if item["mode"] == "bpsk31") >= 19
 
 
+@pytest.mark.parametrize("snr_db", [-30.0, -17.5, -5.0, 0.0, 15.0])
+def test_negative_and_positive_snr_match_reference_band_and_remain_unclipped(tmp_path, snr_db):
+    # Measure noise-only samples separately from the known two CW bursts.
+    # The reference-band noise is recovered by summing FFT energy below
+    # 2500 Hz; this catches incorrect sqrt(bandwidth) or dB conversions.
+    output = tmp_path / f"snr-{snr_db}.wav"
+    info = signal_lab.render(modes=["cw"], output=output, duration=20,
+                             snr_db=snr_db, snr_reference_hz=2500,
+                             seed=772, traffic="sparse", qrm=False)
+    assert info["snr_db_nominal_per_station"] == snr_db
+    assert info["snr_reference_hz"] == 2500
+    assert info["continuous_qrm"] is False
+    assert info["master_gain"] > 0
+    with wave.open(str(output), "rb") as f:
+        audio = np.frombuffer(f.readframes(f.getnframes()), dtype="<i2").astype(float) / 32768
+    assert np.max(np.abs(audio)) < 0.945  # linear normalization, no hard clipping
+    quiet = audio[int(6 * 48000):int(9 * 48000)]
+    noise_rms = np.sqrt(np.mean(quiet ** 2))
+    assert noise_rms == pytest.approx(info["background_noise_rms_after_global_gain"], rel=0.03)
+    transform = np.fft.rfft(quiet)
+    frequencies = np.fft.rfftfreq(len(quiet), 1 / 48000)
+    full_energy = np.sum(np.abs(transform) ** 2)
+    band_energy = np.sum(np.abs(transform[frequencies <= 2500]) ** 2)
+    noise_rms_in_band = noise_rms * np.sqrt(band_energy / full_energy)
+    signal_rms = info["signal_rms_after_global_gain"]
+    actual_snr = 20 * np.log10(signal_rms / noise_rms_in_band)
+    assert actual_snr == pytest.approx(snr_db, abs=0.5)
+
+
+def test_cli_accepts_negative_fractional_snr(tmp_path, capsys):
+    output = tmp_path / "weak.wav"
+    assert signal_lab.main(["render", "--modes", "cw", "--duration", "20",
+                            "--snr-db", "-7.5", "--snr-reference-hz", "2500",
+                            "--output", str(output)]) == 0
+    info = json.loads(output.with_suffix(".json").read_text())
+    assert info["snr_db_nominal_per_station"] == -7.5
+    assert info["snr_reference_hz"] == 2500
+    assert output.exists() and (tmp_path / "weak-stereo.wav").exists()
+    assert "weak.wav" in capsys.readouterr().out
+
+
+def test_default_snr_reference_remains_full_nyquist(tmp_path):
+    data = signal_lab.render(modes=["cw"], output=tmp_path / "old.wav",
+                             snr_db=-10, duration=20, bursts_per_mode=1)
+    assert data["snr_reference_hz"] == 24000
+    assert data["reference_noise_rms_before_global_gain"] == pytest.approx(
+        0.17 * 10 ** (10 / 20), abs=1e-8)
+
+
+@pytest.mark.parametrize("value", [-31, 56, float("nan"), float("inf"), -float("inf")])
+def test_invalid_snr_rejected_before_audio_generation(tmp_path, value):
+    with pytest.raises(ValueError, match="SNR must be finite"):
+        signal_lab.render(modes=["cw"], output=tmp_path / "invalid.wav", snr_db=value)
+
+
+def test_invalid_snr_bandwidth_rejected(tmp_path):
+    for value in (0, 99, 30000, float("nan"), float("inf")):
+        with pytest.raises(ValueError, match="SNR reference bandwidth"):
+            signal_lab.render(modes=["cw"], output=tmp_path / "invalid.wav",
+                              snr_reference_hz=value)
+
+
 def test_render_rejects_unknown_modes_and_short_windows(tmp_path):
     with pytest.raises(ValueError, match="no verified"):
         signal_lab.render(modes=["imaginary_modem"], output=tmp_path / "bad.wav")

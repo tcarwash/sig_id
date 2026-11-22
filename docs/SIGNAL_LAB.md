@@ -85,7 +85,39 @@ Files:
 - /tmp/sigid-multi-mode-stereo.wav — identical audio in both channels; used by the loop player
 - /tmp/sigid-multi-mode.json — sample-accurate truth metadata, fixture hashes and parameters
 
-The default signal RMS is 0.17 per station before overlap. Default SNR 19 dB adds seeded white noise. The default CLI renders a 100-second sparse loop with two complete bursts per selected mode, without continuous interfering tones. The legacy staggered/parallel modes include weak interfering tones at 735 and 2675 Hz unless disabled; sparse mode defaults to noise only. The mix is linearly peak-normalized if needed; the truth manifest records its gain. Use --snr-db 25 for a clean control or --snr-db 10 to challenge the detectors. Sample rates 12, 24 and 48 kHz are supported; use 48 kHz for the virtual audio input.
+### Weak-signal testing below 0 dB SNR
+
+Signal Lab accepts **--snr-db from -30 to +55 dB**, including fractional
+negative values. The SNR compares the active modem's nominal RMS signal
+power against *white noise integrated over the reference bandwidth*. In the
+legacy/default configuration, the reference is the entire audio Nyquist
+bandwidth (24 kHz for a 48-kHz recording), so a narrowband demodulator may
+report a much better SNR after filtering.
+
+For radio-style weak-signal tests, explicitly choose **2500 Hz** as the
+reference bandwidth. A narrower noise reference adds enough full-band white
+noise to achieve the requested in-band SNR; the generator does **not** merely
+subtract decibels from the display level:
+
+    # Moderate weak-signal example, one synthetic modem at a time:
+    python -m sigid.signal_lab start --modes cw,rtty,bpsk31,ax25 \
+        --traffic sparse --max-active 1 --duration 100 \
+        --snr-db -5 --snr-reference-hz 2500
+
+    # Extremely weak, likely to fail in the experimental native decoders:
+    python -m sigid.signal_lab render --modes bpsk31 \
+        --snr-db -20 --snr-reference-hz 2500 \
+        --output /tmp/weak-bpsk31.wav
+
+The generated JSON truth manifest records the requested SNR, reference
+bandwidth, nominal RMS signal and noise levels **after the common amplitude
+normalization gain**, so repeated tests can be compared. Noise and signal
+are scaled together before PCM16 conversion: the output is not clipped to
+make a low SNR fit. Very weak signals are expected to be visually submerged
+and may produce native-decoder abstentions; the simulator's job is to
+synthesize the signal, not claim it decoded successfully.
+
+The default signal RMS is 0.17 per station before overlap. Default SNR 19 dB adds seeded white noise. The default CLI renders a 100-second sparse loop with two complete bursts per selected mode, without continuous interfering tones. The legacy staggered/parallel modes include weak interfering tones at 735 and 2675 Hz unless disabled; sparse mode defaults to noise only. The mix is linearly peak-normalized if needed; the truth manifest records its gain. Use --snr-db 25 for a clean control, --snr-db -5 with --snr-reference-hz 2500 for more realistic weak-signal tests, or down to -30 to explore the noise floor. Sample rates 12, 24 and 48 kHz are supported; use 48 kHz for the virtual audio input.
 
 ## Troubleshooting and safety
 
