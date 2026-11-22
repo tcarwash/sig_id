@@ -161,6 +161,14 @@ function bandHopFrequenciesHz() {
 }
 el("live-cv-enabled").checked = savedInspectorPreference("sig-id-live-cv-enabled", ["on", "off"], "on") === "on";
 el("live-classifier-enabled").checked = savedInspectorPreference("sig-id-live-classifier-enabled", ["on", "off"], "on") === "on";
+el("live-fine-refinement").checked = savedInspectorPreference("sig-id-live-fine-refinement", ["on", "off"], "off") === "on";
+el("live-fine-refinement").addEventListener("change", () => {
+  try { localStorage.setItem("sig-id-live-fine-refinement", el("live-fine-refinement").checked ? "on" : "off"); } catch {}
+  if (!el("live-fine-refinement").checked) {
+    for (const detection of state.cvDetections) delete detection.frequency_refinement;
+    renderCvDetections();
+  }
+});
 for (const id of ["live-cv-enabled", "live-classifier-enabled"]) {
   el(id).addEventListener("change", () => {
     try { localStorage.setItem(`sig-id-${id}`, el(id).checked ? "on" : "off"); } catch {}
@@ -1403,6 +1411,7 @@ function mergeLiveCvDetections(incoming) {
       match.track_observations = detection.track_observations;
     }
     if (detection.decoder_trial) match.decoder_trial = detection.decoder_trial;
+    if (detection.frequency_refinement) match.frequency_refinement = detection.frequency_refinement;
     if (detection.classifier_proposal?.available
       && (!match.classifier_proposal?.available
         || (detection.classifier_proposal.confidence || 0) > (match.classifier_proposal.confidence || 0))) {
@@ -1457,7 +1466,7 @@ el("cv-scan").addEventListener("click", async () => {
   button.textContent = "Scanning capture…";
   el("cv-status").textContent = "Scanning completed recording in overlapping 10-second spectrogram windows…";
   try {
-    const result = await request(`/api/captures/${encodeURIComponent(capture.id)}/cv-detections`, { method: "POST" });
+    const result = await request(`/api/captures/${encodeURIComponent(capture.id)}/cv-detections?include_frequency_refinement=${el("live-fine-refinement").checked}`, { method: "POST" });
     if (state.capture !== capture || state.liveView) return;
     applyCvDetectionResult(capture, result);
   } catch (error) {
@@ -1488,6 +1497,12 @@ function renderCvDetections() {
     const detail = document.createElement("div");
     detail.className = "region-detail";
     detail.textContent = `${detection.frequency_low_hz.toFixed(0)}–${detection.frequency_high_hz.toFixed(0)} Hz · ${(detection.sample_start / detection.sample_rate).toFixed(2)}–${((detection.sample_start + detection.sample_count) / detection.sample_rate).toFixed(2)} s`;
+    const fine = detection.frequency_refinement;
+    if (fine?.split_suggested && Array.isArray(fine.subbands)) {
+      const bands = fine.subbands.map((item) =>
+        `${item.frequency_low_hz.toFixed(0)}–${item.frequency_high_hz.toFixed(0)}`).join(", ");
+      detail.textContent += ` · DSP split preview: ${bands} Hz (unverified; original box retained)`;
+    }
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = "Review selection";
@@ -3103,9 +3118,11 @@ function attachLiveCapture(started, {resumed = false} = {}) {
         if (cvEnabled && state.cvAvailable && Date.now() - lastLiveCvAt >= 2500) {
           lastLiveCvAt = Date.now();
           try {
-            const cv = await request(`/api/live/cv-detections?session_id=${encodeURIComponent(started.session_id)}&include_classifier=${classifierEnabled}&auto_trial=${autoTrial}`);
+            const fineRefinement = el("live-fine-refinement").checked;
+            const cv = await request(`/api/live/cv-detections?session_id=${encodeURIComponent(started.session_id)}&include_classifier=${classifierEnabled}&auto_trial=${autoTrial}&include_frequency_refinement=${fineRefinement}`);
             if (generation === state.liveGeneration && state.liveView) {
               mergeLiveCvDetections(cv.detections);
+              if (!fineRefinement) for (const detection of state.cvDetections) delete detection.frequency_refinement;
               if (cv.automatic_trial?.run_id) watchDecoderTrial(cv.automatic_trial);
               if (!classifierEnabled) {
                 for (const detection of state.cvDetections) delete detection.classifier_proposal;
@@ -3115,7 +3132,7 @@ function attachLiveCapture(started, {resumed = false} = {}) {
               const visibleScannedDetections = (cv.detections || []).filter((item) => !frequencyNotchMatches(item)).length;
               el("cv-status").textContent = cv.warming_up
                 ? `Live CV warming up · ${cv.observed_seconds.toFixed(2)} s of audio`
-                : `Live CV · ${visibleLiveDetections} visible boxes${state.cvDetections.length > visibleLiveDetections ? ` · ${state.cvDetections.length - visibleLiveDetections} suppressed by notches` : ""} · ${visibleScannedDetections} in latest scan · ${classifierEnabled ? (cv.classifier_available ? "classifier proposals attached" : "classifier unavailable") : "classifier paused"} · proposals are provisional`;
+                : `Live CV · ${visibleLiveDetections} visible boxes${state.cvDetections.length > visibleLiveDetections ? ` · ${state.cvDetections.length - visibleLiveDetections} suppressed by notches` : ""} · ${visibleScannedDetections} in latest scan · ${classifierEnabled ? (cv.classifier_available ? "classifier proposals attached" : "classifier unavailable") : "classifier paused"} · ${fineRefinement ? `${cv.frequency_refinement_suggestions || 0} DSP split previews · ` : ""}proposals are provisional`;
             }
           } catch (error) {
             if (generation === state.liveGeneration) el("cv-status").textContent = `Live CV unavailable · ${error.message}`;
@@ -7571,7 +7588,7 @@ async function reviewQueuedCapture(capture) {
     }
     if (state.cvAvailable && !state.regions.length && !restoreCachedCvDetection(capture)) {
       try {
-        const result = await request(`/api/captures/${encodeURIComponent(capture.id)}/cv-detections`, { method: "POST" });
+        const result = await request(`/api/captures/${encodeURIComponent(capture.id)}/cv-detections?include_frequency_refinement=${el("live-fine-refinement").checked}`, { method: "POST" });
         if (state.capture !== capture) return;
         applyCvDetectionResult(capture, result);
       } catch (error) {
