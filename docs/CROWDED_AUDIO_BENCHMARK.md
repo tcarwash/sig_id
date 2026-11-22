@@ -94,6 +94,23 @@ Three CV regions observed around 225 seconds were replayed:
 | 1719–1830 Hz | One resolved spectral component | 0 |
 | 2125–2247 Hz | One resolved spectral component | 0 |
 
+The new **on-demand frequency-transition timing inspector** was also
+replayed against the same three original CV regions without modifying the
+underlying capture:
+
+| Audio band | Observed tone-grid candidate | Clock candidate |
+|---|---:|---|
+| 860–992 Hz | ~6 Hz | Inconclusive |
+| 1719–1830 Hz | ~6 Hz | **6.25 baud / 160 ms** |
+| 2125–2247 Hz | ~9 Hz | Inconclusive |
+
+The middle region therefore supplies independent FT8-compatible timing
+evidence despite its earlier PSK/BPSK31 model hypothesis. The other
+measurements do not establish their modulation family, and tone-grid
+candidates without a coherent clock should be treated cautiously.
+**No independent FT8 decode or reviewed station identity exists for these
+three regions.**
+
 The refiner preserved all original CV boxes. **No independent manual or
 WSJT-X-derived reference boxes were supplied**, so there is no valid
 real-world recall, precision, or confirmed station count for this sample.
