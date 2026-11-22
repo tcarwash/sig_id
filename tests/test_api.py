@@ -73,6 +73,7 @@ def test_upload_waterfall_manual_label_audio_and_jsonl_export(tmp_path):
             assert "const useHeuristicTracks = narrowEnabled" in app_js
             assert "const classifyHeuristicTracks = useHeuristicTracks && classifierEnabled && !preferCvTracks" in app_js
             assert "maximum_tone_gap_hz=${preferCvTracks ? 35 : 800}" in app_js
+            assert "minimum_peak_db=${preferCvTracks ? -35 : -25}" in app_js
             assert "waterfall-layout" in (await client.get("/style.css")).text
             app_js = (await client.get("/app.js")).text
             assert "async function recoverLiveCapture()" in app_js
