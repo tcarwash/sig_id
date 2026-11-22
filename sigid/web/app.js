@@ -1440,6 +1440,7 @@ function mergeLiveCvDetections(incoming) {
       match.track_observations = detection.track_observations;
     }
     if (detection.decoder_trial) match.decoder_trial = detection.decoder_trial;
+    if (detection.native_decode_evidence) match.native_decode_evidence = detection.native_decode_evidence;
     if (detection.frequency_refinement) match.frequency_refinement = detection.frequency_refinement;
     if (detection.classifier_proposal?.available
       && (!match.classifier_proposal?.available
@@ -1564,6 +1565,64 @@ async function inspectCvTimingEvidence(detection, button) {
   }
 }
 
+function nativeLiveCaption(evidence) {
+  if (!evidence || evidence.grade === "none" || !evidence.mode || !evidence.text) return "";
+  const status = evidence.grade === "frame-integrity-passed" ? "frame CRC/FCS passed" : "readable, unverified";
+  return `Native ${evidence.mode.toUpperCase()} suggestion (${status}): ${evidence.text.slice(0, 75)}`;
+}
+
+let nativeLiveStatusLastAt = 0;
+let nativeLiveStatusPending = false;
+let lastNativeLiveResultId = null;
+async function refreshNativeLiveResults() {
+  const sessionId = state.liveSessionId;
+  const perfNode = el("native-live-performance");
+  const resultNode = el("native-live-results");
+  if (!sessionId || !resultNode || !perfNode) return;
+  if (!el("auto-native-decode").checked) {
+    perfNode.textContent = "Native live decoding paused. Enable it here to collect CPU-limited, tentative evidence.";
+    return;
+  }
+  if (nativeLiveStatusPending) return;
+  nativeLiveStatusPending = true;
+  try {
+    const stats = await request(`/api/live/native-decode/status?session_id=${encodeURIComponent(sessionId)}`);
+    if (sessionId !== state.liveSessionId) return;
+    const latency = Object.entries(stats.latency_by_mode || {}).map(([mode, timing]) =>
+      `${mode} median ${timing.median_ms.toFixed(0)}ms (p95 ${timing.p95_ms.toFixed(0)}ms)`).join(" · ");
+    perfNode.textContent = `Native live decode · ${stats.busy ? "working" : "idle"} · ${stats.attempts_last_minute}/${stats.max_attempts_per_minute} trials/min · ${stats.cpu_ms_last_minute.toFixed(0)}/${stats.max_cpu_ms_per_minute} CPU ms/min · ~${stats.cpu_pct_single_core_last_minute.toFixed(2)}% of one core · ${latency || "no decoder timings yet"}`;
+    const relevant = (stats.recent || []).filter((event) => event.grade !== "none" && event.text);
+    resultNode.replaceChildren();
+    if (!relevant.length) {
+      const empty = document.createElement("p");
+      empty.className = "muted";
+      empty.textContent = "No coherent native live output yet. Signals may be detectable without a successful decode.";
+      resultNode.append(empty);
+    }
+    for (const event of relevant.slice(0, 8)) {
+      const row = document.createElement("div");
+      row.className = "decode-run";
+      row.style.whiteSpace = "pre-wrap";
+      const grade = event.grade === "frame-integrity-passed" ? "CRC/FCS passed" : "text unverified";
+      row.textContent = `${event.mode.toUpperCase()} · ${grade} · ${event.cpu_ms.toFixed(0)}ms CPU · tentative\n${event.text}`;
+      resultNode.append(row);
+    }
+    const newest = relevant[0];
+    if (newest && newest.run_id !== lastNativeLiveResultId && !state.focusedDecodeAttempt && state.liveView) {
+      lastNativeLiveResultId = newest.run_id;
+      const target = el("decoded-text");
+      const text = target.textContent === "Decoded text will appear here." ? "" : target.textContent;
+      target.textContent = (`[Native live ${newest.mode.toUpperCase()} · ${newest.grade} · unverified]\n${newest.text}\n\n` + text).slice(0, 20000);
+      state.textOutputContext = "Auto native decoder suggestions · original live track window · unverified";
+      updateOutputContext();
+    }
+  } catch (error) {
+    perfNode.textContent = `Native live decode metrics unavailable · ${error.message}`;
+  } finally {
+    nativeLiveStatusPending = false;
+  }
+}
+
 function renderCvDetections() {
   const list = el("cv-detection-list");
   if (!list) return;
@@ -1626,7 +1685,8 @@ function renderCvDetections() {
         ? `CV track ${detection.track_id.split(":").at(-1)} · ${detection.track_state} (${detection.track_observations} observations)`
         : `CV box ${index + 1} · ${detection.track_state || "provisional"}`;
       const trial = detection.decoder_trial?.status ? ` · decoder ${detection.decoder_trial.status}` : "";
-      summary.textContent = `${tracker} · ${(detection.confidence * 100).toFixed(1)}% detector · ${cvClassifierCaption(detection)}${trial}`;
+      const native = nativeLiveCaption(detection.native_decode_evidence);
+      summary.textContent = `${tracker} · ${(detection.confidence * 100).toFixed(1)}% detector · ${cvClassifierCaption(detection)}${native ? ` · ${native}` : ""}${trial}`;
       row.append(summary, detail);
       if (detection.track_id && detection.track_state === "persistent") {
         const tryButton = document.createElement("button");
@@ -3216,6 +3276,8 @@ function attachLiveCapture(started, {resumed = false} = {}) {
     let pending = false;
     let lastLiveCvAt = 0;
     let lastNarrowAt = 0;
+    nativeLiveStatusLastAt = 0;
+    lastNativeLiveResultId = null;
     livePoll = setInterval(async () => {
       if (pending) return;
       pending = true;
@@ -3235,6 +3297,11 @@ function attachLiveCapture(started, {resumed = false} = {}) {
         const cvEnabled = el("live-cv-enabled").checked;
         const classifierEnabled = el("live-classifier-enabled").checked;
         const autoTrial = el("auto-trial").checked && classifierEnabled;
+        const autoNative = el("auto-native-decode").checked;
+        if (Date.now() - nativeLiveStatusLastAt >= 3000) {
+          nativeLiveStatusLastAt = Date.now();
+          void refreshNativeLiveResults();
+        }
         const preferCvTracks = cvEnabled && state.cvAvailable;
         const narrowEnabled = el("live-narrow-tracks").checked;
         // Keep the independent spectral detector alive alongside CV, but
@@ -3244,7 +3311,7 @@ function attachLiveCapture(started, {resumed = false} = {}) {
         if (useHeuristicTracks) lastNarrowAt = Date.now();
         const classifyHeuristicTracks = useHeuristicTracks && classifierEnabled && !preferCvTracks;
         const classifierCropCount = Number(el("classifier-crop-count").value) || 1;
-        const analysis = await request(`/api/live/analysis?fft_size=4096&hop_size=512&max_rows=${preferCvTracks ? 320 : 640}&maximum_tone_gap_hz=${preferCvTracks ? 35 : 800}&minimum_peak_db=${preferCvTracks ? -32 : -25}&include_spectrum=false&classifier_crop_count=${classifierCropCount}&include_tracks=${useHeuristicTracks}&include_classifier=${classifyHeuristicTracks}&auto_trial=${autoTrial && classifyHeuristicTracks}`);
+        const analysis = await request(`/api/live/analysis?fft_size=4096&hop_size=512&max_rows=${preferCvTracks ? 320 : 640}&maximum_tone_gap_hz=${preferCvTracks ? 35 : 800}&minimum_peak_db=${preferCvTracks ? -32 : -25}&include_spectrum=false&classifier_crop_count=${classifierCropCount}&include_tracks=${useHeuristicTracks}&include_classifier=${classifyHeuristicTracks}&auto_trial=${autoTrial && classifyHeuristicTracks}&auto_native_decode=${autoNative && !preferCvTracks}`);
         if (generation !== state.liveGeneration || !state.liveMonitoring) return;
         if (!state.liveView) return;
         state.liveWindowStartSample = Number.isFinite(analysis.sample_offset) ? analysis.sample_offset : null;
@@ -3255,7 +3322,7 @@ function attachLiveCapture(started, {resumed = false} = {}) {
           lastLiveCvAt = Date.now();
           try {
             const fineRefinement = el("live-fine-refinement").checked;
-            const cv = await request(`/api/live/cv-detections?session_id=${encodeURIComponent(started.session_id)}&include_classifier=${classifierEnabled}&auto_trial=${autoTrial}&include_frequency_refinement=${fineRefinement}`);
+            const cv = await request(`/api/live/cv-detections?session_id=${encodeURIComponent(started.session_id)}&include_classifier=${classifierEnabled}&auto_trial=${autoTrial}&auto_native_decode=${autoNative}&include_frequency_refinement=${fineRefinement}`);
             if (generation === state.liveGeneration && state.liveView) {
               mergeLiveCvDetections(cv.detections);
               if (!fineRefinement) for (const detection of state.cvDetections) delete detection.frequency_refinement;
@@ -7249,7 +7316,7 @@ function renderSignalLabels() {
       cvDetection: detection,
       text: el("cv-debug-bounds").checked
         ? `CV${index + 1} · ${Math.round(detection.frequency_low_hz)}–${Math.round(detection.frequency_high_hz)} Hz · ${(100 * (detection.confidence || 0)).toFixed(0)}% detect`
-        : `CV${index + 1} · ${(100 * (detection.confidence || 0)).toFixed(0)}% detector\n${state.liveView ? cvClassifierCaption(detection) : `Needs label${detection.classifier_proposal ? ` · ${cvClassifierCaption(detection)}` : ""}`}`,
+        : `CV${index + 1} · ${(100 * (detection.confidence || 0)).toFixed(0)}% detector\n${state.liveView ? `${cvClassifierCaption(detection)}${nativeLiveCaption(detection.native_decode_evidence) ? `\n${nativeLiveCaption(detection.native_decode_evidence)}` : ""}` : `Needs label${detection.classifier_proposal ? ` · ${cvClassifierCaption(detection)}` : ""}`}`,
       needsLabel: !state.liveView,
       selected: Boolean(detection.cv_proposal_id && state.selectedTrack?.cv_proposal_id === detection.cv_proposal_id),
       x: (detection.frequency_low_hz - low) / Math.max(1, high - low) * width,
