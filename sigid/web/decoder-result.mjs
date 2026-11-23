@@ -62,6 +62,16 @@ export function summarizeDecoderResult(result) {
     if (Number.isInteger(stream.last_emitted_end_sample) && stream.last_emitted_end_sample >= 0) {
       lines.push(`Last emitted Morse source sample: ${stream.last_emitted_end_sample}`);
     }
+    if (edgeStream && Number.isFinite(stream.carrier_hz)) {
+      const start = Number.isFinite(stream.initial_carrier_hz)
+        ? ` (initial ${stream.initial_carrier_hz.toFixed(1)} Hz)` : "";
+      const retunes = Number.isInteger(stream.carrier_retune_count)
+        ? ` · ${stream.carrier_retune_count} bounded retunes` : "";
+      lines.push(`CW audio carrier: ${stream.carrier_hz.toFixed(1)} Hz${start}${retunes} · oscillator phase continuous, carrier identity unverified`);
+    }
+    if (edgeStream && stream.state_reset_reason) {
+      lines.push(`CW stream initialized/reset: ${shortText(stream.state_reset_reason, 40)} · older partial symbols not reused`);
+    }
     lines.push(`Stream status: ${shortText(stream.reason, 60)} · provisional words, no Morse checksum or operator verification`);
   }
   const tokens = Array.isArray(result.tokens) ? result.tokens : [];

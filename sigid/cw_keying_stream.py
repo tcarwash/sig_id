@@ -19,6 +19,8 @@ from .libsigdecode.cw import MORSE
 MAX_WORD_MARKS = 90
 MAX_WORD_CHARS = 24
 MAX_EMITTED_TEXT = 640
+# Distinguish a plausible drifting CW tone from another nearby spectral track.
+MAX_CARRIER_RETUNE_STEP_HZ = 18.0
 
 
 @dataclass
@@ -30,6 +32,10 @@ class CWKeyingStream:
     last_sample: int = -1
     cumulative_text: str = ""
     emitted_words: int = 0
+    _mix_phase: float = 0.0
+    _initial_carrier_hz: float = field(init=False)
+    _retune_count: int = 0
+    _last_retune_delta_hz: float = 0.0
     _sos: np.ndarray = field(init=False, repr=False)
     _zi: np.ndarray = field(init=False, repr=False)
     _smooth_zi: np.ndarray = field(init=False, repr=False)
@@ -57,17 +63,20 @@ class CWKeyingStream:
             raise ValueError("unsupported CW sample rate")
         if not (math.isfinite(self.carrier_hz) and 20 <= self.carrier_hz < self.sample_rate/2):
             raise ValueError("invalid CW carrier")
+        self._initial_carrier_hz = self.carrier_hz
         self._step = max(1, round(self.sample_rate / 500))
         self._sos = butter(4, 45.0, btype="lowpass", fs=self.sample_rate, output="sos")
         self._zi = np.zeros((len(self._sos), 2), dtype=np.complex128)
         self._smooth_zi = np.zeros(2, dtype=np.float64)
         self._rem = np.array([], dtype=np.complex128)
 
-    def feed(self, pcm: np.ndarray, *, sample_start: int) -> dict:
+    def feed(self, pcm: np.ndarray, *, sample_start: int,
+             carrier_hz: float | None = None) -> dict:
         """Process an overlapping or contiguous mono PCM window.
 
-        Caller serializes feeds per track. A gap, frequency retune or session
-        switch must instantiate a fresh stream rather than join source samples.
+        Caller serializes feeds per track. A source gap or major carrier jump
+        must instantiate a fresh stream; small carrier updates use a
+        phase-continuous local oscillator and retain unfinished Morse words.
         """
         values = np.asarray(pcm)
         if values.ndim != 1 or values.size == 0 or values.size > self.sample_rate * 8:
@@ -89,8 +98,30 @@ class CWKeyingStream:
             audio = chunk.astype(np.float64)
         if not np.isfinite(audio).all():
             raise ValueError("non-finite CW samples")
-        samples = np.arange(from_sample, end, dtype=np.float64)
-        downmixed = audio * np.exp((-2j*np.pi*self.carrier_hz/self.sample_rate)*samples)
+        if carrier_hz is not None:
+            proposed = float(carrier_hz)
+            if not math.isfinite(proposed) or not 20 <= proposed < self.sample_rate/2:
+                raise ValueError("invalid requested CW carrier")
+            delta = proposed - self.carrier_hz
+            if abs(delta) > MAX_CARRIER_RETUNE_STEP_HZ:
+                raise ValueError("CW carrier jump: reset required")
+            if abs(delta) >= .01:
+                self.carrier_hz = proposed
+                self._last_retune_delta_hz = delta
+                self._retune_count += 1
+            else:
+                self._last_retune_delta_hz = 0.0
+        else:
+            self._last_retune_delta_hz = 0.0
+        # Each new sample is mixed once. Store phase at the *next* absolute
+        # source sample so retunes at a poll boundary cannot introduce phase
+        # discontinuities or reset keying/filter/Morse timing state.
+        omega = -2*np.pi*self.carrier_hz/self.sample_rate
+        if self.last_sample < 0:
+            self._mix_phase = float((omega * from_sample) % (2*np.pi))
+        offsets = np.arange(len(audio), dtype=np.float64)
+        downmixed = audio * np.exp(1j*(self._mix_phase + omega*offsets))
+        self._mix_phase = float((self._mix_phase + omega*len(audio)) % (2*np.pi))
         filtered, self._zi = sosfilt(self._sos, downmixed, zi=self._zi)
         if self._rem.size:
             filtered = np.concatenate((self._rem, filtered))
@@ -287,4 +318,9 @@ class CWKeyingStream:
             "processed_new_samples": processed,
             "reason": reason, "confirmed_identity": False,
             "not_verified": True, "emitted_words": self.emitted_words,
+            "carrier_hz": self.carrier_hz,
+            "initial_carrier_hz": self._initial_carrier_hz,
+            "carrier_retune_count": self._retune_count,
+            "last_carrier_step_hz": round(self._last_retune_delta_hz, 3),
+            "mixer_phase_continuous": True,
         }

@@ -78,3 +78,17 @@ test("continuous CW stream explains key-transition evidence without claiming ver
   assert.match(summary,/provisional words, no Morse checksum or operator verification/);
   assert.doesNotMatch(summary,/overlap-confirmed|verified CW/);
 });
+
+test("continuous CW carrier corrections show unverified provenance", () => {
+  const summary=summarizeDecoderResult({
+    source:"sigid-independent-implementation",decoder_id:"cw",status:"no_decode",evidence:{},
+    cw_stream:{strategy:"continuous-key-transition-cw-v1",delta_text:"",
+      cumulative_text:"CQ",reason:"awaiting-complete-word",
+      carrier_hz:309.5,initial_carrier_hz:296.0,
+      carrier_retune_count:1,last_carrier_step_hz:13.5,
+      state_reset_reason:"carrier-jump",confirmed_identity:false}});
+  assert.match(summary,/CW audio carrier: 309\.5 Hz \(initial 296\.0 Hz\) · 1 bounded retunes/);
+  assert.match(summary,/oscillator phase continuous, carrier identity unverified/);
+  assert.match(summary,/CW stream initialized\/reset: carrier-jump/);
+  assert.doesNotMatch(summary,/verified station|verified CW/);
+});

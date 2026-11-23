@@ -208,3 +208,92 @@ def test_provisional_cw_signal_triggers_budgeted_native_trial_before_three_polls
         asyncio.run(check())
     finally:
         app.state.native_live_runner.close()
+
+
+def test_live_cv_carrier_drift_preserves_native_worker_keying_state(tmp_path, monkeypatch):
+    """Real FastAPI/ProcessPool path; successive CV carriers drift by 13.5 Hz."""
+    import sigid.api as sigid_api
+    import sigid.native_live_decode as native_decode
+    from sigid.signal_lab import render
+    from tools.bench_cw_carrier_tracking import drift_audio
+    from tools.bench_signal_chain_snr import read_mono
+
+    manifest=render(modes=["cw"],output=tmp_path/"cv-drift.wav",
+                    duration=30,sample_rate=12000,seed=71062,traffic="sparse",
+                    bursts_per_mode=1,burst_seconds=16,snr_db=0,
+                    snr_reference_hz=2500,stereo=False,qrm=False)
+    pcm,rate,_=read_mono(manifest["mono_wav"])
+    pcm=drift_audio(pcm,rate,90)
+    nominal=manifest["transmissions"][0]["carrier_hz"]
+    app=create_app(tmp_path/"cv-drift-app")
+    app.state.classifier={"metadata":{"classifier_window_seconds":2.0,
+         "model_sha256":"a"*64,"feature_version":"passband-log-spectrum-envelope-roi-fixed-window-v4"},
+         "parameters":{}}
+    def uncertain(*args,**kwargs):
+        return {"available":True,"abstained":True,"method":None,
+                "top_candidate":"Morse → CW","confidence":.67,
+                "ranked_candidates":[
+                  {"mode_id":"fldigi-cw","relative_model_score":.75},
+                  {"mode_id":"bpsk31","relative_model_score":.22}]}
+    monkeypatch.setattr(sigid_api,"_classify_signal_crop",uncertain)
+    monkeypatch.setattr(native_decode,"MIN_ATTEMPT_GAP_SECONDS",0.0)
+    monkeypatch.setattr(native_decode,"CW_STREAM_TRACK_COOLDOWN_SECONDS",0.0)
+    class FakeCv:
+        model_sha256="b"*64
+        model_version="synthetic"
+        def detect_live_partial(self,audio,*,sample_start,total_sample_count,
+                                sample_rate,confidence=None):
+            elapsed=total_sample_count/sample_rate
+            center=nominal+90*min(elapsed/20,1)
+            return [{"sample_start":0,"sample_count":total_sample_count,
+                     "frequency_low_hz":center-10,"frequency_high_hz":center+10,
+                     "confidence":.91,"model_sha256":self.model_sha256,
+                     "model_version":self.model_version}]
+    app.state.cv_detector=FakeCv()
+    snapshot={"active":True,"session_id":"cv-retune", "sample_rate":rate,
+              "channels":1,"sample_offset":0,"sample_count":8*rate,
+              "window_sample_count":8*rate,"pcm":pcm[:8*rate].tobytes()}
+    monkeypatch.setattr(app.state.live_capture,"analysis_audio",lambda:snapshot)
+
+    async def poll_finished(client):
+        finish=time.monotonic()+15
+        while time.monotonic()<finish:
+            stats=(await client.get("/api/live/native-decode/status",
+                     params={"session_id":"cv-retune"})).json()
+            if not stats["busy"]:
+                return stats
+            await asyncio.sleep(.04)
+        raise AssertionError("worker did not finish")
+
+    async def check():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                   base_url="http://test",timeout=25) as client:
+            params={"session_id":"cv-retune","auto_native_decode":"true"}
+            first=(await client.get("/api/live/cv-detections",params=params)).json()
+            assert first["detections"][0]["track_state"]=="provisional"
+            assert first["native_decode_trial"]["admission"]=="provisional_cw"
+            assert first["native_decode_trial"]["modes"][0]=="cw"
+            await poll_finished(client)
+            snapshot.update({"sample_count":11*rate,"window_sample_count":11*rate,
+                             "pcm":pcm[:11*rate].tobytes()})
+            second=(await client.get("/api/live/cv-detections",params=params)).json()
+            assert second["detections"][0]["track_state"]=="persistent"
+            assert second["native_decode_trial"]["status"]=="queued"
+            assert second["native_decode_trial"]["admission"]=="persistent"
+            await poll_finished(client)
+            runs=app.state.capture_store.decoder_runs(session_id="cv-retune")
+            assert len(runs)==2
+            first_stream=runs[0]["decoder_result"]["cw_stream"]
+            last_stream=runs[1]["decoder_result"]["cw_stream"]
+            assert first_stream["processed_new_samples"]==8*rate
+            assert first_stream["state_reset_reason"]=="new-stream"
+            assert last_stream["processed_new_samples"]==3*rate
+            assert last_stream["state_reset_reason"] is None
+            assert last_stream["carrier_retune_count"]==1
+            assert last_stream["last_carrier_step_hz"]==13.5
+            assert last_stream["confirmed_identity"] is False
+            assert abs(last_stream["carrier_hz"]-(nominal+49.5))<1e-6
+    try:
+        asyncio.run(check())
+    finally:
+        app.state.native_live_runner.close()

@@ -26,10 +26,13 @@ sample at most once**, even when submitted audio windows overlap.
 3. The dedicated **decoder process** holds a bounded `CWKeyingStream` for
    each (`session_id`, `track_id`) key. The audio callback performs no DSP.
    At most 12 streams are retained; oldest streams are evicted.
-4. The stream uses an absolute-sample complex oscillator, fourth-order
+4. The stream uses a phase-continuous complex oscillator, fourth-order
    45-Hz lowpass, a ~500-Hz complex envelope, a three-sample smoother,
    adaptive on/off threshold, and a 10-ms transition debounce. Filter,
-   oscillator origin, envelope remainder, and unfinished Morse marks persist.
+   oscillator phase, envelope remainder, and unfinished Morse marks persist
+   across bounded carrier corrections (up to 18 Hz per poll); larger jumps
+   reset to protect against unrelated nearby signals. See
+   [carrier drift validation](CW_CARRIER_DRIFT_VALIDATION.md).
 5. Mark durations provide a provisional WPM/dot estimate (5–80 WPM).
    Complete, bounded words must have clean leading silence, an observed
    terminal word gap, valid alphabet patterns, and conservative timing fit.
