@@ -216,3 +216,101 @@ def test_native_runner_actual_child_process_and_no_decode(tmp_path):
         assert len(store.decoder_runs(session_id="session-1")) == 1
     finally:
         runner.close()
+
+@pytest.mark.parametrize("top,runner_up,expected", [
+    ("fldigi-cw", "bpsk31", "cw"),
+    ("bpsk31", "fldigi-cw", "bpsk31"),
+    ("rtty", "bpsk31", "rtty"),
+])
+def test_ranked_abstention_is_only_used_to_order_experimental_trials(top,runner_up,expected):
+    from sigid.native_live_decode import _ranked_mode_hint
+    proposal={"available":True,"abstained":True,"method":None,
+       "ranked_candidates":[
+           {"mode_id":top,"relative_model_score":.73},
+           {"mode_id":runner_up,"relative_model_score":.24}]}
+    assert _ranked_mode_hint(proposal)==expected
+    track={"frequency_low_hz":240,"frequency_high_hz":280,
+           "model_proposal":proposal}
+    assert candidate_modes(track)[0]==expected
+    # Ranking is provisional and never a confirmed classifier method.
+    assert track["model_proposal"]["method"] is None
+    assert track["model_proposal"]["abstained"] is True
+
+
+def test_ambiguous_or_invalid_ranked_abstentions_fall_back_to_spectrum():
+    from sigid.native_live_decode import _ranked_mode_hint
+    for scores in ((.5,.48),(.59,.55),(float("nan"),.15)):
+        proposal={"available":True,"abstained":True,
+           "ranked_candidates":[{"mode_id":"bpsk31","relative_model_score":scores[0]},
+                                {"mode_id":"cw","relative_model_score":scores[1]}]}
+        assert _ranked_mode_hint(proposal) is None
+        track={"frequency_low_hz":240,"frequency_high_hz":280,
+               "model_proposal":proposal}
+        assert candidate_modes(track)[0]=="cw"
+
+
+def test_provisional_cw_probe_requires_sustained_audio_and_explicit_hypothesis():
+    from sigid.native_live_decode import provisional_probe_kind
+    top={"available":True,"abstained":True,
+         "ranked_candidates":[{"mode_id":"fldigi-cw","relative_model_score":.72},
+                              {"mode_id":"bpsk31","relative_model_score":.25}]}
+    track={"track_state":"provisional","track_observations":1,
+           "sample_count":int(2.5*12000),"frequency_low_hz":250,
+           "frequency_high_hz":270,"peak_snr_db":20,
+           "model_proposal":top}
+    assert provisional_probe_kind(track,12000)=="provisional_cw"
+    assert provisional_probe_kind({**track,"sample_count":12000},12000) is None
+    assert provisional_probe_kind({**track,"peak_snr_db":6},12000) is None
+    assert provisional_probe_kind({**track,"frequency_high_hz":400},12000) is None
+    assert provisional_probe_kind({**track,"model_proposal":{}},12000) is None
+    assert provisional_probe_kind({**track,"track_state":"historical"},12000) is None
+    assert provisional_probe_kind({**track,"model_proposal":{"available":True,"abstained":True,
+      "ranked_candidates":[{"mode_id":"bpsk31","relative_model_score":.7},
+                           {"mode_id":"cw","relative_model_score":.2}]}},12000) is None
+    wide={**track,"frequency_low_hz":700,"frequency_high_hz":900,
+          "model_proposal":{},"track_observations":2}
+    assert provisional_probe_kind(wide,12000)=="provisional_modem"
+
+
+def test_provisional_probe_rate_is_separate_and_never_escapes_cpu_budget(tmp_path):
+    from concurrent.futures import Future
+    from sigid.native_live_decode import MAX_PROVISIONAL_PROBES_PER_MINUTE
+    class Held:
+        def __init__(self):self.future=Future()
+        def submit(self,*args):return self.future
+    rate=12000
+    session="probe-session"
+    track={"track_state":"provisional","track_id":session+":0001",
+           "track_observations":1,"sample_start":0,"sample_count":4*rate,
+           "frequency_low_hz":250,"frequency_high_hz":270,"peak_snr_db":20,
+           "model_proposal":{"available":True,"abstained":True,
+             "ranked_candidates":[{"mode_id":"fldigi-cw","relative_model_score":.72},
+                                  {"mode_id":"bpsk31","relative_model_score":.25}]}}
+    snap={"active":True,"session_id":session,"sample_rate":rate,"channels":1,
+          "sample_offset":0,"window_sample_count":4*rate,
+          "pcm":b"\0\0"*(4*rate)}
+    store=CaptureStore(tmp_path/"probe.db")
+    held=Held()
+    runner=NativeLiveRunner(executor=held)
+    try:
+        accepted=runner.submit(session_id=session,track=track,snapshot=snap,store=store)
+        assert accepted["status"]=="queued" and accepted["admission"]=="provisional_cw"
+        assert runner.status(session)["provisional_probes_last_minute"]==1
+        assert runner.status(session)["max_provisional_probes_per_minute"]==3
+        assert runner.submit(session_id=session,track=track,snapshot=snap,store=store)["status"]=="skipped_busy"
+        held.future.set_exception(RuntimeError("intentionally held trial"))
+        wait_end=time.monotonic()+3
+        while runner.status(session)["busy"] and time.monotonic()<wait_end:
+            time.sleep(.01)
+        assert not runner.status(session)["busy"]
+        # No chance to execute another speculative probe when three slots
+        # were already consumed, regardless of the relaxed CW cadence.
+        runner._provisional_probes.extend([time.monotonic()]*2)
+        runner._last_started-=4
+        runner._recent_tracks[track["track_id"]]-=4
+        denied=runner.submit(session_id=session,track=track,snapshot=snap,store=store)
+        assert denied["status"]=="skipped_provisional_budget"
+        assert runner.status(session)["counts"]["skipped_provisional_budget"]==1
+    finally:
+        if not held.future.done():held.future.set_exception(RuntimeError("cleanup"))
+        runner.close()

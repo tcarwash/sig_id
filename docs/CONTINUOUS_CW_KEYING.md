@@ -115,3 +115,8 @@ These counts indicate useful receive sensitivity on this particular
 synthetic fixture, not general precision or recall. A valid Morse word
 can still be misrecognized, especially at −5 dB. The remaining priority
 is a blind live-radio capture benchmark, QRM controls, and CPU percentiles.
+
+
+A later [provisional native-trial handoff](PROVISIONAL_NATIVE_DECODER_TRIALS.md)
+uses detector persistence and uncertain model rankings to start safe
+CPU-bounded trials earlier; it does not change the Morse demodulator itself.

@@ -1706,10 +1706,18 @@ def create_app(
                     logging.getLogger(__name__).exception("Native live decode admission failed")
                     queued = {"status": "failed", "reason": str(exc)[:180]}
                     break
+                # Scheduler decisions are diagnostics, never identity labels.
+                item["native_decode_admission"] = {
+                    key: attempt[key] for key in ("status", "reason", "admission")
+                    if key in attempt
+                }
                 if attempt["status"] == "queued":
                     queued = attempt
                     break
-                if attempt["status"] in ("skipped_busy", "skipped_budget", "skipped_cooldown"):
+                if attempt["status"] in (
+                    "skipped_busy", "skipped_budget", "skipped_cooldown",
+                    "skipped_provisional_budget",
+                ):
                     break
         for item in detections:
             if item.get("track_id"):

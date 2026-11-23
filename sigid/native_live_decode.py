@@ -31,6 +31,79 @@ TRACK_COOLDOWN_SECONDS = 24
 MIN_ATTEMPT_GAP_SECONDS = 3
 MAX_RECENT_RESULTS = 40
 MAX_TEXT_LENGTH = 2048
+# Speculative detector evidence never gets the unlimited CW stream lane:
+# a small separate per-minute quota is layered atop the shared CPU budget.
+MAX_PROVISIONAL_PROBES_PER_MINUTE = 3
+PROVISIONAL_MIN_SECONDS = 1.5
+PROVISIONAL_MIN_CV_CONFIDENCE = 0.85
+PROVISIONAL_MIN_SNR_DB = 14.0
+
+
+def _ranked_mode_hint(proposal: dict[str, Any]) -> str | None:
+    """Strong *relative ranking* for trial order, never an accepted identity.
+
+    Only use a mode when the model provides bounded numeric scores and
+    enough separation from the runner-up. No probabilities are claimed.
+    """
+    if not proposal.get("available") or not proposal.get("abstained"):
+        return None
+    ranks = proposal.get("ranked_candidates")
+    if not isinstance(ranks, list) or not ranks or not isinstance(ranks[0], dict):
+        return None
+    top = ranks[0]
+    try:
+        score = float(top["relative_model_score"])
+        second = float(ranks[1]["relative_model_score"]) if len(ranks) > 1 else 0.0
+    except (KeyError, ValueError, TypeError, IndexError):
+        return None
+    if (not math.isfinite(score) or not math.isfinite(second)
+            or not 0 <= score <= 1 or not 0 <= second <= 1
+            or score < .55 or score-second < .15):
+        return None
+    mode = str(top.get("mode_id") or "").lower()
+    if mode in ("cw", "fldigi-cw", "morse"):
+        return "cw"
+    if mode in ("rtty", "fldigi-rtty"):
+        return "rtty"
+    if mode in ("bpsk31", "psk31", "fldigi-bpsk31"):
+        return "bpsk31"
+    if mode in ("ax25", "ax.25", "aprs"):
+        return "ax25"
+    return None
+
+
+def _explicit_cw_hypothesis(track: dict[str, Any]) -> bool:
+    proposal = track.get("classifier_proposal") or track.get("model_proposal") or {}
+    if _ranked_mode_hint(proposal) == "cw":
+        return True
+    if not proposal.get("available") or proposal.get("abstained"):
+        return False
+    identity = " ".join(str(proposal.get(x) or "").lower()
+                        for x in ("method", "method_id", "family"))
+    return "morse" in identity or " cw " in f" {identity} " or "fldigi-cw" in identity
+
+
+def provisional_probe_kind(track: dict[str, Any], sample_rate: int) -> str | None:
+    """Allow only well-supported early trials; never elevate track_state."""
+    if track.get("track_state") != "provisional" or sample_rate <= 0:
+        return None
+    count = int(track.get("sample_count") or 0)
+    if count < PROVISIONAL_MIN_SECONDS * sample_rate:
+        return None
+    low, high = float(track.get("frequency_low_hz") or 0), float(track.get("frequency_high_hz") or 0)
+    if not (20 <= low < high <= min(3000., sample_rate/2)):
+        return None
+    snr = float(track.get("peak_snr_db") or 0)
+    confidence = float(track.get("confidence") or 0)
+    if not (math.isfinite(snr) and math.isfinite(confidence)):
+        return None
+    if snr < PROVISIONAL_MIN_SNR_DB and confidence < PROVISIONAL_MIN_CV_CONFIDENCE:
+        return None
+    if high-low <= 80 and _explicit_cw_hypothesis(track):
+        return "provisional_cw"
+    if int(track.get("track_observations") or 0) >= 2 and count >= 2*sample_rate:
+        return "provisional_modem"
+    return None
 
 
 def candidate_modes(track: dict[str, Any]) -> tuple[str, ...]:
@@ -43,6 +116,7 @@ def candidate_modes(track: dict[str, Any]) -> tuple[str, ...]:
     explicit suggestion. A wrong classifier still gets a spectral fallback.
     """
     proposal = track.get("classifier_proposal") or track.get("model_proposal") or {}
+    ranked_hint = _ranked_mode_hint(proposal)
     if proposal.get("abstained") or not proposal.get("available"):
         proposal = {}
     identity = " ".join(str(proposal.get(key) or "").lower()
@@ -82,7 +156,9 @@ def candidate_modes(track: dict[str, Any]) -> tuple[str, ...]:
     # The detector frequency and classifier label are separate, uncertain
     # sources. Never silently override the model with a Signal Lab frequency
     # lane, and never allow any candidate count to exceed the worker limit.
-    candidates = (explicit, *fallback) if explicit else fallback
+    candidates = (explicit, *fallback) if explicit else (
+        (ranked_hint, *fallback) if ranked_hint else fallback
+    )
     return tuple(dict.fromkeys(mode for mode in candidates if mode))[:MAX_MODES_PER_ATTEMPT]
 
 
@@ -262,6 +338,7 @@ class NativeLiveRunner:
         self._recent_tracks: dict[str, float] = {}
         self._cw_streams: dict[str, CWTokenStream] = {}
         self._attempts: deque[tuple[float, float]] = deque(maxlen=64)
+        self._provisional_probes: deque[float] = deque(maxlen=16)
         self._results: deque[dict[str, Any]] = deque(maxlen=MAX_RECENT_RESULTS)
         self._counts: Counter[str] = Counter()
         self._latencies: dict[str, deque[float]] = {}
@@ -284,12 +361,15 @@ class NativeLiveRunner:
             self._recent_tracks.clear()
             self._cw_streams.clear()
             self._attempts.clear()
+            self._provisional_probes.clear()
             self._results.clear()
             self._last_started = -1e9
 
     def _prune(self, now: float) -> None:
         while self._attempts and now - self._attempts[0][0] >= 60:
             self._attempts.popleft()
+        while self._provisional_probes and now - self._provisional_probes[0] >= 60:
+            self._provisional_probes.popleft()
         for key, timestamp in list(self._recent_tracks.items()):
             if now - timestamp > TRACK_COOLDOWN_SECONDS * 2:
                 del self._recent_tracks[key]
@@ -301,10 +381,13 @@ class NativeLiveRunner:
                snapshot: dict[str, Any], store: Any) -> dict[str, Any]:
         """Called by live CV/heuristic poll; only copies one bounded PCM crop."""
         track_id = str(track.get("track_id") or "")
-        if (track.get("track_state") != "persistent"
-                or not track_id.startswith(session_id + ":")):
-            return {"status": "not_eligible"}
+        if not track_id.startswith(session_id + ":"):
+            return {"status": "not_eligible", "reason": "invalid-track-session"}
         rate = int(snapshot["sample_rate"])
+        persistent = track.get("track_state") == "persistent"
+        probe_kind = None if persistent else provisional_probe_kind(track, rate)
+        if not persistent and probe_kind is None:
+            return {"status": "not_eligible", "reason": "no-stable-signal-or-hypothesis"}
         ring_start = int(snapshot["sample_offset"])
         ring_end = ring_start + int(snapshot["window_sample_count"])
         if (snapshot.get("session_id") != session_id or not snapshot.get("active")
@@ -318,8 +401,8 @@ class NativeLiveRunner:
         # Morse symbol. Keep the longer lookback restricted to CW hypotheses,
         # with all other modems still limited to four-second DSP windows.
         modes = candidate_modes(track)[:MAX_MODES_PER_ATTEMPT]
-        # Only a CW-first *narrow* persistent track gets frequent incremental
-        # updates. Uncertain/wide signals keep the old five/minute budget.
+        # Only narrow CW-first tracks get frequent incremental updates.
+        # Provisional tracks have an additional hard trial quota below.
         cw_stream = modes[0] == "cw" and (
             float(track.get("frequency_high_hz") or 0)
             - float(track.get("frequency_low_hz") or 0)) <= 80.0
@@ -356,6 +439,9 @@ class NativeLiveRunner:
                     or sum(used for _, used in self._attempts) >= self._max_cpu_ms):
                 self._counts["skipped_budget"] += 1
                 return {"status": "skipped_budget"}
+            if probe_kind and len(self._provisional_probes) >= MAX_PROVISIONAL_PROBES_PER_MINUTE:
+                self._counts["skipped_provisional_budget"] += 1
+                return {"status": "skipped_provisional_budget"}
             channels = int(snapshot["channels"])
             pcm = np.frombuffer(snapshot["pcm"], dtype="<i2").reshape(-1, channels)
             selected = pcm[left - ring_start:right - ring_start]
@@ -370,6 +456,9 @@ class NativeLiveRunner:
             self._recent_tracks[track_id] = now
             self._last_started = now
             self._attempts.append((now, 0.0))
+            if probe_kind:
+                self._provisional_probes.append(now)
+                self._counts["admitted_provisional"] += 1
             self._counts["admitted"] += 1
         try:
             run_id = store.create_decoder_run(
@@ -391,15 +480,14 @@ class NativeLiveRunner:
                     "sample_count": end - start,
                     "frequency_low_hz": lo, "frequency_high_hz": hi,
                     "confidence": track.get("confidence"),
+                    "track_state_at_admission": track.get("track_state"),
+                    "provisional_probe_kind": probe_kind,
+                    "track_observations": track.get("track_observations"),
                 },
             )
-            proposal = track.get("classifier_proposal") or track.get("model_proposal") or {}
-            identity = " ".join(str(proposal.get(x) or "").lower()
-                                for x in ("method", "method_id", "family", "top_candidate"))
-            # Only explicit CW hypotheses (accepted or abstained top ranks)
-            # use persistent keying. Frequency alone cannot claim Morse.
-            # Decoder results remain tentative, not confirmed identity.
-            keying = cw_stream and ("morse" in identity or "cw" in identity)
+            # The explicit Morse hypothesis may be an accepted prediction or
+            # a strong *relative ranking*. Never interpret rank as verified.
+            keying = cw_stream and _explicit_cw_hypothesis(track)
             worker_args = (packed, rate, left, carrier, tuple(modes))
             if keying:
                 worker_args += ((session_id, track_id),)
@@ -408,7 +496,7 @@ class NativeLiveRunner:
                 done, session_id, track_id, run_id, left, rate, modes, store,
                 carrier, cw_stream))
             return {"status": "queued", "run_id": run_id, "track_id": track_id,
-                    "modes": list(modes)}
+                    "modes": list(modes), "admission": probe_kind or "persistent"}
         except Exception:
             with self._lock:
                 self._active = False
@@ -536,6 +624,8 @@ class NativeLiveRunner:
             return {
                 "session_id": session_id, "busy": self._active,
                 "attempts_last_minute": len(self._attempts),
+                "provisional_probes_last_minute": len(self._provisional_probes),
+                "max_provisional_probes_per_minute": MAX_PROVISIONAL_PROBES_PER_MINUTE,
                 "cpu_ms_last_minute": round(sum(cost for _, cost in self._attempts), 2),
                 "cpu_pct_single_core_last_minute": round(
                     sum(cost for _, cost in self._attempts) / 600, 2),

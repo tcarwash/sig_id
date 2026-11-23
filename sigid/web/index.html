@@ -365,7 +365,7 @@
                   <p id="native-decode-status" class="subhead">Select a supported native mode to decode this saved audio window.</p>
                   <p class="subhead">Signal ID includes its own experimental CW decoder: select a Morse carrier and a saved audio window, then choose Signal ID · CW. It does not call Fldigi, OnAir, or WSJT-X. Optional WSJT-X can decode saved FT8 clips via jt9 and report live results through loopback UDP. OnAir can publish decoded live events through its optional local HTTP API; Signal ID only reads that feed and never tunes or transmits through it. OnAir does not yet support selected-clip decoding here. Configure the server-side OnAir URL and API token as described in Operations. Data2G modes remain annotation candidates until a native audio-window adapter is installed.</p>
                   <p class="subhead"><strong>Native live decoder suggestions</strong> · receive-only, tentative; may disagree with the classifier. CRC/FCS pass is frame evidence, not a confirmed identity.</p>
-                  <div id="native-live-results" class="decode-runs"><p class="muted">Waiting for persistent live tracks. The CPU-limited toggle is in Receive settings.</p></div>
+                  <div id="native-live-results" class="decode-runs"><p class="muted">Waiting for persistent tracks or CPU-limited provisional signal probes. The CPU-limited toggle is in Receive settings.</p></div>
                   <div id="native-decoder-results" class="decode-runs"><p class="muted">No external native decode events received yet.</p></div>
                 </section>
                 <p id="collection-status" class="subhead" role="status" aria-live="polite"></p>
@@ -1118,7 +1118,7 @@ Decoded text will appear here.</pre>
             ><span>Auto-try validated decoders</span
             ><input id="auto-trial" type="checkbox"
           /></label>
-          <label class="auto-trial-toggle" title="Run at most five native decoder attempts per minute on persistent live detector boxes. Isolated child process, CPU budget 3 seconds/minute, no external radio control. Results remain tentative.">
+          <label class="auto-trial-toggle" title="Receive-only native trials on persistent signals and carefully gated provisional hypotheses (max 3 provisional probes/min). Up to 5 general or 16 narrow-CW trials/min, shared CPU budget 3 seconds/min, isolated worker, no radio control. Results remain unverified.">
             <span>Auto-try native decoders (CPU limited)</span><input id="auto-native-decode" type="checkbox" checked />
           </label>
           <p id="native-live-performance" class="subhead" role="status">Native live decoder waiting for signal candidates.</p>

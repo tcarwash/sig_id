@@ -136,3 +136,75 @@ def test_native_live_switch_is_explicit_and_off_means_no_cpu(tmp_path, monkeypat
         asyncio.run(check())
     finally:
         app.state.native_live_runner.close()
+
+
+def test_provisional_cw_signal_triggers_budgeted_native_trial_before_three_polls(tmp_path, monkeypatch):
+    """Actual FastAPI -> CV -> uncertain ML ranking -> isolated worker."""
+    from sigid.signal_lab import render
+    from tools.bench_signal_chain_snr import read_mono
+    import sigid.api as sigid_api
+    manifest=render(modes=["cw"], output=tmp_path/"probe-cw.wav",
+                    duration=30,sample_rate=12000,seed=71062,
+                    traffic="sparse",bursts_per_mode=1,burst_seconds=16,
+                    snr_db=25,snr_reference_hz=2500,stereo=False,qrm=False)
+    pcm,rate,_=read_mono(manifest["mono_wav"])
+    carrier=manifest["transmissions"][0]["carrier_hz"]
+    app=create_app(tmp_path/"cw-probe-state")
+    app.state.classifier={"metadata":{"classifier_window_seconds":2.0,
+      "model_sha256":"a"*64,"feature_version":"passband-log-spectrum-envelope-roi-fixed-window-v4"},
+      "parameters":{}}
+    def uncertain(*args,**kwargs):
+        return {"available":True,"abstained":True,"method":None,
+                "top_candidate":"Morse → CW","confidence":.65,
+                "ranked_candidates":[
+                  {"mode_id":"fldigi-cw","relative_model_score":.72},
+                  {"mode_id":"bpsk31","relative_model_score":.24}]}
+    monkeypatch.setattr(sigid_api,"_classify_signal_crop", uncertain)
+    class FakeCv:
+        model_sha256="b"*64
+        model_version="fixture"
+        def detect_live_partial(self, audio, *, sample_start, total_sample_count,
+                                sample_rate, confidence=None):
+            return [{"sample_start":0,"sample_count":8*rate,
+                     "frequency_low_hz":carrier-10,"frequency_high_hz":carrier+10,
+                     "confidence":.91,"model_sha256":self.model_sha256,
+                     "model_version":self.model_version}]
+    app.state.cv_detector=FakeCv()
+    snapshot={"active":True,"session_id":"early-cw","sample_rate":rate,
+              "channels":1,"sample_offset":0,"sample_count":8*rate,
+              "window_sample_count":8*rate,"pcm":pcm[:8*rate].tobytes()}
+    monkeypatch.setattr(app.state.live_capture,"analysis_audio",lambda: snapshot)
+    async def check():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                                      base_url="http://test",timeout=25) as client:
+            r=await client.get("/api/live/cv-detections",params={
+                "session_id":"early-cw","auto_native_decode":"true"})
+            assert r.status_code==200,r.text
+            body=r.json()
+            [box]=body["detections"]
+            assert box["track_state"]=="provisional"
+            assert box["track_observations"]==1
+            assert box["classifier_proposal"]["abstained"] is True
+            assert box["classifier_proposal"]["method"] is None
+            assert box["native_decode_admission"]["status"]=="queued"
+            assert body["native_decode_trial"]["admission"]=="provisional_cw"
+            finish=time.monotonic()+15
+            while time.monotonic()<finish:
+                stats=(await client.get("/api/live/native-decode/status",
+                      params={"session_id":"early-cw"})).json()
+                if not stats["busy"]:break
+                await asyncio.sleep(.04)
+            assert not stats["busy"]
+            assert stats["provisional_probes_last_minute"]==1
+            assert stats["counts"]["admitted_provisional"]==1
+            assert stats["recent"]
+            event=stats["recent"][0]
+            assert event["confirmed_identity"] is False
+            assert "CQ" in event["cw_stream_cumulative_text"] or "TEST" in event["cw_stream_cumulative_text"]
+            runs=app.state.capture_store.decoder_runs(session_id="early-cw")
+            assert len(runs)==1
+            assert runs[0]["decoder_result"]["cw_stream"]["confirmed_identity"] is False
+    try:
+        asyncio.run(check())
+    finally:
+        app.state.native_live_runner.close()

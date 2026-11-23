@@ -1618,7 +1618,10 @@ async function refreshNativeLiveResults() {
     if (sessionId !== state.liveSessionId) return;
     const latency = Object.entries(stats.latency_by_mode || {}).map(([mode, timing]) =>
       `${mode} median ${timing.median_ms.toFixed(0)}ms (p95 ${timing.p95_ms.toFixed(0)}ms)`).join(" · ");
-    perfNode.textContent = `Native live decode · ${stats.busy ? "working" : "idle"} · ${stats.attempts_last_minute}/${stats.max_attempts_per_minute} trials/min · ${stats.cpu_ms_last_minute.toFixed(0)}/${stats.max_cpu_ms_per_minute} CPU ms/min · ~${stats.cpu_pct_single_core_last_minute.toFixed(2)}% of one core · ${latency || "no decoder timings yet"}`;
+    const normalCap = stats.max_attempts_per_minute;
+    const cwCap = stats.max_cw_stream_attempts_per_minute ?? normalCap;
+    const provisional = `${stats.provisional_probes_last_minute ?? 0}/${stats.max_provisional_probes_per_minute ?? 0}`;
+    perfNode.textContent = `Native live decode · ${stats.busy ? "working" : "idle"} · ${stats.attempts_last_minute} trials/min (limits ${normalCap} general / ${cwCap} CW) · provisional ${provisional} · ${stats.cpu_ms_last_minute.toFixed(0)}/${stats.max_cpu_ms_per_minute} CPU ms/min · ~${stats.cpu_pct_single_core_last_minute.toFixed(2)}% of one core · ${latency || "no decoder timings yet"}`;
     const relevant = (stats.recent || []).filter((event) => event.grade !== "none" && event.text);
     resultNode.replaceChildren();
     if (!relevant.length) {
@@ -1714,9 +1717,15 @@ function renderCvDetections() {
         : `CV box ${index + 1} · ${detection.track_state || "provisional"}`;
       const trial = detection.decoder_trial?.status ? ` · decoder ${detection.decoder_trial.status}` : "";
       const native = nativeLiveCaption(detection.native_decode_evidence);
+      const admit = detection.native_decode_admission;
+      const nativeProbe = admit?.status === "queued" && admit.admission?.startsWith("provisional")
+        ? " · native provisional probe queued (unverified)"
+        : admit?.status === "skipped_provisional_budget"
+          ? " · native provisional CPU/rate gate reached"
+          : "";
       const reused = detection.classifier_proposal?.reuse_info?.reused;
       const modelAge = reused ? ` · ML evidence reused (${detection.classifier_proposal.reuse_info.evidence_age_seconds.toFixed(1)}s old)` : "";
-      summary.textContent = `${tracker} · ${(detection.confidence * 100).toFixed(1)}% detector · ${cvClassifierCaption(detection)}${modelAge}${native ? ` · ${native}` : ""}${trial}`;
+      summary.textContent = `${tracker} · ${(detection.confidence * 100).toFixed(1)}% detector · ${cvClassifierCaption(detection)}${modelAge}${native ? ` · ${native}` : ""}${trial}${nativeProbe}`;
       row.append(summary, detail);
       const review = document.createElement("button");
       review.type = "button";
