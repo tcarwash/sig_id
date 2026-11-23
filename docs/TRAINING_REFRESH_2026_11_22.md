@@ -140,8 +140,13 @@ initialization (including with AMP disabled and zero loader workers). Neither
 run created a checkpoint. The alternate CPU training attempt uses six epochs
 of warm-start fine-tuning on the frozen, safely extended CV dataset; CPU work
 was reduced to nice 15 and affinity CPUs 6–7 to limit interference with an
-active recording. **No new detector has been deployed or claimed validated.**
+active recording. This CPU run did not reach its first checkpoint and was
+terminated to protect the user's active live recording from further contention.
+**No new detector has been deployed or claimed validated.**
 An output checkpoint is eligible only after held-out baseline comparison.
+A repeat run should use a supported stable GPU runtime or be scheduled when
+live audio capture is idle. Logs: `$R/cv-training.log`,
+`$R/cv-training-safe.log`, `$R/cv-training-cpu.log`.
 
 
 ## Evaluation / deployment rules
