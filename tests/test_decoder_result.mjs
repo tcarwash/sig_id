@@ -50,3 +50,18 @@ test("live segmentation provenance appears in native and cross-backend result ca
   assert.match(summary, /not a calibrated probability or confirmed identification/);
   assert.doesNotMatch(summary, /confirmed mode/i);
 });
+
+
+test("CW incremental words show new delta and persistent unverified transcript", () => {
+  const result={source: "sigid-independent-implementation",decoder_id:"cw",
+    status:"decoded",text:"CQ TEST CQ",evidence:{},
+    cw_stream:{delta_text:"TEST CQ",cumulative_text:"TEST CQ TEST CQ",
+      last_emitted_end_sample:164500,reason:"new-unverified-words",
+      confirmed_identity:false,not_verified:true}};
+  const summary=summarizeDecoderResult(result);
+  assert.match(summary,/Incremental CW .* TEST CQ/);
+  assert.match(summary,/CW stream so far: TEST CQ TEST CQ/);
+  assert.match(summary,/sample: 164500/);
+  assert.match(summary,/provisional words, no Morse checksum or operator verification/);
+  assert.doesNotMatch(summary,/confirmed mode|verified CW/);
+});

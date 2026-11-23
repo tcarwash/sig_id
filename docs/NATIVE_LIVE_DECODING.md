@@ -12,6 +12,18 @@ Classifier method/family suggestions narrow the mode shortlist when available; *
 
 All modem DSP executes on a dedicated **single-worker child process**, not in the audio callback or the HTTP detection request. It owns no sound hardware, CAT/PTT, network decoder service or transmit action. It is fully separate from Fldigi, OnAir, and WSJT-X.
 
+## Incremental CW results across live polls
+
+The [CW word stream benchmark](LIVE_CW_TOKEN_STREAM.md) introduces a
+session/track-guarded, overlap-corroborated CW word transcript. Narrow,
+CW-first tracks may request up to 16 starts/minute (minimum 3s between starts),
+under the *same single worker and rolling 3000ms/minute process CPU budget*.
+The prior 5 starts/minute remains for other tracks. The worker reuses the
+existing eight-second CW snapshot; no new sample-continuous causal Morse
+demodulator has been added. Raw decoded window text is retained as evidence
+while the live output is the **new, sample-linked word delta**. Partial or
+uncorroborated characters are never automatically published or verified.
+
 ## Weak-signal and extended-CW follow-up
 
 See [the controlled multi-seed weak-signal evaluation](WEAK_SIGNAL_ACQUISITION.md)
