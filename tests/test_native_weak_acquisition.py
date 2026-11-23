@@ -173,7 +173,8 @@ def test_long_cw_child_process_persists_selected_sample_provenance(tmp_path):
         evidence=run["decoder_result"]
         assert evidence["source"]=="sigid-independent-implementation"
         chosen=evidence["live_acquisition"]
-        assert chosen["strategy"]=="cw-long-or-recent-window-v2"
+        assert chosen["strategy"]=="continuous-key-transition-cw-v1"
+        assert evidence["cw_stream"]["processed_new_samples"]==8*rate
         assert chosen["original_sample_count"]==8*rate
         assert chosen["confirmed_identity"] is False
         assert chosen["selected_sample_start"]>=run["sample_start"]

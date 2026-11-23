@@ -54,8 +54,11 @@ export function summarizeDecoderResult(result) {
   if (result.decoder_id === "cw" && stream && typeof stream === "object") {
     const delta = shortText(stream.delta_text, 100);
     const accumulated = shortText(stream.cumulative_text, 300);
-    lines.push(`Incremental CW (new overlap-confirmed words): ${delta || "none yet"}`);
-    lines.push(`CW stream so far: ${accumulated || "awaiting corroboration"}`);
+    const edgeStream = stream.strategy === "continuous-key-transition-cw-v1";
+    const label = edgeStream ? "Continuous CW (new key-transition words)"
+      : "Incremental CW (new overlap-confirmed words)";
+    lines.push(`${label}: ${delta || "none yet"}`);
+    lines.push(`CW stream so far: ${accumulated || (edgeStream ? "awaiting complete word timing" : "awaiting corroboration")}`);
     if (Number.isInteger(stream.last_emitted_end_sample) && stream.last_emitted_end_sample >= 0) {
       lines.push(`Last emitted Morse source sample: ${stream.last_emitted_end_sample}`);
     }

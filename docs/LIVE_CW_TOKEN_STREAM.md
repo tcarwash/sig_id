@@ -56,3 +56,11 @@ Coverage includes absolute-sample matching, duplicate-window abstention, invalid
 ## Next experiments
 
 A genuinely **sample-continuous CW key-transition decoder** remains open: streaming bandpass/downmix filter state, adaptive on/off threshold, online dot/dash timing, partial symbol carry-over and verified source continuity. The first naive causal-filter attempt produced wrong characters and failed 48-kHz test audio, so it was not shipped. Future evaluation should include independently keyed and reviewed CW, mixed QRM, drifting carrier, unique messages, varied WPM and non-synthetic negative controls.
+
+
+## Follow-on: true key-transition stream
+
+See [Continuous CW Keying](CONTINUOUS_CW_KEYING.md) for the new experimental
+receive-only decoder that preserves the filtered complex envelope, keying
+transitions, and partial word timing across polls. The overlap-corroborated
+implementation documented here remains available for non-explicit CW tracks.

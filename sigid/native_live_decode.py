@@ -107,7 +107,8 @@ _worker_library = None
 
 
 def decode_live_candidate(pcm: bytes, sample_rate: int, sample_start: int,
-                          carrier_hz: float, modes: tuple[str, ...]) -> dict[str, Any]:
+                          carrier_hz: float, modes: tuple[str, ...],
+                          stream_id: tuple[str, str] | None = None) -> dict[str, Any]:
     """Isolated process worker: no DB, HTTP, device, CAT, audio output or PTT."""
     from .libsigdecode import DecodeWindow, create_library
     global _worker_library
@@ -123,6 +124,9 @@ def decode_live_candidate(pcm: bytes, sample_rate: int, sample_start: int,
         raise ValueError("live decoder window must be bounded for the requested modes")
     if not np.isfinite(carrier_hz) or not 20 <= carrier_hz < sample_rate / 2:
         raise ValueError("invalid audio carrier")
+    if stream_id is not None and modes[0] == "cw":
+        from .cw_keying_worker import stream_cw_candidate
+        return stream_cw_candidate(values, sample_rate, sample_start, carrier_hz, stream_id)
     attempts = []
     best = None
     start_cpu = time.process_time()
@@ -389,8 +393,17 @@ class NativeLiveRunner:
                     "confidence": track.get("confidence"),
                 },
             )
-            future = self._executor.submit(
-                decode_live_candidate, packed, rate, left, carrier, tuple(modes))
+            proposal = track.get("classifier_proposal") or track.get("model_proposal") or {}
+            identity = " ".join(str(proposal.get(x) or "").lower()
+                                for x in ("method", "method_id", "family", "top_candidate"))
+            # Only explicit CW hypotheses (accepted or abstained top ranks)
+            # use persistent keying. Frequency alone cannot claim Morse.
+            # Decoder results remain tentative, not confirmed identity.
+            keying = cw_stream and ("morse" in identity or "cw" in identity)
+            worker_args = (packed, rate, left, carrier, tuple(modes))
+            if keying:
+                worker_args += ((session_id, track_id),)
+            future = self._executor.submit(decode_live_candidate, *worker_args)
             future.add_done_callback(lambda done: self._complete(
                 done, session_id, track_id, run_id, left, rate, modes, store,
                 carrier, cw_stream))
@@ -415,25 +428,27 @@ class NativeLiveRunner:
             stream_event = None
             if (cw_stream and selected_mode == "cw"
                     and result.get("decoder_result") is not None):
-                with self._lock:
-                    if self._session == session_id:
-                        existing = self._cw_streams.get(track_id)
-                        if (existing is None or existing.sample_rate != rate
-                                or abs(existing.carrier_hz-carrier_hz) > 8):
-                            existing = CWTokenStream(session_id, track_id, rate, carrier_hz)
-                            self._cw_streams[track_id] = existing
-                        try:
-                            stream_event = existing.feed(
-                                result["decoder_result"], sample_rate=rate,
-                                carrier_hz=carrier_hz)
-                        except ValueError:
-                            # A detector gap or retune must reset, never
-                            # splice unrelated CW fragments into one sentence.
-                            existing = CWTokenStream(session_id, track_id, rate, carrier_hz)
-                            self._cw_streams[track_id] = existing
-                            stream_event = existing.feed(
-                                result["decoder_result"], sample_rate=rate,
-                                carrier_hz=carrier_hz)
+                stream_event = result["decoder_result"].get("cw_stream")
+                if stream_event is None:
+                    with self._lock:
+                        if self._session == session_id:
+                            existing = self._cw_streams.get(track_id)
+                            if (existing is None or existing.sample_rate != rate
+                                    or abs(existing.carrier_hz-carrier_hz) > 8):
+                                existing = CWTokenStream(session_id, track_id, rate, carrier_hz)
+                                self._cw_streams[track_id] = existing
+                            try:
+                                stream_event = existing.feed(
+                                    result["decoder_result"], sample_rate=rate,
+                                    carrier_hz=carrier_hz)
+                            except ValueError:
+                                # A detector gap or retune must reset, never
+                                # splice unrelated CW fragments into one sentence.
+                                existing = CWTokenStream(session_id, track_id, rate, carrier_hz)
+                                self._cw_streams[track_id] = existing
+                                stream_event = existing.feed(
+                                    result["decoder_result"], sample_rate=rate,
+                                    carrier_hz=carrier_hz)
             if stream_event is not None:
                 text = stream_event["delta_text"]
                 grade = "coherent-unverified" if text else "none"

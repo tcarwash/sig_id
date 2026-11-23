@@ -65,3 +65,16 @@ test("CW incremental words show new delta and persistent unverified transcript",
   assert.match(summary,/provisional words, no Morse checksum or operator verification/);
   assert.doesNotMatch(summary,/confirmed mode|verified CW/);
 });
+
+test("continuous CW stream explains key-transition evidence without claiming verification", () => {
+  const result={source:"sigid-independent-implementation",decoder_id:"cw",
+    version:"cw-key-transition-v1",status:"decoded",text:"CQ TEST",evidence:{},
+    cw_stream:{strategy:"continuous-key-transition-cw-v1",delta_text:"CQ TEST",
+      cumulative_text:"CQ TEST",last_emitted_end_sample:198200,
+      reason:"new-unverified-words",confirmed_identity:false,not_verified:true}};
+  const summary=summarizeDecoderResult(result);
+  assert.match(summary,/Continuous CW \(new key-transition words\): CQ TEST/);
+  assert.match(summary,/CW stream so far: CQ TEST/);
+  assert.match(summary,/provisional words, no Morse checksum or operator verification/);
+  assert.doesNotMatch(summary,/overlap-confirmed|verified CW/);
+});
