@@ -1,5 +1,13 @@
 # Automatic native decoding during live Signal ID monitoring
 
+**Current update:** The sections below document the original first-party
+live decoder implementation. The latest follow-ups extend admission to
+[budgeted provisional candidates](PROVISIONAL_NATIVE_DECODER_TRIALS.md),
+[continuous CW keying](CONTINUOUS_CW_KEYING.md), and
+[sample-indexed RTTY/BPSK31/AX.25 modem event streams](LIVE_MODEM_INTEGRATION.md).
+The original persistent-only and 24-second cooldown descriptions below
+apply only to the original general admission lane, not every new lane.
+
 Signal ID can now attempt **receive-only first-party modem decodes while live CV or narrow-tone detection is running**, without requiring a saved capture. Decoder output is independent classification evidence, not a label that silently replaces the ML classifier.
 
 In **Settings → Receive settings**, enable **Auto-try native decoders (CPU limited)**. Enabled by default for the live workbench; uncheck to disable all automatic native decode jobs. The separate **Auto-try validated decoders** option continues to control the existing external isolated Fldigi mode sweeps, not the native pipeline.

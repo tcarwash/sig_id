@@ -42,6 +42,13 @@ export function summarizeDecoderResult(result) {
       lines.push(`Live audio window: samples ${originalStart}–${originalStart + originalCount}`);
       lines.push(`Selected decoder window: samples ${chosenStart}–${chosenStart + chosenCount}`);
     }
+    const carrierProposal = acquisition.carrier_refinement;
+    if (carrierProposal && carrierProposal.strategy === "bpsk31-squared-analytic-carrier-v1"
+        && Number.isFinite(carrierProposal.initial_carrier_hz)
+        && Number.isFinite(carrierProposal.proposed_carrier_hz)) {
+      lines.push(`BPSK31 suggested carrier refinement: ${carrierProposal.initial_carrier_hz.toFixed(2)} → ${carrierProposal.proposed_carrier_hz.toFixed(2)} Hz · signal hypothesis only`);
+      lines.push("Carrier refinement is spectral evidence; the decoder must still establish varicode coherence before text is published.");
+    }
     const attempts = Array.isArray(acquisition.attempts) ? acquisition.attempts : [];
     if (attempts.length) {
       lines.push(`Acquisition trials (${attempts.length}): ${attempts.slice(0, 3).map((trial) =>
@@ -73,6 +80,21 @@ export function summarizeDecoderResult(result) {
       lines.push(`CW stream initialized/reset: ${shortText(stream.state_reset_reason, 40)} · older partial symbols not reused`);
     }
     lines.push(`Stream status: ${shortText(stream.reason, 60)} · provisional words, no Morse checksum or operator verification`);
+  }
+  const modem = result.modem_stream;
+  if (modem && typeof modem === "object"
+      && modem.strategy === "overlap-deduplicated-modem-evidence-v1") {
+    const mode = shortText(modem.mode, 24).toUpperCase();
+    const label = modem.mode === "ax25" ? "CRC-checked new packet frames" : "new text tokens";
+    lines.push(`${mode} incremental ${label}: ${shortText(modem.delta_text, 140) || "none"}`);
+    lines.push(`Modem stream so far: ${shortText(modem.cumulative_text, 300) || "awaiting new evidence"}`);
+    if (Number.isInteger(modem.new_items) && Number.isInteger(modem.suppressed_overlap_items)) {
+      lines.push(`Modem event counts: ${modem.new_items} new · ${modem.suppressed_overlap_items} overlapping duplicates suppressed`);
+    }
+    if (Number.isInteger(modem.last_emitted_end_sample) && modem.last_emitted_end_sample >= 0) {
+      lines.push(`Last emitted modem source sample: ${modem.last_emitted_end_sample}`);
+    }
+    lines.push("Incremental results preserve sample provenance; decoded text and modem identity remain unverified.");
   }
   const tokens = Array.isArray(result.tokens) ? result.tokens : [];
   if (tokens.length) {

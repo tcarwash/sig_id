@@ -1620,8 +1620,10 @@ async function refreshNativeLiveResults() {
       `${mode} median ${timing.median_ms.toFixed(0)}ms (p95 ${timing.p95_ms.toFixed(0)}ms)`).join(" · ");
     const normalCap = stats.max_attempts_per_minute;
     const cwCap = stats.max_cw_stream_attempts_per_minute ?? normalCap;
+    const modemCap = stats.max_modem_followup_attempts_per_minute ?? normalCap;
     const provisional = `${stats.provisional_probes_last_minute ?? 0}/${stats.max_provisional_probes_per_minute ?? 0}`;
-    perfNode.textContent = `Native live decode · ${stats.busy ? "working" : "idle"} · ${stats.attempts_last_minute} trials/min (limits ${normalCap} general / ${cwCap} CW) · provisional ${provisional} · ${stats.cpu_ms_last_minute.toFixed(0)}/${stats.max_cpu_ms_per_minute} CPU ms/min · ~${stats.cpu_pct_single_core_last_minute.toFixed(2)}% of one core · ${latency || "no decoder timings yet"}`;
+    const modemEvents = `${stats.modem_stream_units ?? 0} text tokens / ${stats.modem_stream_frames ?? 0} CRC-passed frames`;
+    perfNode.textContent = `Native live decode · ${stats.busy ? "working" : "idle"} · ${stats.attempts_last_minute} trials/min (limits ${normalCap} general / ${modemCap} modem / ${cwCap} CW) · provisional ${provisional} · modem ${modemEvents} · ${stats.cpu_ms_last_minute.toFixed(0)}/${stats.max_cpu_ms_per_minute} CPU ms/min · ~${stats.cpu_pct_single_core_last_minute.toFixed(2)}% of one core · ${latency || "no decoder timings yet"}`;
     const relevant = (stats.recent || []).filter((event) => event.grade !== "none" && event.text);
     resultNode.replaceChildren();
     if (!relevant.length) {

@@ -19,13 +19,17 @@ import numpy as np
 
 from .native_acquisition import propose_burst_windows
 from .cw_token_stream import CWTokenStream, MAX_CW_STREAM_TRACKS
+from .modem_live_stream import ModemEvidenceStream, SUPPORTED_MODES
 
 MAX_WINDOW_SECONDS = 4
 MAX_CW_WINDOW_SECONDS = 8
 MAX_MODES_PER_ATTEMPT = 2
 MAX_ATTEMPTS_PER_MINUTE = 5
 MAX_CW_STREAM_ATTEMPTS_PER_MINUTE = 16
+MAX_MODEM_FOLLOWUP_ATTEMPTS_PER_MINUTE = 10
 CW_STREAM_TRACK_COOLDOWN_SECONDS = 2.8
+MODEM_FOLLOWUP_TRACK_COOLDOWN_SECONDS = 5.8
+MAX_MODEM_STREAM_TRACKS = 20
 MAX_CPU_MS_PER_MINUTE = 3000
 TRACK_COOLDOWN_SECONDS = 24
 MIN_ATTEMPT_GAP_SECONDS = 3
@@ -69,6 +73,26 @@ def _ranked_mode_hint(proposal: dict[str, Any]) -> str | None:
         return "bpsk31"
     if mode in ("ax25", "ax.25", "aprs"):
         return "ax25"
+    return None
+
+
+def explicit_modem_hypothesis(track: dict[str, Any]) -> str | None:
+    """Model-based follow-up lane, never verified mode identity."""
+    proposal = track.get("classifier_proposal") or track.get("model_proposal") or {}
+    hint = _ranked_mode_hint(proposal)
+    if hint is not None:
+        return hint
+    if not proposal.get("available") or proposal.get("abstained"):
+        return None
+    identity = " ".join(str(proposal.get(x) or "").lower()
+                        for x in ("method", "method_id", "family"))
+    for needle, mode in (("ax.25", "ax25"), ("ax25", "ax25"),
+                         ("aprs", "ax25"), ("rtty", "rtty"),
+                         ("baudot", "rtty"), ("bpsk31", "bpsk31"),
+                         ("psk31", "bpsk31"), ("morse", "cw"),
+                         ("fldigi-cw", "cw")):
+        if needle in identity:
+            return mode
     return None
 
 
@@ -220,13 +244,25 @@ def decode_live_candidate(pcm: bytes, sample_rate: int, sample_start: int,
             mode_values = values
             mode_start = sample_start
         try:
+            # The CV detector gives a *region* center, not the sub-3 Hz
+            # carrier estimate required by our BPSK31 demodulator. A strong
+            # squared-analytic spectral line can propose a bounded correction;
+            # only the existing coherent varicode decoder may publish text.
+            refined_carrier = carrier_hz
+            carrier_refinement = None
+            if mode == "bpsk31":
+                from .psk31_carrier_acquisition import propose_bpsk31_carrier
+                carrier_refinement = propose_bpsk31_carrier(
+                    mode_values, sample_rate, carrier_hz)
+                if carrier_refinement is not None:
+                    refined_carrier = carrier_refinement["proposed_carrier_hz"]
             # A four-second crop can contain an entire 1.5-second RTTY or
             # PSK31 message *between* two truncated messages. Whole-crop
             # decoders can then fail acquisition even though the signal is
             # strong. Look for low-energy inter-transmission gaps first.
             # Only complete interior spans qualify; no signal generator truth
             # or test-specific message length is used at runtime.
-            windows = propose_burst_windows(mode_values, sample_rate, carrier_hz, mode)
+            windows = propose_burst_windows(mode_values, sample_rate, refined_carrier, mode)
             acquisition_attempts = []
             result = None
             grade, text = "none", ""
@@ -249,7 +285,7 @@ def decode_live_candidate(pcm: bytes, sample_rate: int, sample_start: int,
                     mode, DecodeWindow(
                         mode_values[begin:end], sample_rate,
                         sample_start=mode_start + int(begin),
-                        carrier_hz=(1200.0 if mode == "ax25" else carrier_hz),
+                        carrier_hz=(1200.0 if mode == "ax25" else refined_carrier),
                     ))
                 candidate_grade, candidate_text = _evidence_grade(proposed)
                 acquisition_attempts.append({
@@ -290,6 +326,7 @@ def decode_live_candidate(pcm: bytes, sample_rate: int, sample_start: int,
                 "selected_attempt_index": selected_trial,
                 "attempts": acquisition_attempts,
                 "candidate_spans": len(windows),
+                "carrier_refinement": carrier_refinement,
                 "confirmed_identity": False,
             }
             item = {
@@ -337,6 +374,7 @@ class NativeLiveRunner:
         self._last_started = -1e9
         self._recent_tracks: dict[str, float] = {}
         self._cw_streams: dict[str, CWTokenStream] = {}
+        self._modem_streams: dict[tuple[str, str], ModemEvidenceStream] = {}
         self._attempts: deque[tuple[float, float]] = deque(maxlen=64)
         self._provisional_probes: deque[float] = deque(maxlen=16)
         self._results: deque[dict[str, Any]] = deque(maxlen=MAX_RECENT_RESULTS)
@@ -349,6 +387,9 @@ class NativeLiveRunner:
         self._max_cw_attempts = (MAX_CW_STREAM_ATTEMPTS_PER_MINUTE
                                  if max_attempts_per_minute == MAX_ATTEMPTS_PER_MINUTE
                                  else max_attempts_per_minute)
+        self._max_modem_attempts = (MAX_MODEM_FOLLOWUP_ATTEMPTS_PER_MINUTE
+                                    if max_attempts_per_minute == MAX_ATTEMPTS_PER_MINUTE
+                                    else max_attempts_per_minute)
         self._max_cpu_ms = max_cpu_ms_per_minute
 
     def close(self) -> None:
@@ -360,6 +401,7 @@ class NativeLiveRunner:
             self._session = session
             self._recent_tracks.clear()
             self._cw_streams.clear()
+            self._modem_streams.clear()
             self._attempts.clear()
             self._provisional_probes.clear()
             self._results.clear()
@@ -376,6 +418,9 @@ class NativeLiveRunner:
         if len(self._cw_streams) > MAX_CW_STREAM_TRACKS:
             for key in list(self._cw_streams)[:-MAX_CW_STREAM_TRACKS]:
                 del self._cw_streams[key]
+        if len(self._modem_streams) > MAX_MODEM_STREAM_TRACKS:
+            for key in list(self._modem_streams)[:-MAX_MODEM_STREAM_TRACKS]:
+                del self._modem_streams[key]
 
     def submit(self, *, session_id: str, track: dict[str, Any],
                snapshot: dict[str, Any], store: Any) -> dict[str, Any]:
@@ -406,12 +451,17 @@ class NativeLiveRunner:
         cw_stream = modes[0] == "cw" and (
             float(track.get("frequency_high_hz") or 0)
             - float(track.get("frequency_low_hz") or 0)) <= 80.0
+        modem_followup = (persistent and modes[0] in SUPPORTED_MODES
+                          and explicit_modem_hypothesis(track) == modes[0])
         max_seconds = MAX_CW_WINDOW_SECONDS if modes[0] == "cw" else MAX_WINDOW_SECONDS
         left = max(ring_start, start - round(.15 * rate))
         right = min(ring_end, end + round(.15 * rate))
         if right - left > max_seconds * rate:
             left = right - max_seconds * rate
-        if right - left < .4 * rate:
+        # Bell 202 AX.25 UI packets may be shorter than 400 ms. The AX.25
+        # decoder accepts 125-ms input but publishes only CRC-passed frames.
+        min_window_seconds = .125 if modes[0] == "ax25" else .4
+        if right - left < min_window_seconds * rate:
             return {"status": "not_eligible"}
         lo = float(track.get("frequency_low_hz") or 0)
         hi = float(track.get("frequency_high_hz") or 0)
@@ -429,11 +479,13 @@ class NativeLiveRunner:
                 self._counts["skipped_cooldown"] += 1
                 return {"status": "skipped_cooldown"}
             cooldown = (CW_STREAM_TRACK_COOLDOWN_SECONDS if cw_stream
+                        else MODEM_FOLLOWUP_TRACK_COOLDOWN_SECONDS if modem_followup
                         else TRACK_COOLDOWN_SECONDS)
             if now - self._recent_tracks.get(track_id, -1e9) < cooldown:
                 self._counts["skipped_track"] += 1
                 return {"status": "skipped_track"}
             attempt_limit = (self._max_cw_attempts if cw_stream
+                             else self._max_modem_attempts if modem_followup
                              else self._max_attempts)
             if (len(self._attempts) >= attempt_limit
                     or sum(used for _, used in self._attempts) >= self._max_cpu_ms):
@@ -459,6 +511,8 @@ class NativeLiveRunner:
             if probe_kind:
                 self._provisional_probes.append(now)
                 self._counts["admitted_provisional"] += 1
+            if modem_followup:
+                self._counts["admitted_modem_followup"] += 1
             self._counts["admitted"] += 1
         try:
             run_id = store.create_decoder_run(
@@ -496,7 +550,8 @@ class NativeLiveRunner:
                 done, session_id, track_id, run_id, left, rate, modes, store,
                 carrier, cw_stream))
             return {"status": "queued", "run_id": run_id, "track_id": track_id,
-                    "modes": list(modes), "admission": probe_kind or "persistent"}
+                    "modes": list(modes), "admission": probe_kind or "persistent",
+                    "modem_followup": modem_followup}
         except Exception:
             with self._lock:
                 self._active = False
@@ -537,6 +592,34 @@ class NativeLiveRunner:
                                 stream_event = existing.feed(
                                     result["decoder_result"], sample_rate=rate,
                                     carrier_hz=carrier_hz)
+            modem_event = None
+            if (selected_mode in SUPPORTED_MODES
+                    and result.get("decoder_result") is not None):
+                # Window demodulation is unchanged. Publish only new sample-
+                # indexed text tokens or CRC-passed frames after overlap checks.
+                raw = result["decoder_result"]
+                acquisition = raw.get("live_acquisition") or {}
+                selected_start = int(acquisition.get("selected_sample_start", sample_start))
+                selected_count = int(acquisition.get("selected_sample_count", 0))
+                if selected_count > 0:
+                    key = (track_id, selected_mode)
+                    with self._lock:
+                        if self._session == session_id:
+                            modem_state = self._modem_streams.get(key)
+                            if (modem_state is None or not modem_state.compatible(
+                                    session_id=session_id, track_id=track_id,
+                                    mode=selected_mode, sample_rate=rate,
+                                    carrier_hz=carrier_hz)):
+                                modem_state = ModemEvidenceStream(
+                                    session_id, track_id, selected_mode, rate, carrier_hz)
+                                self._modem_streams[key] = modem_state
+                            modem_event = modem_state.feed(
+                                raw, sample_start=selected_start,
+                                sample_count=selected_count, grade=grade,
+                                carrier_hz=carrier_hz)
+                    if modem_event is not None:
+                        text = modem_event["delta_text"]
+                        grade = modem_event["grade"]
             if stream_event is not None:
                 text = stream_event["delta_text"]
                 grade = "coherent-unverified" if text else "none"
@@ -549,6 +632,8 @@ class NativeLiveRunner:
                 evidence = result["decoder_result"]
                 if stream_event is not None:
                     evidence["cw_stream"] = stream_event
+                if modem_event is not None:
+                    evidence["modem_stream"] = modem_event
                 evidence["live_assistance"] = {
                     "grade": grade, "classification_suggestion": selected_mode if grade != "none" else None,
                     "confirmed_identity": False,
@@ -581,6 +666,11 @@ class NativeLiveRunner:
                 event["cw_stream_delta_text"] = stream_event["delta_text"]
                 event["cw_stream_cumulative_text"] = stream_event["cumulative_text"]
                 event["cw_stream_reason"] = stream_event["reason"]
+            if modem_event is not None:
+                event["modem_stream_delta_text"] = modem_event["delta_text"]
+                event["modem_stream_cumulative_text"] = modem_event["cumulative_text"]
+                event["modem_stream_new_items"] = modem_event["new_items"]
+                event["modem_stream_suppressed_overlaps"] = modem_event["suppressed_overlap_items"]
         except Exception as exc:
             try:
                 store.update_decoder_run(run_id, {
@@ -631,8 +721,12 @@ class NativeLiveRunner:
                     sum(cost for _, cost in self._attempts) / 600, 2),
                 "max_attempts_per_minute": self._max_attempts,
                 "max_cw_stream_attempts_per_minute": self._max_cw_attempts,
+                "max_modem_followup_attempts_per_minute": self._max_modem_attempts,
                 "max_cpu_ms_per_minute": self._max_cpu_ms,
                 "cw_stream_tracks": len(self._cw_streams),
+                "modem_stream_tracks": len(self._modem_streams),
+                "modem_stream_units": sum(x.emitted_units for x in self._modem_streams.values()),
+                "modem_stream_frames": sum(x.emitted_frames for x in self._modem_streams.values()),
                 "counts": dict(self._counts),
                 "latency_by_mode": timings,
                 "recent": [dict(x) for x in reversed(self._results)

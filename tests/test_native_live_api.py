@@ -297,3 +297,66 @@ def test_live_cv_carrier_drift_preserves_native_worker_keying_state(tmp_path, mo
         asyncio.run(check())
     finally:
         app.state.native_live_runner.close()
+
+
+def test_short_ax25_packet_reaches_native_decoder_through_real_api(tmp_path, monkeypatch):
+    """A CRC-passed ~0.31s Bell 202 frame must not hit the old 0.4s gate."""
+    manifest=json.loads((Path(__file__).parent/
+        "fixtures/decoder_conformance/ax25/manifest.json").read_text())
+    case=next(x for x in manifest["fixtures"] if x["expected"]["kind"]=="positive")
+    with wave.open(str(Path(__file__).parent / "fixtures/decoder_conformance/ax25"
+                       / case["audio"]["path"]),"rb") as f:
+        frame=f.readframes(f.getnframes())
+        rate=f.getframerate()
+    frame_samples=len(frame)//2
+    assert .125 < frame_samples/rate < .4
+    app=create_app(tmp_path/"short-ax25")
+    app.state.classifier=None
+    class FakeCV:
+        model_sha256="d"*64
+        model_version="test"
+        def detect_live_partial(self,samples,*,sample_start,total_sample_count,
+                                sample_rate,confidence=None):
+            return [{"sample_start":0,"sample_count":frame_samples,
+                     "frequency_low_hz":650,"frequency_high_hz":1750,
+                     "confidence":.93,"model_sha256":self.model_sha256,
+                     "model_version":self.model_version}]
+    app.state.cv_detector=FakeCV()
+    pcm=frame+b"\0\0"*(2*rate-frame_samples)
+    snapshot={"active":True,"session_id":"short-ax25", "sample_rate":rate,
+              "channels":1,"sample_offset":0,"sample_count":rate,
+              "window_sample_count":rate,"pcm":pcm[:2*rate]}
+    monkeypatch.setattr(app.state.live_capture,"analysis_audio",lambda:snapshot)
+    async def check():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                       base_url="http://test",timeout=25) as client:
+            params={"session_id":"short-ax25","auto_native_decode":"true",
+                    "include_classifier":"false"}
+            one=await client.get("/api/live/cv-detections",params=params)
+            assert one.status_code==200,one.text
+            assert one.json()["detections"][0]["track_state"]=="provisional"
+            assert one.json()["native_decode_trial"] is None
+            snapshot.update({"sample_count":2*rate,"window_sample_count":2*rate})
+            two=await client.get("/api/live/cv-detections",params=params)
+            assert two.status_code==200,two.text
+            trial=two.json()["native_decode_trial"]
+            assert trial and trial["status"]=="queued"
+            assert trial["modes"][0]=="ax25"
+            finish=time.monotonic()+15
+            while time.monotonic()<finish:
+                stats=(await client.get("/api/live/native-decode/status",
+                             params={"session_id":"short-ax25"})).json()
+                if not stats["busy"]:break
+                await asyncio.sleep(.04)
+            assert not stats["busy"]
+            assert stats["recent"][0]["grade"]=="frame-integrity-passed"
+            assert stats["recent"][0]["text"]=="HELLO WORLD"
+            assert stats["modem_stream_frames"]==1
+            runs=app.state.capture_store.decoder_runs(session_id="short-ax25")
+            assert len(runs)==1
+            assert runs[0]["decoder_result"]["modem_stream"]["new_items"]==1
+            assert runs[0]["decoder_result"]["live_assistance"]["confirmed_identity"] is False
+    try:
+        asyncio.run(check())
+    finally:
+        app.state.native_live_runner.close()

@@ -314,3 +314,66 @@ def test_provisional_probe_rate_is_separate_and_never_escapes_cpu_budget(tmp_pat
     finally:
         if not held.future.done():held.future.set_exception(RuntimeError("cleanup"))
         runner.close()
+
+
+@pytest.mark.parametrize("mode,expected", [
+    ("rtty", "CQ TEST"), ("bpsk31", "cq de"), ("ax25", "HELLO WORLD")
+])
+def test_real_native_runner_modem_followups_deduplicate_overlap_but_keep_repeated_messages(
+        tmp_path, monkeypatch, mode, expected):
+    """Full run store + worker + source-indexed incremental text or FCS frames."""
+    import sigid.native_live_decode as live
+    monkeypatch.setattr(live,"MIN_ATTEMPT_GAP_SECONDS",0.0)
+    monkeypatch.setattr(live,"MODEM_FOLLOWUP_TRACK_COOLDOWN_SECONDS",0.0)
+    track,snapshot,_=fixture_snapshot(mode)
+    store=CaptureStore(tmp_path/"live-modem-runs.db")
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        runner=NativeLiveRunner(executor=pool)
+        try:
+            first=runner.submit(session_id="session-1",track=track,
+                                snapshot=snapshot,store=store)
+            assert first["status"]=="queued"
+            assert first["modem_followup"] is True
+            wait_finished(runner,store)
+            first_event=runner.status("session-1")["recent"][0]
+            assert first_event["text"]==expected
+            assert first_event["grade"]==("frame-integrity-passed" if mode=="ax25"
+                                          else "coherent-unverified")
+            assert not first_event["confirmed_identity"]
+            assert first_event["modem_stream_delta_text"]==expected
+            duplicate=runner.submit(session_id="session-1",track=track,
+                                    snapshot=snapshot,store=store)
+            assert duplicate["status"]=="queued"
+            wait_finished(runner,store)
+            duplicated_event=runner.status("session-1")["recent"][0]
+            assert duplicated_event["text"]==""
+            assert duplicated_event["grade"]=="none"
+            assert duplicated_event["modem_stream_suppressed_overlaps"]>=1
+            assert duplicated_event["modem_stream_cumulative_text"]==expected
+            # Same packet/message at genuinely different absolute samples.
+            shifted=10*snapshot["sample_rate"]
+            latest={**snapshot,"sample_offset":shifted,
+                    "sample_count":shifted+snapshot["window_sample_count"]}
+            new_track={**track,"sample_start":shifted}
+            admitted=runner.submit(session_id="session-1",track=new_track,
+                                   snapshot=latest,store=store)
+            assert admitted["status"]=="queued"
+            wait_finished(runner,store)
+            new_event=runner.status("session-1")["recent"][0]
+            assert new_event["text"]==expected
+            assert new_event["modem_stream_new_items"]>=1
+            assert new_event["confirmed_identity"] is False
+            stats=runner.status("session-1")
+            assert stats["counts"]["admitted_modem_followup"]==3
+            assert stats["modem_stream_tracks"]==1
+            if mode=="ax25":
+                assert stats["modem_stream_frames"]==2
+            else:
+                assert stats["modem_stream_units"]>=10
+            runs=store.decoder_runs(session_id="session-1")
+            assert len(runs)==3
+            assert [run["output_text"] for run in runs]==[expected,"",expected]
+            assert all(run["decoder_result"]["modem_stream"]["confirmed_identity"] is False
+                       for run in runs)
+        finally:
+            runner.close()

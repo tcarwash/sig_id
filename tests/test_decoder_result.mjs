@@ -92,3 +92,42 @@ test("continuous CW carrier corrections show unverified provenance", () => {
   assert.match(summary,/CW stream initialized\/reset: carrier-jump/);
   assert.doesNotMatch(summary,/verified station|verified CW/);
 });
+
+test("live RTTY/PSK31 modem stream shows only new source tokens", () => {
+  const summary=summarizeDecoderResult({source:"sigid-independent-implementation",
+    decoder_id:"rtty",status:"decoded",text:"CQ TEST",evidence:{},
+    modem_stream:{strategy:"overlap-deduplicated-modem-evidence-v1",
+      mode:"rtty",delta_text:" TEST",cumulative_text:"CQ TEST",
+      new_items:5,suppressed_overlap_items:2,last_emitted_end_sample:25400,
+      confirmed_identity:false}});
+  assert.match(summary,/RTTY incremental new text tokens:  TEST/);
+  assert.match(summary,/Modem stream so far: CQ TEST/);
+  assert.match(summary,/5 new · 2 overlapping duplicates suppressed/);
+  assert.match(summary,/sample: 25400/);
+  assert.match(summary,/identity remain unverified/);
+});
+
+test("live AX25 stream shows CRC-passed new frame, not verified identity", () => {
+  const summary=summarizeDecoderResult({source:"sigid-independent-implementation",
+    decoder_id:"ax25",status:"decoded",text:"HELLO WORLD",evidence:{},
+    modem_stream:{strategy:"overlap-deduplicated-modem-evidence-v1",
+      mode:"ax25",delta_text:"HELLO WORLD",cumulative_text:"HELLO WORLD",
+      new_items:1,suppressed_overlap_items:0,last_emitted_end_sample:3150,
+      confirmed_identity:false}});
+  assert.match(summary,/AX25 incremental CRC-checked new packet frames: HELLO WORLD/);
+  assert.match(summary,/1 new · 0 overlapping duplicates suppressed/);
+  assert.match(summary,/identity remain unverified/);
+});
+
+test("BPSK31 carrier refinement is presented as unverified DSP evidence", () => {
+  const summary=summarizeDecoderResult({source:"sigid-independent-implementation",
+    decoder_id:"bpsk31",status:"no_decode",evidence:{},
+    live_acquisition:{original_sample_start:0,original_sample_count:12000,
+      selected_sample_start:0,selected_sample_count:12000,
+      carrier_refinement:{strategy:"bpsk31-squared-analytic-carrier-v1",
+        initial_carrier_hz:1011,proposed_carrier_hz:999.932,
+        confirmed_identity:false}}});
+  assert.match(summary,/BPSK31 suggested carrier refinement: 1011\.00 → 999\.93 Hz/);
+  assert.match(summary,/the decoder must still establish varicode coherence/);
+  assert.match(summary,/Abstained/);
+});
