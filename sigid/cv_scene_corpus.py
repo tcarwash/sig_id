@@ -28,7 +28,7 @@ SIGNAL_GENERATORS = {
     "sig-id-ook", "sig-id-ask", "sig-id-ppm", "sig-id-fldigi",
 }
 SCHEMA_VERSION = 4
-SCENE_RECIPE_VERSION = 2
+SCENE_RECIPE_VERSION = 3
 MAX_NOISE_ONLY_EXAMPLES = 5000
 RECORDED_NOISE_SEGMENT_SECONDS = 2
 MIN_SIGNAL_SNR_DB = -40.0
@@ -252,6 +252,27 @@ def _nonoverlapping_pair_starts(
     return first_start, second_start
 
 
+def _simultaneous_pair_starts(
+    first_count: int, second_count: int, *, scene_sample_count: int,
+    rng: np.random.Generator,
+) -> tuple[int, int]:
+    """Choose two in-bounds starts that share >=50% of the shorter burst.
+
+    This exercises the signal separator on truly concurrent emissions; the
+    existing nonoverlapping layout remains available for control examples.
+    """
+    if not (0 < first_count <= scene_sample_count and 0 < second_count <= scene_sample_count):
+        raise ValueError("both signal intervals must fit in the scene")
+    first_start = int(rng.integers(0, scene_sample_count - first_count + 1))
+    minimum_shared = max(1, (min(first_count, second_count) + 1) // 2)
+    earliest = max(0, first_start + minimum_shared - second_count)
+    latest = min(scene_sample_count - second_count, first_start + first_count - minimum_shared)
+    if earliest > latest:
+        raise ValueError("cannot fit simultaneous signal intervals")
+    second_start = int(rng.integers(earliest, latest + 1))
+    return first_start, second_start
+
+
 def _ensure_synthetic_review(store: CaptureStore, capture: dict[str, Any], note: str) -> None:
     reviews = store.scene_coverages(capture["id"])
     if any(
@@ -405,6 +426,7 @@ def build_cv_synthetic_scenes(
     *,
     seed: int = 1,
     overlap_rate: float = 0.25,
+    simultaneous_rate: float = 0.0,
     noise_only_examples: int = 0,
     noise_data_dirs: list[str | Path] | None = None,
 ) -> dict[str, Any]:
@@ -419,6 +441,8 @@ def build_cv_synthetic_scenes(
         raise ValueError("seed must be an unsigned 32-bit integer")
     if not isinstance(overlap_rate, (int, float)) or isinstance(overlap_rate, bool) or not 0 <= overlap_rate <= 1:
         raise ValueError("overlap_rate must be between 0 and 1")
+    if not isinstance(simultaneous_rate, (int, float)) or isinstance(simultaneous_rate, bool) or not 0 <= simultaneous_rate <= 1:
+        raise ValueError("simultaneous_rate must be between 0 and 1")
     if (
         not isinstance(noise_only_examples, int) or isinstance(noise_only_examples, bool)
         or not 0 <= noise_only_examples <= MAX_NOISE_ONLY_EXAMPLES
@@ -481,8 +505,9 @@ def build_cv_synthetic_scenes(
         "schema_version": SCHEMA_VERSION,
         "seed": seed,
         "overlap_rate": float(overlap_rate),
+        "simultaneous_rate": float(simultaneous_rate),
         "scene_recipe_version": SCENE_RECIPE_VERSION,
-        "two_signal_layout": "temporally_disjoint-v1",
+        "two_signal_layout": "mixture-disjoint-and-simultaneous-v1",
         "window_seconds": WINDOW_SECONDS,
         "signal_generators": sorted(SIGNAL_GENERATORS),
         "source_pool_sha256": source_pool_sha256,
@@ -599,7 +624,7 @@ def build_cv_synthetic_scenes(
         sample_rate = int(sources[0]["sample_rate"])
         scene_sample_count = sample_rate * WINDOW_SECONDS
         recipe_key = hashlib.sha256(
-            f"{SCENE_RECIPE_VERSION}:{seed}:{'|'.join(source_hashes)}".encode()
+            f"{SCENE_RECIPE_VERSION}:{seed}:{simultaneous_rate:.6f}:{'|'.join(source_hashes)}".encode()
         ).hexdigest()
         rng = np.random.default_rng(_derived_seed(seed, recipe_key))
         signal_recipes: list[dict[str, Any]] = []
@@ -616,13 +641,20 @@ def build_cv_synthetic_scenes(
                 sources[1]["sample_count"],
                 int(round(float(rng.uniform(second_min_duration, second_duration)) * sample_rate)),
             ))
-            first_start, second_start = _nonoverlapping_pair_starts(
-                first["sample_count"], second_count,
-                scene_sample_count=scene_sample_count, sample_rate=sample_rate, rng=rng,
-            )
+            simultaneous = bool(rng.random() < simultaneous_rate)
+            if simultaneous:
+                first_start, second_start = _simultaneous_pair_starts(
+                    first["sample_count"], second_count,
+                    scene_sample_count=scene_sample_count, rng=rng,
+                )
+            else:
+                first_start, second_start = _nonoverlapping_pair_starts(
+                    first["sample_count"], second_count,
+                    scene_sample_count=scene_sample_count, sample_rate=sample_rate, rng=rng,
+                )
             first["scene_start_sample"] = first_start
-            # Keep the two boxes separate in time while drawing independent
-            # source offsets and impairment recipes.
+            # The scene importer retains separate signal boxes even when their
+            # time ranges overlap: no class or protocol label is inferred here.
             second = _signal_recipe(
                 sources[1], second_region, rng=rng, scene_sample_count=scene_sample_count,
                 sample_rate=sample_rate, scene_start_sample=second_start,
@@ -756,6 +788,10 @@ def main() -> None:
         help="fraction of scenes containing two signals; paired signals are placed in separate time intervals",
     )
     parser.add_argument(
+        "--simultaneous-rate", type=float, default=0.0,
+        help="fraction of two-signal scenes with at least 50% simultaneous burst overlap",
+    )
+    parser.add_argument(
         "--noise-only-examples", type=int, default=0,
         help=f"add this many independent reviewed 10-second uniform-noise captures (max {MAX_NOISE_ONLY_EXAMPLES})",
     )
@@ -767,7 +803,8 @@ def main() -> None:
     try:
         report = build_cv_synthetic_scenes(
             args.data_dir, args.output_dir, seed=args.seed, overlap_rate=args.overlap_rate,
-            noise_only_examples=args.noise_only_examples, noise_data_dirs=args.noise_data_dir,
+            simultaneous_rate=args.simultaneous_rate, noise_only_examples=args.noise_only_examples,
+            noise_data_dirs=args.noise_data_dir,
         )
     except (OSError, ValueError) as exc:
         parser.error(str(exc))

@@ -362,6 +362,7 @@ def train_cv_detector(
         raise ValueError("training split has no labels")
     try:
         from ultralytics import YOLO
+        import torch
         from importlib.metadata import version
         from packaging.version import Version
     except ImportError as exc:
@@ -407,6 +408,11 @@ def train_cv_detector(
     }
     if device:
         train_options["device"] = device
+    # The ROCm host has exhibited a native crash inside Ultralytics AMP
+    # initialization. Disable mixed precision for HIP builds while retaining
+    # explicit user-selected accelerator and batch settings.
+    if torch.version.hip:
+        train_options["amp"] = False
     if progress_callback:
         def report_epoch(trainer: Any) -> None:
             progress_callback(int(trainer.epoch) + 1, int(trainer.epochs))

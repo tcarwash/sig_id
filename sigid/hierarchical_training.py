@@ -235,8 +235,55 @@ def train_hierarchical(
     known_hashes = {row["sha256"] for row in rows}
     real_rows, real_summary = _reviewed_real_rows(reviewed_data_dirs or [], known_hashes=known_hashes)
     fldigi_rows, fldigi_summary = _fldigi_synthetic_rows(fldigi_data_dirs or [], known_hashes=known_hashes)
+    core_mode_ids = {str(row["mode"]) for row in train_rows if row["mode"] != "noise"}
+    real_source_counts: dict[str, set[str]] = {}
+    for row in real_rows:
+        real_source_counts.setdefault(str(row["mode"]), set()).add(str(row["capture_id"]))
+    supported_real_modes = {mode for mode, sources in real_source_counts.items() if len(sources) >= 3}
     train_rows.extend(real_rows)
-    train_rows.extend(row for row in fldigi_rows if row["split"] == "train")
+    # Fldigi exposes many selectable variants, but often only one recording
+    # exists for each. Those one-shots are useful *family* examples, not
+    # justification for adding a new individually supervised mode class.
+    base_mode_ids = core_mode_ids | supported_real_modes
+    native_counts = {
+        mode: sum(int(n) for n in by_split.values())
+        for mode, by_split in fldigi_summary["examples_by_mode_and_split"].items()
+    }
+    rare_native_modes = {
+        mode for mode, count in native_counts.items()
+        if count < 3 and mode not in base_mode_ids
+    }
+    # Cap family-only one-shot examples so that a large collection of weakly
+    # labeled variants cannot swamp the independently reviewed core taxonomy.
+    core_family_counts: dict[str, int] = {}
+    for row in train_rows:
+        if row["mode"] == "noise":
+            continue
+        family = classifier_family_for_mode(str(row["mode"]))
+        core_family_counts[family] = core_family_counts.get(family, 0) + 1
+    one_shot_by_family: dict[str, int] = {}
+    selected_fldigi_rows: list[dict[str, Any]] = []
+    for row in sorted(fldigi_rows, key=lambda entry: str(entry["sha256"])):
+        if row["split"] != "train":
+            continue
+        if row["mode"] in rare_native_modes:
+            family = classifier_family_for_mode(str(row["mode"]))
+            allowed = max(4, core_family_counts.get(family, 0) // 2)
+            if one_shot_by_family.get(family, 0) >= allowed:
+                continue
+            one_shot_by_family[family] = one_shot_by_family.get(family, 0) + 1
+        selected_fldigi_rows.append(row)
+    fldigi_summary["family_only_examples_available"] = sum(
+        row["split"] == "train" and row["mode"] in rare_native_modes for row in fldigi_rows
+    )
+    fldigi_summary["family_only_examples"] = sum(
+        row["mode"] in rare_native_modes for row in selected_fldigi_rows
+    )
+    fldigi_summary["family_only_mode_count"] = len(rare_native_modes)
+    fldigi_summary["mode_supervised_example_count"] = sum(
+        row["mode"] not in rare_native_modes for row in selected_fldigi_rows
+    )
+    train_rows.extend(selected_fldigi_rows)
     validation_rows.extend(row for row in fldigi_rows if row["split"] == "validation")
     train_x, train_labels, _ = _features_for(train_rows, feature_version, classifier_window_seconds)
     validation_x, validation_labels, _ = _features_for(validation_rows, feature_version, classifier_window_seconds)
@@ -258,11 +305,15 @@ def train_hierarchical(
     if ood_corpus and len(ood_validation) < 6:
         raise ValueError("OOD corpus needs at least six validation sources for calibration")
     ood_x = _ood_features_for(ood_validation, feature_version, classifier_window_seconds) if ood_validation else np.empty((0, FEATURE_COUNT_BY_VERSION[feature_version]), dtype=np.float32)
-    mode_ids = sorted(set(train_labels.tolist()) - {"noise"})
-    unknown_modes = set(mode_ids) - set(METHOD_BY_MODE) - set(FAMILY_BY_MODE)
+    all_signal_modes = set(train_labels.tolist()) - {"noise"}
+    mode_ids = sorted(all_signal_modes - (rare_native_modes | (set(real_source_counts) - base_mode_ids)))
+    unknown_modes = all_signal_modes - set(METHOD_BY_MODE) - set(FAMILY_BY_MODE)
     if unknown_modes:
         raise ValueError(f"training labels lack family/method definitions: {sorted(unknown_modes)}")
     family_by_mode = {mode: classifier_family_for_mode(mode) for mode in mode_ids}
+    # Family-only examples refine broad spectral recognition but never create
+    # a one-shot mode expert or a new unsupported family identity.
+    all_training_families = {mode: classifier_family_for_mode(mode) for mode in all_signal_modes}
     families = sorted(set(family_by_mode.values()))
     if not families:
         raise ValueError("no labeled signal modes occur in the training split")
@@ -279,8 +330,12 @@ def train_hierarchical(
             return None
         return {**parameters, "classes": classes}
 
-    family_for_row = np.asarray([family_by_mode.get(str(mode), "") for mode in train_labels], dtype=object)
-    signal_mask = train_labels != "noise"
+    family_for_row = np.asarray([
+        all_training_families.get(str(mode), "")
+        if all_training_families.get(str(mode), "") in families else ""
+        for mode in train_labels
+    ], dtype=object)
+    signal_mask = family_for_row != ""
     total_epoch_units = epochs * (1 + len(families))
     completed_epoch_units = 0
 
@@ -317,7 +372,7 @@ def train_hierarchical(
     for family in families:
         modes = sorted(mode for mode in mode_ids if family_by_mode[mode] == family)
         classes_by_family[family] = modes
-        family_train_mask = np.asarray([family_by_mode.get(str(label)) == family for label in train_labels])
+        family_train_mask = np.isin(train_labels, modes)
         initial_expert = None
         if initial_components and family in initial_components["experts"]:
             prior_modes = initial_metadata.get("mode_classes_by_family", {}).get(family, [])
@@ -418,6 +473,7 @@ def main() -> None:
                         help="application dataset containing fresh complete 10-second reviews; may be repeated")
     parser.add_argument("--fldigi-data-dir", type=Path, action="append", default=[],
                         help="dataset containing imported native Fldigi synthetic samples; may be repeated")
+    parser.add_argument("--initial-model-path", type=Path, help="compatible classifier to warm-start family and expert weights")
     parser.add_argument("--epochs", type=int, default=1200)
     parser.add_argument("--feature-version", choices=tuple(FEATURE_COUNT_BY_VERSION), default=DEFAULT_FEATURE_VERSION)
     parser.add_argument("--classifier-window-seconds", type=float, default=CLASSIFIER_WINDOW_SECONDS)
@@ -426,6 +482,7 @@ def main() -> None:
         result = train_hierarchical(
             args.split, args.data_dir, args.output_manifest, ood_corpus=args.ood_corpus,
             reviewed_data_dirs=args.reviewed_data_dir, fldigi_data_dirs=args.fldigi_data_dir,
+            initial_model_path=args.initial_model_path,
             epochs=args.epochs, feature_version=args.feature_version,
             classifier_window_seconds=args.classifier_window_seconds,
         )
