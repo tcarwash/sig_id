@@ -54,6 +54,11 @@ node --test tests/test_decoder_result.mjs
 
 The tests cover both sample rates, exact RTTY recovery at −5 dB, conservative weak-tone evidence, negative single-tone and noise tests, the eight-second CW-first ring bound, a secondary CW candidate remaining four seconds, and exact persisted sample provenance from an actual spawned process.
 
+The follow-on [CW token-stream milestone](LIVE_CW_TOKEN_STREAM.md) can
+assemble deduplicated, complete words from independently corroborated
+cross-poll absolute sample spans, but it does **not** yet implement
+continuous key-transition demodulation or improve weak-SNR modem accuracy.
+
 ## Remaining experiments
 
 Actual stateful CW key-transition decoding across detection polls is still needed to reconstruct longer messages without resending broken partial prefixes. Other next steps include RTTY soft-symbol acquisition across fading and clock/carrier offsets, multi-signal interference and mismatched shifts, negative data from reviewed real recordings, and better presentation of uncertain per-character evidence. None are completed by this milestone.
