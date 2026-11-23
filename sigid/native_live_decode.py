@@ -18,11 +18,14 @@ from typing import Any
 import numpy as np
 
 from .native_acquisition import propose_burst_windows
+from .cw_token_stream import CWTokenStream, MAX_CW_STREAM_TRACKS
 
 MAX_WINDOW_SECONDS = 4
 MAX_CW_WINDOW_SECONDS = 8
 MAX_MODES_PER_ATTEMPT = 2
 MAX_ATTEMPTS_PER_MINUTE = 5
+MAX_CW_STREAM_ATTEMPTS_PER_MINUTE = 16
+CW_STREAM_TRACK_COOLDOWN_SECONDS = 2.8
 MAX_CPU_MS_PER_MINUTE = 3000
 TRACK_COOLDOWN_SECONDS = 24
 MIN_ATTEMPT_GAP_SECONDS = 3
@@ -253,11 +256,18 @@ class NativeLiveRunner:
         self._active = False
         self._last_started = -1e9
         self._recent_tracks: dict[str, float] = {}
+        self._cw_streams: dict[str, CWTokenStream] = {}
         self._attempts: deque[tuple[float, float]] = deque(maxlen=64)
         self._results: deque[dict[str, Any]] = deque(maxlen=MAX_RECENT_RESULTS)
         self._counts: Counter[str] = Counter()
         self._latencies: dict[str, deque[float]] = {}
         self._max_attempts = max_attempts_per_minute
+        # Preserve intentionally lower constructor-specified test/operator
+        # limits. Default capacity may be larger only for narrow CW-first
+        # streams, and the shared process-CPU cap never changes.
+        self._max_cw_attempts = (MAX_CW_STREAM_ATTEMPTS_PER_MINUTE
+                                 if max_attempts_per_minute == MAX_ATTEMPTS_PER_MINUTE
+                                 else max_attempts_per_minute)
         self._max_cpu_ms = max_cpu_ms_per_minute
 
     def close(self) -> None:
@@ -268,6 +278,7 @@ class NativeLiveRunner:
         if self._session != session:
             self._session = session
             self._recent_tracks.clear()
+            self._cw_streams.clear()
             self._attempts.clear()
             self._results.clear()
             self._last_started = -1e9
@@ -278,6 +289,9 @@ class NativeLiveRunner:
         for key, timestamp in list(self._recent_tracks.items()):
             if now - timestamp > TRACK_COOLDOWN_SECONDS * 2:
                 del self._recent_tracks[key]
+        if len(self._cw_streams) > MAX_CW_STREAM_TRACKS:
+            for key in list(self._cw_streams)[:-MAX_CW_STREAM_TRACKS]:
+                del self._cw_streams[key]
 
     def submit(self, *, session_id: str, track: dict[str, Any],
                snapshot: dict[str, Any], store: Any) -> dict[str, Any]:
@@ -300,6 +314,11 @@ class NativeLiveRunner:
         # Morse symbol. Keep the longer lookback restricted to CW hypotheses,
         # with all other modems still limited to four-second DSP windows.
         modes = candidate_modes(track)[:MAX_MODES_PER_ATTEMPT]
+        # Only a CW-first *narrow* persistent track gets frequent incremental
+        # updates. Uncertain/wide signals keep the old five/minute budget.
+        cw_stream = modes[0] == "cw" and (
+            float(track.get("frequency_high_hz") or 0)
+            - float(track.get("frequency_low_hz") or 0)) <= 80.0
         max_seconds = MAX_CW_WINDOW_SECONDS if modes[0] == "cw" else MAX_WINDOW_SECONDS
         left = max(ring_start, start - round(.15 * rate))
         right = min(ring_end, end + round(.15 * rate))
@@ -322,10 +341,14 @@ class NativeLiveRunner:
             if now - self._last_started < MIN_ATTEMPT_GAP_SECONDS:
                 self._counts["skipped_cooldown"] += 1
                 return {"status": "skipped_cooldown"}
-            if now - self._recent_tracks.get(track_id, -1e9) < TRACK_COOLDOWN_SECONDS:
+            cooldown = (CW_STREAM_TRACK_COOLDOWN_SECONDS if cw_stream
+                        else TRACK_COOLDOWN_SECONDS)
+            if now - self._recent_tracks.get(track_id, -1e9) < cooldown:
                 self._counts["skipped_track"] += 1
                 return {"status": "skipped_track"}
-            if (len(self._attempts) >= self._max_attempts
+            attempt_limit = (self._max_cw_attempts if cw_stream
+                             else self._max_attempts)
+            if (len(self._attempts) >= attempt_limit
                     or sum(used for _, used in self._attempts) >= self._max_cpu_ms):
                 self._counts["skipped_budget"] += 1
                 return {"status": "skipped_budget"}
@@ -369,7 +392,8 @@ class NativeLiveRunner:
             future = self._executor.submit(
                 decode_live_candidate, packed, rate, left, carrier, tuple(modes))
             future.add_done_callback(lambda done: self._complete(
-                done, session_id, track_id, run_id, left, rate, modes, store))
+                done, session_id, track_id, run_id, left, rate, modes, store,
+                carrier, cw_stream))
             return {"status": "queued", "run_id": run_id, "track_id": track_id,
                     "modes": list(modes)}
         except Exception:
@@ -380,13 +404,39 @@ class NativeLiveRunner:
 
     def _complete(self, future: Future, session_id: str, track_id: str,
                   run_id: str, sample_start: int, rate: int,
-                  modes: tuple[str, ...], store: Any) -> None:
+                  modes: tuple[str, ...], store: Any,
+                  carrier_hz: float = 0.0, cw_stream: bool = False) -> None:
         try:
             result = future.result()
             attempted = result["attempted"]
             grade = result["grade"]
             text = result["text"]
             selected_mode = result["selected_mode"]
+            stream_event = None
+            if (cw_stream and selected_mode == "cw"
+                    and result.get("decoder_result") is not None):
+                with self._lock:
+                    if self._session == session_id:
+                        existing = self._cw_streams.get(track_id)
+                        if (existing is None or existing.sample_rate != rate
+                                or abs(existing.carrier_hz-carrier_hz) > 8):
+                            existing = CWTokenStream(session_id, track_id, rate, carrier_hz)
+                            self._cw_streams[track_id] = existing
+                        try:
+                            stream_event = existing.feed(
+                                result["decoder_result"], sample_rate=rate,
+                                carrier_hz=carrier_hz)
+                        except ValueError:
+                            # A detector gap or retune must reset, never
+                            # splice unrelated CW fragments into one sentence.
+                            existing = CWTokenStream(session_id, track_id, rate, carrier_hz)
+                            self._cw_streams[track_id] = existing
+                            stream_event = existing.feed(
+                                result["decoder_result"], sample_rate=rate,
+                                carrier_hz=carrier_hz)
+            if stream_event is not None:
+                text = stream_event["delta_text"]
+                grade = "coherent-unverified" if text else "none"
             note = ("Decoder frame passed integrity check (not a confirmed mode label)."
                     if grade == "frame-integrity-passed" else
                     "Readable experimental decode; identity unverified."
@@ -394,6 +444,8 @@ class NativeLiveRunner:
                     "Native decoder candidates abstained or produced no coherent result.")
             if result["decoder_result"] is not None:
                 evidence = result["decoder_result"]
+                if stream_event is not None:
+                    evidence["cw_stream"] = stream_event
                 evidence["live_assistance"] = {
                     "grade": grade, "classification_suggestion": selected_mode if grade != "none" else None,
                     "confirmed_identity": False,
@@ -422,6 +474,10 @@ class NativeLiveRunner:
                 "wall_ms": result["wall_ms"], "sample_start": sample_start,
                 "confirmed_identity": False,
             }
+            if stream_event is not None:
+                event["cw_stream_delta_text"] = stream_event["delta_text"]
+                event["cw_stream_cumulative_text"] = stream_event["cumulative_text"]
+                event["cw_stream_reason"] = stream_event["reason"]
         except Exception as exc:
             try:
                 store.update_decoder_run(run_id, {
@@ -469,7 +525,9 @@ class NativeLiveRunner:
                 "cpu_pct_single_core_last_minute": round(
                     sum(cost for _, cost in self._attempts) / 600, 2),
                 "max_attempts_per_minute": self._max_attempts,
+                "max_cw_stream_attempts_per_minute": self._max_cw_attempts,
                 "max_cpu_ms_per_minute": self._max_cpu_ms,
+                "cw_stream_tracks": len(self._cw_streams),
                 "counts": dict(self._counts),
                 "latency_by_mode": timings,
                 "recent": [dict(x) for x in reversed(self._results)

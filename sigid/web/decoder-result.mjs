@@ -50,6 +50,17 @@ export function summarizeDecoderResult(result) {
     }
     lines.push("Acquisition windows are proposals, not verified message boundaries.");
   }
+  const stream = result.cw_stream;
+  if (result.decoder_id === "cw" && stream && typeof stream === "object") {
+    const delta = shortText(stream.delta_text, 100);
+    const accumulated = shortText(stream.cumulative_text, 300);
+    lines.push(`Incremental CW (new overlap-confirmed words): ${delta || "none yet"}`);
+    lines.push(`CW stream so far: ${accumulated || "awaiting corroboration"}`);
+    if (Number.isInteger(stream.last_emitted_end_sample) && stream.last_emitted_end_sample >= 0) {
+      lines.push(`Last emitted Morse source sample: ${stream.last_emitted_end_sample}`);
+    }
+    lines.push(`Stream status: ${shortText(stream.reason, 60)} · provisional words, no Morse checksum or operator verification`);
+  }
   const tokens = Array.isArray(result.tokens) ? result.tokens : [];
   if (tokens.length) {
     const preview = tokens.slice(0, 24).map((token) => {

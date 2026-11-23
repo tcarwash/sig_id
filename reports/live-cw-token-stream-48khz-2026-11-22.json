@@ -1,0 +1,4564 @@
+{
+  "schema_version": 1,
+  "provenance": "synthetic-signal-lab-only",
+  "not_on_air_validation": true,
+  "sample_rate": 48000,
+  "seed_start": 71062,
+  "seed_count": 6,
+  "snrs": [
+    -10.0,
+    -5.0,
+    0.0,
+    10.0,
+    25.0
+  ],
+  "summary": {
+    "-10.0": {
+      "cases": 6,
+      "exact_phrase_present": 0,
+      "incorrect_word_count": 0,
+      "duplicate_source_interval_count": 0,
+      "noise_only_word_count": 0,
+      "median_cpu_ms_ten_polls": 399.96
+    },
+    "-5.0": {
+      "cases": 6,
+      "exact_phrase_present": 1,
+      "incorrect_word_count": 0,
+      "duplicate_source_interval_count": 0,
+      "noise_only_word_count": 0,
+      "median_cpu_ms_ten_polls": 418.15
+    },
+    "0.0": {
+      "cases": 6,
+      "exact_phrase_present": 6,
+      "incorrect_word_count": 0,
+      "duplicate_source_interval_count": 0,
+      "noise_only_word_count": 0,
+      "median_cpu_ms_ten_polls": 397.6
+    },
+    "10.0": {
+      "cases": 6,
+      "exact_phrase_present": 6,
+      "incorrect_word_count": 0,
+      "duplicate_source_interval_count": 0,
+      "noise_only_word_count": 0,
+      "median_cpu_ms_ten_polls": 405.44
+    },
+    "25.0": {
+      "cases": 6,
+      "exact_phrase_present": 5,
+      "incorrect_word_count": 0,
+      "duplicate_source_interval_count": 0,
+      "noise_only_word_count": 0,
+      "median_cpu_ms_ten_polls": 404.68
+    }
+  },
+  "cases": [
+    {
+      "seed": 71062,
+      "snr_db": -10.0,
+      "sample_rate": 48000,
+      "mono_sha256": "322455540a884446dbe2a66c6b25d77326a6891fcca974f09caa505f949da0d8",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "reference_bandwidth_hz": 2500,
+      "expected_text": "CQ TEST",
+      "emitted_text": "",
+      "contains_exact_phrase": false,
+      "emitted_words": 0,
+      "incorrect_emitted_words": 0,
+      "duplicate_absolute_sample_intervals": 0,
+      "noise_only_emitted_words": 0,
+      "cpu_ms_total": 530.91,
+      "positive_events": [
+        {
+          "start_sample": 0,
+          "end_sample": 384000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 69.55
+        },
+        {
+          "start_sample": 144000,
+          "end_sample": 528000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 61.6
+        },
+        {
+          "start_sample": 288000,
+          "end_sample": 672000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 48.2
+        },
+        {
+          "start_sample": 432000,
+          "end_sample": 816000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 49.5
+        },
+        {
+          "start_sample": 576000,
+          "end_sample": 960000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 51.0
+        }
+      ],
+      "noise_events": [
+        {
+          "start_sample": 1152000,
+          "end_sample": 1536000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 50.34
+        },
+        {
+          "start_sample": 1296000,
+          "end_sample": 1680000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 50.52
+        },
+        {
+          "start_sample": 1440000,
+          "end_sample": 1824000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 48.97
+        },
+        {
+          "start_sample": 1584000,
+          "end_sample": 1968000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 48.99
+        },
+        {
+          "start_sample": 1728000,
+          "end_sample": 2112000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 52.24
+        }
+      ],
+      "not_on_air_validation": true
+    },
+    {
+      "seed": 71062,
+      "snr_db": -5.0,
+      "sample_rate": 48000,
+      "mono_sha256": "6339cf106bf72f4401172c1da82d2370a6e383b8562e3029769c35d39feff1e0",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "reference_bandwidth_hz": 2500,
+      "expected_text": "CQ TEST",
+      "emitted_text": "CQ TEST CQ TEST",
+      "contains_exact_phrase": true,
+      "emitted_words": 4,
+      "incorrect_emitted_words": 0,
+      "duplicate_absolute_sample_intervals": 0,
+      "noise_only_emitted_words": 0,
+      "cpu_ms_total": 418.94,
+      "positive_events": [
+        {
+          "start_sample": 0,
+          "end_sample": 384000,
+          "window_grade": "coherent-unverified",
+          "window_text": "IT CQ TE",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 46.23
+        },
+        {
+          "start_sample": 144000,
+          "end_sample": 528000,
+          "window_grade": "coherent-unverified",
+          "window_text": "ITEST CQ TEST E CZ",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 42.49
+        },
+        {
+          "start_sample": 288000,
+          "end_sample": 672000,
+          "window_grade": "coherent-unverified",
+          "window_text": "EQ TEST E CQ TEST ED",
+          "delta_text": "CQ TEST",
+          "delta_words": [
+            {
+              "text": "CQ",
+              "start_sample": 256800,
+              "end_sample": 334656,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            },
+            {
+              "text": "TEST",
+              "start_sample": 354624,
+              "end_sample": 415296,
+              "patterns": "- . ... -",
+              "token_count": 4
+            }
+          ],
+          "assembled_text": "CQ TEST",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 44.27
+        },
+        {
+          "start_sample": 432000,
+          "end_sample": 816000,
+          "window_grade": "coherent-unverified",
+          "window_text": "E CQ TEST CQ DST",
+          "delta_text": "CQ TEST",
+          "delta_words": [
+            {
+              "text": "CQ",
+              "start_sample": 453600,
+              "end_sample": 531456,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            },
+            {
+              "text": "TEST",
+              "start_sample": 551616,
+              "end_sample": 612000,
+              "patterns": "- . ... -",
+              "token_count": 4
+            }
+          ],
+          "assembled_text": "CQ TEST CQ TEST",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 41.85
+        },
+        {
+          "start_sample": 576000,
+          "end_sample": 960000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "CQ TEST CQ TEST",
+          "reason": "duplicate-or-no-new-words",
+          "worker_cpu_ms": 41.7
+        }
+      ],
+      "noise_events": [
+        {
+          "start_sample": 1152000,
+          "end_sample": 1536000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.34
+        },
+        {
+          "start_sample": 1296000,
+          "end_sample": 1680000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 41.16
+        },
+        {
+          "start_sample": 1440000,
+          "end_sample": 1824000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 40.91
+        },
+        {
+          "start_sample": 1584000,
+          "end_sample": 1968000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.58
+        },
+        {
+          "start_sample": 1728000,
+          "end_sample": 2112000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 41.41
+        }
+      ],
+      "not_on_air_validation": true
+    },
+    {
+      "seed": 71062,
+      "snr_db": 0.0,
+      "sample_rate": 48000,
+      "mono_sha256": "995ae857b596b2b0fe7d68a58dd0f9b6d397f7ec7e36cab37c3ef6dac89d48bb",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "reference_bandwidth_hz": 2500,
+      "expected_text": "CQ TEST",
+      "emitted_text": "CQ TEST CQ TEST CQ",
+      "contains_exact_phrase": true,
+      "emitted_words": 5,
+      "incorrect_emitted_words": 0,
+      "duplicate_absolute_sample_intervals": 0,
+      "noise_only_emitted_words": 0,
+      "cpu_ms_total": 391.52,
+      "positive_events": [
+        {
+          "start_sample": 0,
+          "end_sample": 384000,
+          "window_grade": "coherent-unverified",
+          "window_text": "IT CQ TE",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 43.49
+        },
+        {
+          "start_sample": 144000,
+          "end_sample": 528000,
+          "window_grade": "coherent-unverified",
+          "window_text": "ETEST CQ TEST CZ",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.21
+        },
+        {
+          "start_sample": 288000,
+          "end_sample": 672000,
+          "window_grade": "coherent-unverified",
+          "window_text": "EQ TEST CQ TEST D",
+          "delta_text": "CQ TEST",
+          "delta_words": [
+            {
+              "text": "CQ",
+              "start_sample": 256800,
+              "end_sample": 334656,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            },
+            {
+              "text": "TEST",
+              "start_sample": 354624,
+              "end_sample": 415296,
+              "patterns": "- . ... -",
+              "token_count": 4
+            }
+          ],
+          "assembled_text": "CQ TEST",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 38.3
+        },
+        {
+          "start_sample": 432000,
+          "end_sample": 816000,
+          "window_grade": "coherent-unverified",
+          "window_text": "E CQ TEST CQ TEST",
+          "delta_text": "CQ TEST",
+          "delta_words": [
+            {
+              "text": "CQ",
+              "start_sample": 453600,
+              "end_sample": 531456,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            },
+            {
+              "text": "TEST",
+              "start_sample": 551520,
+              "end_sample": 612000,
+              "patterns": "- . ... -",
+              "token_count": 4
+            }
+          ],
+          "assembled_text": "CQ TEST CQ TEST",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 38.32
+        },
+        {
+          "start_sample": 576000,
+          "end_sample": 960000,
+          "window_grade": "coherent-unverified",
+          "window_text": "ST CQ TEST",
+          "delta_text": "CQ",
+          "delta_words": [
+            {
+              "text": "CQ",
+              "start_sample": 650400,
+              "end_sample": 728352,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            }
+          ],
+          "assembled_text": "CQ TEST CQ TEST CQ",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 39.4
+        }
+      ],
+      "noise_events": [
+        {
+          "start_sample": 1152000,
+          "end_sample": 1536000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.78
+        },
+        {
+          "start_sample": 1296000,
+          "end_sample": 1680000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.83
+        },
+        {
+          "start_sample": 1440000,
+          "end_sample": 1824000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.34
+        },
+        {
+          "start_sample": 1584000,
+          "end_sample": 1968000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 37.93
+        },
+        {
+          "start_sample": 1728000,
+          "end_sample": 2112000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.92
+        }
+      ],
+      "not_on_air_validation": true
+    },
+    {
+      "seed": 71062,
+      "snr_db": 10.0,
+      "sample_rate": 48000,
+      "mono_sha256": "6b88d507fe7d443bf327a4c96728a31dbf90061465cb88dfb4ac21b8de0d6cfe",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "reference_bandwidth_hz": 2500,
+      "expected_text": "CQ TEST",
+      "emitted_text": "CQ TEST CQ",
+      "contains_exact_phrase": true,
+      "emitted_words": 3,
+      "incorrect_emitted_words": 0,
+      "duplicate_absolute_sample_intervals": 0,
+      "noise_only_emitted_words": 0,
+      "cpu_ms_total": 406.64,
+      "positive_events": [
+        {
+          "start_sample": 0,
+          "end_sample": 384000,
+          "window_grade": "coherent-unverified",
+          "window_text": "E CQ TEST CQ TEE",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 42.51
+        },
+        {
+          "start_sample": 144000,
+          "end_sample": 528000,
+          "window_grade": "coherent-unverified",
+          "window_text": "ETEST CQ TEST CZ",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.35
+        },
+        {
+          "start_sample": 288000,
+          "end_sample": 672000,
+          "window_grade": "coherent-unverified",
+          "window_text": "EQ TEST D",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.86
+        },
+        {
+          "start_sample": 432000,
+          "end_sample": 816000,
+          "window_grade": "coherent-unverified",
+          "window_text": "CQ TEST CQ TEST",
+          "delta_text": "CQ TEST",
+          "delta_words": [
+            {
+              "text": "CQ",
+              "start_sample": 256800,
+              "end_sample": 334656,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            },
+            {
+              "text": "TEST",
+              "start_sample": 551520,
+              "end_sample": 612096,
+              "patterns": "- . ... -",
+              "token_count": 4
+            }
+          ],
+          "assembled_text": "CQ TEST",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 39.17
+        },
+        {
+          "start_sample": 576000,
+          "end_sample": 960000,
+          "window_grade": "coherent-unverified",
+          "window_text": "ST CQ TEST",
+          "delta_text": "CQ",
+          "delta_words": [
+            {
+              "text": "CQ",
+              "start_sample": 650400,
+              "end_sample": 728256,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            }
+          ],
+          "assembled_text": "CQ TEST CQ",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 40.23
+        }
+      ],
+      "noise_events": [
+        {
+          "start_sample": 1152000,
+          "end_sample": 1536000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 42.08
+        },
+        {
+          "start_sample": 1296000,
+          "end_sample": 1680000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 41.35
+        },
+        {
+          "start_sample": 1440000,
+          "end_sample": 1824000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.4
+        },
+        {
+          "start_sample": 1584000,
+          "end_sample": 1968000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.06
+        },
+        {
+          "start_sample": 1728000,
+          "end_sample": 2112000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 46.63
+        }
+      ],
+      "not_on_air_validation": true
+    },
+    {
+      "seed": 71062,
+      "snr_db": 25.0,
+      "sample_rate": 48000,
+      "mono_sha256": "a5506b66d6b88c958f4d29f6248f23799ee1bfc7d41c1cbed045a4ea4e3126fc",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "reference_bandwidth_hz": 2500,
+      "expected_text": "CQ TEST",
+      "emitted_text": "TEST CQ CQ",
+      "contains_exact_phrase": false,
+      "emitted_words": 3,
+      "incorrect_emitted_words": 0,
+      "duplicate_absolute_sample_intervals": 0,
+      "noise_only_emitted_words": 0,
+      "cpu_ms_total": 449.73,
+      "positive_events": [
+        {
+          "start_sample": 0,
+          "end_sample": 384000,
+          "window_grade": "coherent-unverified",
+          "window_text": "CQ TEST CQ TEE",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 41.13
+        },
+        {
+          "start_sample": 144000,
+          "end_sample": 528000,
+          "window_grade": "coherent-unverified",
+          "window_text": "TEST CQ TEST CZ",
+          "delta_text": "TEST CQ",
+          "delta_words": [
+            {
+              "text": "TEST",
+              "start_sample": 157920,
+              "end_sample": 218496,
+              "patterns": "- . ... -",
+              "token_count": 4
+            },
+            {
+              "text": "CQ",
+              "start_sample": 256800,
+              "end_sample": 334656,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            }
+          ],
+          "assembled_text": "TEST CQ",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 38.72
+        },
+        {
+          "start_sample": 288000,
+          "end_sample": 672000,
+          "window_grade": "coherent-unverified",
+          "window_text": "EQ TEST D",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "TEST CQ",
+          "reason": "duplicate-or-no-new-words",
+          "worker_cpu_ms": 45.58
+        },
+        {
+          "start_sample": 432000,
+          "end_sample": 816000,
+          "window_grade": "coherent-unverified",
+          "window_text": "CQ TEST",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "TEST CQ",
+          "reason": "duplicate-or-no-new-words",
+          "worker_cpu_ms": 43.84
+        },
+        {
+          "start_sample": 576000,
+          "end_sample": 960000,
+          "window_grade": "coherent-unverified",
+          "window_text": "ST CQ TEST",
+          "delta_text": "CQ",
+          "delta_words": [
+            {
+              "text": "CQ",
+              "start_sample": 650400,
+              "end_sample": 728256,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            }
+          ],
+          "assembled_text": "TEST CQ CQ",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 38.8
+        }
+      ],
+      "noise_events": [
+        {
+          "start_sample": 1152000,
+          "end_sample": 1536000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.06
+        },
+        {
+          "start_sample": 1296000,
+          "end_sample": 1680000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 42.98
+        },
+        {
+          "start_sample": 1440000,
+          "end_sample": 1824000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 61.13
+        },
+        {
+          "start_sample": 1584000,
+          "end_sample": 1968000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 56.94
+        },
+        {
+          "start_sample": 1728000,
+          "end_sample": 2112000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 41.55
+        }
+      ],
+      "not_on_air_validation": true
+    },
+    {
+      "seed": 71063,
+      "snr_db": -10.0,
+      "sample_rate": 48000,
+      "mono_sha256": "282a50da88d7974761e760046097745644f5566b99e01fbd3a5d27b9dbac4332",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "reference_bandwidth_hz": 2500,
+      "expected_text": "CQ TEST",
+      "emitted_text": "",
+      "contains_exact_phrase": false,
+      "emitted_words": 0,
+      "incorrect_emitted_words": 0,
+      "duplicate_absolute_sample_intervals": 0,
+      "noise_only_emitted_words": 0,
+      "cpu_ms_total": 390.34,
+      "positive_events": [
+        {
+          "start_sample": 0,
+          "end_sample": 384000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 42.03
+        },
+        {
+          "start_sample": 144000,
+          "end_sample": 528000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.03
+        },
+        {
+          "start_sample": 288000,
+          "end_sample": 672000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.98
+        },
+        {
+          "start_sample": 432000,
+          "end_sample": 816000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.47
+        },
+        {
+          "start_sample": 576000,
+          "end_sample": 960000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.44
+        }
+      ],
+      "noise_events": [
+        {
+          "start_sample": 1152000,
+          "end_sample": 1536000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.9
+        },
+        {
+          "start_sample": 1296000,
+          "end_sample": 1680000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.1
+        },
+        {
+          "start_sample": 1440000,
+          "end_sample": 1824000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.63
+        },
+        {
+          "start_sample": 1584000,
+          "end_sample": 1968000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.73
+        },
+        {
+          "start_sample": 1728000,
+          "end_sample": 2112000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.03
+        }
+      ],
+      "not_on_air_validation": true
+    },
+    {
+      "seed": 71063,
+      "snr_db": -5.0,
+      "sample_rate": 48000,
+      "mono_sha256": "4a15b3a3a5ff3df07572168cfb7d41184e5de62c710c521c931fee02bcc59e3f",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "reference_bandwidth_hz": 2500,
+      "expected_text": "CQ TEST",
+      "emitted_text": "",
+      "contains_exact_phrase": false,
+      "emitted_words": 0,
+      "incorrect_emitted_words": 0,
+      "duplicate_absolute_sample_intervals": 0,
+      "noise_only_emitted_words": 0,
+      "cpu_ms_total": 417.36,
+      "positive_events": [
+        {
+          "start_sample": 0,
+          "end_sample": 384000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 42.02
+        },
+        {
+          "start_sample": 144000,
+          "end_sample": 528000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.02
+        },
+        {
+          "start_sample": 288000,
+          "end_sample": 672000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 45.68
+        },
+        {
+          "start_sample": 432000,
+          "end_sample": 816000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 47.66
+        },
+        {
+          "start_sample": 576000,
+          "end_sample": 960000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 45.72
+        }
+      ],
+      "noise_events": [
+        {
+          "start_sample": 1152000,
+          "end_sample": 1536000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 41.66
+        },
+        {
+          "start_sample": 1296000,
+          "end_sample": 1680000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.66
+        },
+        {
+          "start_sample": 1440000,
+          "end_sample": 1824000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.64
+        },
+        {
+          "start_sample": 1584000,
+          "end_sample": 1968000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.88
+        },
+        {
+          "start_sample": 1728000,
+          "end_sample": 2112000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.42
+        }
+      ],
+      "not_on_air_validation": true
+    },
+    {
+      "seed": 71063,
+      "snr_db": 0.0,
+      "sample_rate": 48000,
+      "mono_sha256": "8e940571547a5b36532ddd5e9861b356073655dc1dfe03db3f3968fb484af71f",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "reference_bandwidth_hz": 2500,
+      "expected_text": "CQ TEST",
+      "emitted_text": "CQ TEST CQ",
+      "contains_exact_phrase": true,
+      "emitted_words": 3,
+      "incorrect_emitted_words": 0,
+      "duplicate_absolute_sample_intervals": 0,
+      "noise_only_emitted_words": 0,
+      "cpu_ms_total": 392.17,
+      "positive_events": [
+        {
+          "start_sample": 0,
+          "end_sample": 384000,
+          "window_grade": "coherent-unverified",
+          "window_text": "E CQ TEST CQ TEE",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 41.85
+        },
+        {
+          "start_sample": 144000,
+          "end_sample": 528000,
+          "window_grade": "coherent-unverified",
+          "window_text": "ETEST CQ TEST CZ",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.65
+        },
+        {
+          "start_sample": 288000,
+          "end_sample": 672000,
+          "window_grade": "coherent-unverified",
+          "window_text": "IQ TEST D",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.04
+        },
+        {
+          "start_sample": 432000,
+          "end_sample": 816000,
+          "window_grade": "coherent-unverified",
+          "window_text": "E CQ TEST CQ TEST",
+          "delta_text": "CQ TEST",
+          "delta_words": [
+            {
+              "text": "CQ",
+              "start_sample": 256800,
+              "end_sample": 334656,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            },
+            {
+              "text": "TEST",
+              "start_sample": 551520,
+              "end_sample": 612096,
+              "patterns": "- . ... -",
+              "token_count": 4
+            }
+          ],
+          "assembled_text": "CQ TEST",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 40.07
+        },
+        {
+          "start_sample": 576000,
+          "end_sample": 960000,
+          "window_grade": "coherent-unverified",
+          "window_text": "HT CQ TEST",
+          "delta_text": "CQ",
+          "delta_words": [
+            {
+              "text": "CQ",
+              "start_sample": 650304,
+              "end_sample": 728256,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            }
+          ],
+          "assembled_text": "CQ TEST CQ",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 38.57
+        }
+      ],
+      "noise_events": [
+        {
+          "start_sample": 1152000,
+          "end_sample": 1536000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.72
+        },
+        {
+          "start_sample": 1296000,
+          "end_sample": 1680000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.73
+        },
+        {
+          "start_sample": 1440000,
+          "end_sample": 1824000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.34
+        },
+        {
+          "start_sample": 1584000,
+          "end_sample": 1968000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.9
+        },
+        {
+          "start_sample": 1728000,
+          "end_sample": 2112000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.3
+        }
+      ],
+      "not_on_air_validation": true
+    },
+    {
+      "seed": 71063,
+      "snr_db": 10.0,
+      "sample_rate": 48000,
+      "mono_sha256": "f74b0f633d8cc01516ef824d6a4e9c2d26b1facb5c44ac8eb1ea53c11f7d45fd",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "reference_bandwidth_hz": 2500,
+      "expected_text": "CQ TEST",
+      "emitted_text": "CQ TEST CQ",
+      "contains_exact_phrase": true,
+      "emitted_words": 3,
+      "incorrect_emitted_words": 0,
+      "duplicate_absolute_sample_intervals": 0,
+      "noise_only_emitted_words": 0,
+      "cpu_ms_total": 429.37,
+      "positive_events": [
+        {
+          "start_sample": 0,
+          "end_sample": 384000,
+          "window_grade": "coherent-unverified",
+          "window_text": "CQ TEST CQ TEE",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 41.65
+        },
+        {
+          "start_sample": 144000,
+          "end_sample": 528000,
+          "window_grade": "coherent-unverified",
+          "window_text": "ETEST CQ TEST CZ",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.09
+        },
+        {
+          "start_sample": 288000,
+          "end_sample": 672000,
+          "window_grade": "coherent-unverified",
+          "window_text": "EQ TEST D",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.79
+        },
+        {
+          "start_sample": 432000,
+          "end_sample": 816000,
+          "window_grade": "coherent-unverified",
+          "window_text": "CQ TEST CQ TEST",
+          "delta_text": "CQ TEST",
+          "delta_words": [
+            {
+              "text": "CQ",
+              "start_sample": 256800,
+              "end_sample": 334656,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            },
+            {
+              "text": "TEST",
+              "start_sample": 551520,
+              "end_sample": 612096,
+              "patterns": "- . ... -",
+              "token_count": 4
+            }
+          ],
+          "assembled_text": "CQ TEST",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 42.51
+        },
+        {
+          "start_sample": 576000,
+          "end_sample": 960000,
+          "window_grade": "coherent-unverified",
+          "window_text": "HT CQ TEST",
+          "delta_text": "CQ",
+          "delta_words": [
+            {
+              "text": "CQ",
+              "start_sample": 650304,
+              "end_sample": 728256,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            }
+          ],
+          "assembled_text": "CQ TEST CQ",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 42.24
+        }
+      ],
+      "noise_events": [
+        {
+          "start_sample": 1152000,
+          "end_sample": 1536000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.91
+        },
+        {
+          "start_sample": 1296000,
+          "end_sample": 1680000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 44.12
+        },
+        {
+          "start_sample": 1440000,
+          "end_sample": 1824000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 50.04
+        },
+        {
+          "start_sample": 1584000,
+          "end_sample": 1968000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 51.12
+        },
+        {
+          "start_sample": 1728000,
+          "end_sample": 2112000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.9
+        }
+      ],
+      "not_on_air_validation": true
+    },
+    {
+      "seed": 71063,
+      "snr_db": 25.0,
+      "sample_rate": 48000,
+      "mono_sha256": "831deaa76b6783d50b1ce2e36b701904d6c4cec96b764ff16044deb9462beb17",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "reference_bandwidth_hz": 2500,
+      "expected_text": "CQ TEST",
+      "emitted_text": "TEST CQ TEST CQ",
+      "contains_exact_phrase": true,
+      "emitted_words": 4,
+      "incorrect_emitted_words": 0,
+      "duplicate_absolute_sample_intervals": 0,
+      "noise_only_emitted_words": 0,
+      "cpu_ms_total": 395.36,
+      "positive_events": [
+        {
+          "start_sample": 0,
+          "end_sample": 384000,
+          "window_grade": "coherent-unverified",
+          "window_text": "CQ TEST CQ TEE",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 41.41
+        },
+        {
+          "start_sample": 144000,
+          "end_sample": 528000,
+          "window_grade": "coherent-unverified",
+          "window_text": "TEST CQ TEST CZ",
+          "delta_text": "TEST CQ",
+          "delta_words": [
+            {
+              "text": "TEST",
+              "start_sample": 157920,
+              "end_sample": 218496,
+              "patterns": "- . ... -",
+              "token_count": 4
+            },
+            {
+              "text": "CQ",
+              "start_sample": 256800,
+              "end_sample": 334656,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            }
+          ],
+          "assembled_text": "TEST CQ",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 38.43
+        },
+        {
+          "start_sample": 288000,
+          "end_sample": 672000,
+          "window_grade": "coherent-unverified",
+          "window_text": "EQ TEST D",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "TEST CQ",
+          "reason": "duplicate-or-no-new-words",
+          "worker_cpu_ms": 38.44
+        },
+        {
+          "start_sample": 432000,
+          "end_sample": 816000,
+          "window_grade": "coherent-unverified",
+          "window_text": "CQ TEST CQ TEST",
+          "delta_text": "TEST",
+          "delta_words": [
+            {
+              "text": "TEST",
+              "start_sample": 551520,
+              "end_sample": 612096,
+              "patterns": "- . ... -",
+              "token_count": 4
+            }
+          ],
+          "assembled_text": "TEST CQ TEST",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 38.29
+        },
+        {
+          "start_sample": 576000,
+          "end_sample": 960000,
+          "window_grade": "coherent-unverified",
+          "window_text": "ST CQ TEST",
+          "delta_text": "CQ",
+          "delta_words": [
+            {
+              "text": "CQ",
+              "start_sample": 650400,
+              "end_sample": 728256,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            }
+          ],
+          "assembled_text": "TEST CQ TEST CQ",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 39.1
+        }
+      ],
+      "noise_events": [
+        {
+          "start_sample": 1152000,
+          "end_sample": 1536000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.58
+        },
+        {
+          "start_sample": 1296000,
+          "end_sample": 1680000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 44.08
+        },
+        {
+          "start_sample": 1440000,
+          "end_sample": 1824000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.11
+        },
+        {
+          "start_sample": 1584000,
+          "end_sample": 1968000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.57
+        },
+        {
+          "start_sample": 1728000,
+          "end_sample": 2112000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 40.35
+        }
+      ],
+      "not_on_air_validation": true
+    },
+    {
+      "seed": 71064,
+      "snr_db": -10.0,
+      "sample_rate": 48000,
+      "mono_sha256": "4928fe2dd55acb4ce46f99185a9f8d06c6a92af8c023e160d3d511923a06d586",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "reference_bandwidth_hz": 2500,
+      "expected_text": "CQ TEST",
+      "emitted_text": "",
+      "contains_exact_phrase": false,
+      "emitted_words": 0,
+      "incorrect_emitted_words": 0,
+      "duplicate_absolute_sample_intervals": 0,
+      "noise_only_emitted_words": 0,
+      "cpu_ms_total": 392.13,
+      "positive_events": [
+        {
+          "start_sample": 0,
+          "end_sample": 384000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 40.84
+        },
+        {
+          "start_sample": 144000,
+          "end_sample": 528000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.32
+        },
+        {
+          "start_sample": 288000,
+          "end_sample": 672000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.6
+        },
+        {
+          "start_sample": 432000,
+          "end_sample": 816000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.26
+        },
+        {
+          "start_sample": 576000,
+          "end_sample": 960000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 37.86
+        }
+      ],
+      "noise_events": [
+        {
+          "start_sample": 1152000,
+          "end_sample": 1536000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.47
+        },
+        {
+          "start_sample": 1296000,
+          "end_sample": 1680000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.16
+        },
+        {
+          "start_sample": 1440000,
+          "end_sample": 1824000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.39
+        },
+        {
+          "start_sample": 1584000,
+          "end_sample": 1968000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 44.62
+        },
+        {
+          "start_sample": 1728000,
+          "end_sample": 2112000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.61
+        }
+      ],
+      "not_on_air_validation": true
+    },
+    {
+      "seed": 71064,
+      "snr_db": -5.0,
+      "sample_rate": 48000,
+      "mono_sha256": "b2c22a1150a9fef7f6e0322ac917cd26e62410de1fce53a7c71bb575e622c5c7",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "reference_bandwidth_hz": 2500,
+      "expected_text": "CQ TEST",
+      "emitted_text": "",
+      "contains_exact_phrase": false,
+      "emitted_words": 0,
+      "incorrect_emitted_words": 0,
+      "duplicate_absolute_sample_intervals": 0,
+      "noise_only_emitted_words": 0,
+      "cpu_ms_total": 435.99,
+      "positive_events": [
+        {
+          "start_sample": 0,
+          "end_sample": 384000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 41.34
+        },
+        {
+          "start_sample": 144000,
+          "end_sample": 528000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 42.18
+        },
+        {
+          "start_sample": 288000,
+          "end_sample": 672000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 63.41
+        },
+        {
+          "start_sample": 432000,
+          "end_sample": 816000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 46.93
+        },
+        {
+          "start_sample": 576000,
+          "end_sample": 960000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 40.6
+        }
+      ],
+      "noise_events": [
+        {
+          "start_sample": 1152000,
+          "end_sample": 1536000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 41.29
+        },
+        {
+          "start_sample": 1296000,
+          "end_sample": 1680000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.35
+        },
+        {
+          "start_sample": 1440000,
+          "end_sample": 1824000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 41.6
+        },
+        {
+          "start_sample": 1584000,
+          "end_sample": 1968000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.6
+        },
+        {
+          "start_sample": 1728000,
+          "end_sample": 2112000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.69
+        }
+      ],
+      "not_on_air_validation": true
+    },
+    {
+      "seed": 71064,
+      "snr_db": 0.0,
+      "sample_rate": 48000,
+      "mono_sha256": "710f3f2cfaab2dcd7295f3f227333b2a856ba55e83d2e1728b461d6af8eb2166",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "reference_bandwidth_hz": 2500,
+      "expected_text": "CQ TEST",
+      "emitted_text": "CQ TEST CQ TEST CQ",
+      "contains_exact_phrase": true,
+      "emitted_words": 5,
+      "incorrect_emitted_words": 0,
+      "duplicate_absolute_sample_intervals": 0,
+      "noise_only_emitted_words": 0,
+      "cpu_ms_total": 399.44,
+      "positive_events": [
+        {
+          "start_sample": 0,
+          "end_sample": 384000,
+          "window_grade": "coherent-unverified",
+          "window_text": "IT CQ TE",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 41.39
+        },
+        {
+          "start_sample": 144000,
+          "end_sample": 528000,
+          "window_grade": "coherent-unverified",
+          "window_text": "ETEST CQ TEST CZ",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 41.63
+        },
+        {
+          "start_sample": 288000,
+          "end_sample": 672000,
+          "window_grade": "coherent-unverified",
+          "window_text": "EQ TEST CQ TEST D",
+          "delta_text": "CQ TEST",
+          "delta_words": [
+            {
+              "text": "CQ",
+              "start_sample": 256800,
+              "end_sample": 334656,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            },
+            {
+              "text": "TEST",
+              "start_sample": 354720,
+              "end_sample": 415296,
+              "patterns": "- . ... -",
+              "token_count": 4
+            }
+          ],
+          "assembled_text": "CQ TEST",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 39.65
+        },
+        {
+          "start_sample": 432000,
+          "end_sample": 816000,
+          "window_grade": "coherent-unverified",
+          "window_text": "E CQ TEST CQ TEST",
+          "delta_text": "CQ TEST",
+          "delta_words": [
+            {
+              "text": "CQ",
+              "start_sample": 453600,
+              "end_sample": 531456,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            },
+            {
+              "text": "TEST",
+              "start_sample": 551616,
+              "end_sample": 612000,
+              "patterns": "- . ... -",
+              "token_count": 4
+            }
+          ],
+          "assembled_text": "CQ TEST CQ TEST",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 39.58
+        },
+        {
+          "start_sample": 576000,
+          "end_sample": 960000,
+          "window_grade": "coherent-unverified",
+          "window_text": "HT CQ TEST",
+          "delta_text": "CQ",
+          "delta_words": [
+            {
+              "text": "CQ",
+              "start_sample": 650400,
+              "end_sample": 728256,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            }
+          ],
+          "assembled_text": "CQ TEST CQ TEST CQ",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 38.13
+        }
+      ],
+      "noise_events": [
+        {
+          "start_sample": 1152000,
+          "end_sample": 1536000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.12
+        },
+        {
+          "start_sample": 1296000,
+          "end_sample": 1680000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.24
+        },
+        {
+          "start_sample": 1440000,
+          "end_sample": 1824000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 42.31
+        },
+        {
+          "start_sample": 1584000,
+          "end_sample": 1968000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.22
+        },
+        {
+          "start_sample": 1728000,
+          "end_sample": 2112000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.17
+        }
+      ],
+      "not_on_air_validation": true
+    },
+    {
+      "seed": 71064,
+      "snr_db": 10.0,
+      "sample_rate": 48000,
+      "mono_sha256": "a1b6c28bb632e5ae3b7604158c031df5bb123a09a866116c237db0db7f427269",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "reference_bandwidth_hz": 2500,
+      "expected_text": "CQ TEST",
+      "emitted_text": "CQ TEST CQ",
+      "contains_exact_phrase": true,
+      "emitted_words": 3,
+      "incorrect_emitted_words": 0,
+      "duplicate_absolute_sample_intervals": 0,
+      "noise_only_emitted_words": 0,
+      "cpu_ms_total": 404.25,
+      "positive_events": [
+        {
+          "start_sample": 0,
+          "end_sample": 384000,
+          "window_grade": "coherent-unverified",
+          "window_text": "IT CQ TEE",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 43.2
+        },
+        {
+          "start_sample": 144000,
+          "end_sample": 528000,
+          "window_grade": "coherent-unverified",
+          "window_text": "ETEST CQ TEST CZ",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 43.99
+        },
+        {
+          "start_sample": 288000,
+          "end_sample": 672000,
+          "window_grade": "coherent-unverified",
+          "window_text": "EQ TEST CQ TEST D",
+          "delta_text": "CQ TEST",
+          "delta_words": [
+            {
+              "text": "CQ",
+              "start_sample": 256800,
+              "end_sample": 334656,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            },
+            {
+              "text": "TEST",
+              "start_sample": 354720,
+              "end_sample": 415296,
+              "patterns": "- . ... -",
+              "token_count": 4
+            }
+          ],
+          "assembled_text": "CQ TEST",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 39.26
+        },
+        {
+          "start_sample": 432000,
+          "end_sample": 816000,
+          "window_grade": "coherent-unverified",
+          "window_text": "CQ TEST",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "CQ TEST",
+          "reason": "duplicate-or-no-new-words",
+          "worker_cpu_ms": 40.18
+        },
+        {
+          "start_sample": 576000,
+          "end_sample": 960000,
+          "window_grade": "coherent-unverified",
+          "window_text": "ST CQ TEST",
+          "delta_text": "CQ",
+          "delta_words": [
+            {
+              "text": "CQ",
+              "start_sample": 650400,
+              "end_sample": 728256,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            }
+          ],
+          "assembled_text": "CQ TEST CQ",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 38.54
+        }
+      ],
+      "noise_events": [
+        {
+          "start_sample": 1152000,
+          "end_sample": 1536000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.74
+        },
+        {
+          "start_sample": 1296000,
+          "end_sample": 1680000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 40.56
+        },
+        {
+          "start_sample": 1440000,
+          "end_sample": 1824000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 40.59
+        },
+        {
+          "start_sample": 1584000,
+          "end_sample": 1968000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.76
+        },
+        {
+          "start_sample": 1728000,
+          "end_sample": 2112000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.43
+        }
+      ],
+      "not_on_air_validation": true
+    },
+    {
+      "seed": 71064,
+      "snr_db": 25.0,
+      "sample_rate": 48000,
+      "mono_sha256": "0b29cf99cd0a6d84def714183b415d73d44d63eadcd7571a2c7c2d48954ad41c",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "reference_bandwidth_hz": 2500,
+      "expected_text": "CQ TEST",
+      "emitted_text": "TEST CQ TEST CQ",
+      "contains_exact_phrase": true,
+      "emitted_words": 4,
+      "incorrect_emitted_words": 0,
+      "duplicate_absolute_sample_intervals": 0,
+      "noise_only_emitted_words": 0,
+      "cpu_ms_total": 393.29,
+      "positive_events": [
+        {
+          "start_sample": 0,
+          "end_sample": 384000,
+          "window_grade": "coherent-unverified",
+          "window_text": "CQ TEST CQ TEE",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 41.32
+        },
+        {
+          "start_sample": 144000,
+          "end_sample": 528000,
+          "window_grade": "coherent-unverified",
+          "window_text": "TEST CQ TEST CZ",
+          "delta_text": "TEST CQ",
+          "delta_words": [
+            {
+              "text": "TEST",
+              "start_sample": 157920,
+              "end_sample": 218496,
+              "patterns": "- . ... -",
+              "token_count": 4
+            },
+            {
+              "text": "CQ",
+              "start_sample": 256800,
+              "end_sample": 334656,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            }
+          ],
+          "assembled_text": "TEST CQ",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 38.65
+        },
+        {
+          "start_sample": 288000,
+          "end_sample": 672000,
+          "window_grade": "coherent-unverified",
+          "window_text": "EQ TEST D",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "TEST CQ",
+          "reason": "duplicate-or-no-new-words",
+          "worker_cpu_ms": 39.04
+        },
+        {
+          "start_sample": 432000,
+          "end_sample": 816000,
+          "window_grade": "coherent-unverified",
+          "window_text": "CQ TEST CQ TEST",
+          "delta_text": "TEST",
+          "delta_words": [
+            {
+              "text": "TEST",
+              "start_sample": 551520,
+              "end_sample": 612096,
+              "patterns": "- . ... -",
+              "token_count": 4
+            }
+          ],
+          "assembled_text": "TEST CQ TEST",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 39.11
+        },
+        {
+          "start_sample": 576000,
+          "end_sample": 960000,
+          "window_grade": "coherent-unverified",
+          "window_text": "ST CQ TEST",
+          "delta_text": "CQ",
+          "delta_words": [
+            {
+              "text": "CQ",
+              "start_sample": 650400,
+              "end_sample": 728256,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            }
+          ],
+          "assembled_text": "TEST CQ TEST CQ",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 40.17
+        }
+      ],
+      "noise_events": [
+        {
+          "start_sample": 1152000,
+          "end_sample": 1536000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.0
+        },
+        {
+          "start_sample": 1296000,
+          "end_sample": 1680000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.8
+        },
+        {
+          "start_sample": 1440000,
+          "end_sample": 1824000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.78
+        },
+        {
+          "start_sample": 1584000,
+          "end_sample": 1968000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.98
+        },
+        {
+          "start_sample": 1728000,
+          "end_sample": 2112000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.44
+        }
+      ],
+      "not_on_air_validation": true
+    },
+    {
+      "seed": 71065,
+      "snr_db": -10.0,
+      "sample_rate": 48000,
+      "mono_sha256": "36b3f0be51bddf188c77aed7817ae6c152f3e67a04c97cf8fe904681deced5eb",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "reference_bandwidth_hz": 2500,
+      "expected_text": "CQ TEST",
+      "emitted_text": "",
+      "contains_exact_phrase": false,
+      "emitted_words": 0,
+      "incorrect_emitted_words": 0,
+      "duplicate_absolute_sample_intervals": 0,
+      "noise_only_emitted_words": 0,
+      "cpu_ms_total": 407.34,
+      "positive_events": [
+        {
+          "start_sample": 0,
+          "end_sample": 384000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 41.39
+        },
+        {
+          "start_sample": 144000,
+          "end_sample": 528000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.03
+        },
+        {
+          "start_sample": 288000,
+          "end_sample": 672000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 52.48
+        },
+        {
+          "start_sample": 432000,
+          "end_sample": 816000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.27
+        },
+        {
+          "start_sample": 576000,
+          "end_sample": 960000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.66
+        }
+      ],
+      "noise_events": [
+        {
+          "start_sample": 1152000,
+          "end_sample": 1536000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.05
+        },
+        {
+          "start_sample": 1296000,
+          "end_sample": 1680000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.98
+        },
+        {
+          "start_sample": 1440000,
+          "end_sample": 1824000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.88
+        },
+        {
+          "start_sample": 1584000,
+          "end_sample": 1968000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.5
+        },
+        {
+          "start_sample": 1728000,
+          "end_sample": 2112000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.1
+        }
+      ],
+      "not_on_air_validation": true
+    },
+    {
+      "seed": 71065,
+      "snr_db": -5.0,
+      "sample_rate": 48000,
+      "mono_sha256": "61e3c1f5754efc898f4b035c67252461c5bfdee0b6a74c90f1238314807116fd",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "reference_bandwidth_hz": 2500,
+      "expected_text": "CQ TEST",
+      "emitted_text": "",
+      "contains_exact_phrase": false,
+      "emitted_words": 0,
+      "incorrect_emitted_words": 0,
+      "duplicate_absolute_sample_intervals": 0,
+      "noise_only_emitted_words": 0,
+      "cpu_ms_total": 396.64,
+      "positive_events": [
+        {
+          "start_sample": 0,
+          "end_sample": 384000,
+          "window_grade": "coherent-unverified",
+          "window_text": "IT CQ TEE",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 41.69
+        },
+        {
+          "start_sample": 144000,
+          "end_sample": 528000,
+          "window_grade": "coherent-unverified",
+          "window_text": "ETEST CQ TESN CQ",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.67
+        },
+        {
+          "start_sample": 288000,
+          "end_sample": 672000,
+          "window_grade": "coherent-unverified",
+          "window_text": "EQ TESN CQ TESN D",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.96
+        },
+        {
+          "start_sample": 432000,
+          "end_sample": 816000,
+          "window_grade": "coherent-unverified",
+          "window_text": "E CQ TESN CQ TEST",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.76
+        },
+        {
+          "start_sample": 576000,
+          "end_sample": 960000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 37.84
+        }
+      ],
+      "noise_events": [
+        {
+          "start_sample": 1152000,
+          "end_sample": 1536000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 40.54
+        },
+        {
+          "start_sample": 1296000,
+          "end_sample": 1680000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.38
+        },
+        {
+          "start_sample": 1440000,
+          "end_sample": 1824000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 43.35
+        },
+        {
+          "start_sample": 1584000,
+          "end_sample": 1968000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.19
+        },
+        {
+          "start_sample": 1728000,
+          "end_sample": 2112000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.26
+        }
+      ],
+      "not_on_air_validation": true
+    },
+    {
+      "seed": 71065,
+      "snr_db": 0.0,
+      "sample_rate": 48000,
+      "mono_sha256": "62a9eaa6239de6c87856fc15f337a86da46938be06c0e99a60f7fd1ef41905f8",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "reference_bandwidth_hz": 2500,
+      "expected_text": "CQ TEST",
+      "emitted_text": "CQ TEST CQ",
+      "contains_exact_phrase": true,
+      "emitted_words": 3,
+      "incorrect_emitted_words": 0,
+      "duplicate_absolute_sample_intervals": 0,
+      "noise_only_emitted_words": 0,
+      "cpu_ms_total": 395.92,
+      "positive_events": [
+        {
+          "start_sample": 0,
+          "end_sample": 384000,
+          "window_grade": "coherent-unverified",
+          "window_text": "IT CQ TEE",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 41.76
+        },
+        {
+          "start_sample": 144000,
+          "end_sample": 528000,
+          "window_grade": "coherent-unverified",
+          "window_text": "ETEST CQ TEST CZ",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.06
+        },
+        {
+          "start_sample": 288000,
+          "end_sample": 672000,
+          "window_grade": "coherent-unverified",
+          "window_text": "IQ TEST D",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.39
+        },
+        {
+          "start_sample": 432000,
+          "end_sample": 816000,
+          "window_grade": "coherent-unverified",
+          "window_text": "E CQ TEST CQ TEST",
+          "delta_text": "CQ TEST",
+          "delta_words": [
+            {
+              "text": "CQ",
+              "start_sample": 256800,
+              "end_sample": 334560,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            },
+            {
+              "text": "TEST",
+              "start_sample": 551520,
+              "end_sample": 612096,
+              "patterns": "- . ... -",
+              "token_count": 4
+            }
+          ],
+          "assembled_text": "CQ TEST",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 38.52
+        },
+        {
+          "start_sample": 576000,
+          "end_sample": 960000,
+          "window_grade": "coherent-unverified",
+          "window_text": "HT CQ TEST",
+          "delta_text": "CQ",
+          "delta_words": [
+            {
+              "text": "CQ",
+              "start_sample": 650400,
+              "end_sample": 728256,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            }
+          ],
+          "assembled_text": "CQ TEST CQ",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 37.78
+        }
+      ],
+      "noise_events": [
+        {
+          "start_sample": 1152000,
+          "end_sample": 1536000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 43.11
+        },
+        {
+          "start_sample": 1296000,
+          "end_sample": 1680000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 40.76
+        },
+        {
+          "start_sample": 1440000,
+          "end_sample": 1824000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.23
+        },
+        {
+          "start_sample": 1584000,
+          "end_sample": 1968000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.86
+        },
+        {
+          "start_sample": 1728000,
+          "end_sample": 2112000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.45
+        }
+      ],
+      "not_on_air_validation": true
+    },
+    {
+      "seed": 71065,
+      "snr_db": 10.0,
+      "sample_rate": 48000,
+      "mono_sha256": "12542574427212947cf6f4ad3707848b9a2d287ef8d79830118bf4f7b49f4c03",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "reference_bandwidth_hz": 2500,
+      "expected_text": "CQ TEST",
+      "emitted_text": "TEST CQ TEST CQ TEST CQ",
+      "contains_exact_phrase": true,
+      "emitted_words": 6,
+      "incorrect_emitted_words": 0,
+      "duplicate_absolute_sample_intervals": 0,
+      "noise_only_emitted_words": 0,
+      "cpu_ms_total": 424.01,
+      "positive_events": [
+        {
+          "start_sample": 0,
+          "end_sample": 384000,
+          "window_grade": "coherent-unverified",
+          "window_text": "CQ TEST CQ TEE",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 63.85
+        },
+        {
+          "start_sample": 144000,
+          "end_sample": 528000,
+          "window_grade": "coherent-unverified",
+          "window_text": "TEST CQ TEST CZ",
+          "delta_text": "TEST CQ",
+          "delta_words": [
+            {
+              "text": "TEST",
+              "start_sample": 157920,
+              "end_sample": 218496,
+              "patterns": "- . ... -",
+              "token_count": 4
+            },
+            {
+              "text": "CQ",
+              "start_sample": 256800,
+              "end_sample": 334656,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            }
+          ],
+          "assembled_text": "TEST CQ",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 48.54
+        },
+        {
+          "start_sample": 288000,
+          "end_sample": 672000,
+          "window_grade": "coherent-unverified",
+          "window_text": "EQ TEST CQ TEST D",
+          "delta_text": "TEST",
+          "delta_words": [
+            {
+              "text": "TEST",
+              "start_sample": 354720,
+              "end_sample": 415296,
+              "patterns": "- . ... -",
+              "token_count": 4
+            }
+          ],
+          "assembled_text": "TEST CQ TEST",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 38.52
+        },
+        {
+          "start_sample": 432000,
+          "end_sample": 816000,
+          "window_grade": "coherent-unverified",
+          "window_text": "E CQ TEST CQ TEST",
+          "delta_text": "CQ TEST",
+          "delta_words": [
+            {
+              "text": "CQ",
+              "start_sample": 453600,
+              "end_sample": 531456,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            },
+            {
+              "text": "TEST",
+              "start_sample": 551520,
+              "end_sample": 612096,
+              "patterns": "- . ... -",
+              "token_count": 4
+            }
+          ],
+          "assembled_text": "TEST CQ TEST CQ TEST",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 38.67
+        },
+        {
+          "start_sample": 576000,
+          "end_sample": 960000,
+          "window_grade": "coherent-unverified",
+          "window_text": "HT CQ TEST",
+          "delta_text": "CQ",
+          "delta_words": [
+            {
+              "text": "CQ",
+              "start_sample": 650400,
+              "end_sample": 728256,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            }
+          ],
+          "assembled_text": "TEST CQ TEST CQ TEST CQ",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 39.11
+        }
+      ],
+      "noise_events": [
+        {
+          "start_sample": 1152000,
+          "end_sample": 1536000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.24
+        },
+        {
+          "start_sample": 1296000,
+          "end_sample": 1680000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.25
+        },
+        {
+          "start_sample": 1440000,
+          "end_sample": 1824000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.92
+        },
+        {
+          "start_sample": 1584000,
+          "end_sample": 1968000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.24
+        },
+        {
+          "start_sample": 1728000,
+          "end_sample": 2112000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.67
+        }
+      ],
+      "not_on_air_validation": true
+    },
+    {
+      "seed": 71065,
+      "snr_db": 25.0,
+      "sample_rate": 48000,
+      "mono_sha256": "d286a88fbdfb963e521e96a32b87287df2de6dcb1c1cd5e0a8eb19992a380cdf",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "reference_bandwidth_hz": 2500,
+      "expected_text": "CQ TEST",
+      "emitted_text": "TEST CQ TEST CQ",
+      "contains_exact_phrase": true,
+      "emitted_words": 4,
+      "incorrect_emitted_words": 0,
+      "duplicate_absolute_sample_intervals": 0,
+      "noise_only_emitted_words": 0,
+      "cpu_ms_total": 404.29,
+      "positive_events": [
+        {
+          "start_sample": 0,
+          "end_sample": 384000,
+          "window_grade": "coherent-unverified",
+          "window_text": "CQ TEST CQ TEE",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 41.11
+        },
+        {
+          "start_sample": 144000,
+          "end_sample": 528000,
+          "window_grade": "coherent-unverified",
+          "window_text": "TEST CQ TEST CZ",
+          "delta_text": "TEST CQ",
+          "delta_words": [
+            {
+              "text": "TEST",
+              "start_sample": 157920,
+              "end_sample": 218496,
+              "patterns": "- . ... -",
+              "token_count": 4
+            },
+            {
+              "text": "CQ",
+              "start_sample": 256800,
+              "end_sample": 334656,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            }
+          ],
+          "assembled_text": "TEST CQ",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 38.02
+        },
+        {
+          "start_sample": 288000,
+          "end_sample": 672000,
+          "window_grade": "coherent-unverified",
+          "window_text": "EQ TEST D",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "TEST CQ",
+          "reason": "duplicate-or-no-new-words",
+          "worker_cpu_ms": 38.02
+        },
+        {
+          "start_sample": 432000,
+          "end_sample": 816000,
+          "window_grade": "coherent-unverified",
+          "window_text": "CQ TEST CQ TEST",
+          "delta_text": "TEST",
+          "delta_words": [
+            {
+              "text": "TEST",
+              "start_sample": 551520,
+              "end_sample": 612096,
+              "patterns": "- . ... -",
+              "token_count": 4
+            }
+          ],
+          "assembled_text": "TEST CQ TEST",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 39.19
+        },
+        {
+          "start_sample": 576000,
+          "end_sample": 960000,
+          "window_grade": "coherent-unverified",
+          "window_text": "ST CQ TEST",
+          "delta_text": "CQ",
+          "delta_words": [
+            {
+              "text": "CQ",
+              "start_sample": 650400,
+              "end_sample": 728256,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            }
+          ],
+          "assembled_text": "TEST CQ TEST CQ",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 38.09
+        }
+      ],
+      "noise_events": [
+        {
+          "start_sample": 1152000,
+          "end_sample": 1536000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.6
+        },
+        {
+          "start_sample": 1296000,
+          "end_sample": 1680000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.7
+        },
+        {
+          "start_sample": 1440000,
+          "end_sample": 1824000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 41.34
+        },
+        {
+          "start_sample": 1584000,
+          "end_sample": 1968000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 51.25
+        },
+        {
+          "start_sample": 1728000,
+          "end_sample": 2112000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.97
+        }
+      ],
+      "not_on_air_validation": true
+    },
+    {
+      "seed": 71066,
+      "snr_db": -10.0,
+      "sample_rate": 48000,
+      "mono_sha256": "7529304aec7dbd022659d8295f6de36abdb99e7998460beeffb563dd6b51159d",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "reference_bandwidth_hz": 2500,
+      "expected_text": "CQ TEST",
+      "emitted_text": "",
+      "contains_exact_phrase": false,
+      "emitted_words": 0,
+      "incorrect_emitted_words": 0,
+      "duplicate_absolute_sample_intervals": 0,
+      "noise_only_emitted_words": 0,
+      "cpu_ms_total": 392.59,
+      "positive_events": [
+        {
+          "start_sample": 0,
+          "end_sample": 384000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 41.47
+        },
+        {
+          "start_sample": 144000,
+          "end_sample": 528000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.05
+        },
+        {
+          "start_sample": 288000,
+          "end_sample": 672000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.81
+        },
+        {
+          "start_sample": 432000,
+          "end_sample": 816000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.08
+        },
+        {
+          "start_sample": 576000,
+          "end_sample": 960000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.35
+        }
+      ],
+      "noise_events": [
+        {
+          "start_sample": 1152000,
+          "end_sample": 1536000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 41.4
+        },
+        {
+          "start_sample": 1296000,
+          "end_sample": 1680000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.97
+        },
+        {
+          "start_sample": 1440000,
+          "end_sample": 1824000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 40.8
+        },
+        {
+          "start_sample": 1584000,
+          "end_sample": 1968000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.05
+        },
+        {
+          "start_sample": 1728000,
+          "end_sample": 2112000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.61
+        }
+      ],
+      "not_on_air_validation": true
+    },
+    {
+      "seed": 71066,
+      "snr_db": -5.0,
+      "sample_rate": 48000,
+      "mono_sha256": "033d9ce1930717fb29362f02fe0130de6f0c2b2742511920a439c5d3fa4390c9",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "reference_bandwidth_hz": 2500,
+      "expected_text": "CQ TEST",
+      "emitted_text": "",
+      "contains_exact_phrase": false,
+      "emitted_words": 0,
+      "incorrect_emitted_words": 0,
+      "duplicate_absolute_sample_intervals": 0,
+      "noise_only_emitted_words": 0,
+      "cpu_ms_total": 410.13,
+      "positive_events": [
+        {
+          "start_sample": 0,
+          "end_sample": 384000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 40.77
+        },
+        {
+          "start_sample": 144000,
+          "end_sample": 528000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.52
+        },
+        {
+          "start_sample": 288000,
+          "end_sample": 672000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.43
+        },
+        {
+          "start_sample": 432000,
+          "end_sample": 816000,
+          "window_grade": "coherent-unverified",
+          "window_text": "E CQ TEST",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 37.55
+        },
+        {
+          "start_sample": 576000,
+          "end_sample": 960000,
+          "window_grade": "coherent-unverified",
+          "window_text": "5T CQ TEST",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.74
+        }
+      ],
+      "noise_events": [
+        {
+          "start_sample": 1152000,
+          "end_sample": 1536000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 40.35
+        },
+        {
+          "start_sample": 1296000,
+          "end_sample": 1680000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 46.81
+        },
+        {
+          "start_sample": 1440000,
+          "end_sample": 1824000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 47.92
+        },
+        {
+          "start_sample": 1584000,
+          "end_sample": 1968000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 42.78
+        },
+        {
+          "start_sample": 1728000,
+          "end_sample": 2112000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.26
+        }
+      ],
+      "not_on_air_validation": true
+    },
+    {
+      "seed": 71066,
+      "snr_db": 0.0,
+      "sample_rate": 48000,
+      "mono_sha256": "02e1e6c0c7760618fd22aaa5825a97f3ae642d606828aa94406393d5ecdf9259",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "reference_bandwidth_hz": 2500,
+      "expected_text": "CQ TEST",
+      "emitted_text": "CQ TEST CQ TEST CQ",
+      "contains_exact_phrase": true,
+      "emitted_words": 5,
+      "incorrect_emitted_words": 0,
+      "duplicate_absolute_sample_intervals": 0,
+      "noise_only_emitted_words": 0,
+      "cpu_ms_total": 399.28,
+      "positive_events": [
+        {
+          "start_sample": 0,
+          "end_sample": 384000,
+          "window_grade": "coherent-unverified",
+          "window_text": "E CQ TEST CQ TEE",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 42.57
+        },
+        {
+          "start_sample": 144000,
+          "end_sample": 528000,
+          "window_grade": "coherent-unverified",
+          "window_text": "ETEST CQ TEST CZ",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.98
+        },
+        {
+          "start_sample": 288000,
+          "end_sample": 672000,
+          "window_grade": "coherent-unverified",
+          "window_text": "EQ TEST CQ TEST D",
+          "delta_text": "CQ TEST",
+          "delta_words": [
+            {
+              "text": "CQ",
+              "start_sample": 256704,
+              "end_sample": 334656,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            },
+            {
+              "text": "TEST",
+              "start_sample": 354624,
+              "end_sample": 415392,
+              "patterns": "- . ... -",
+              "token_count": 4
+            }
+          ],
+          "assembled_text": "CQ TEST",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 38.56
+        },
+        {
+          "start_sample": 432000,
+          "end_sample": 816000,
+          "window_grade": "coherent-unverified",
+          "window_text": "E CQ TEST CQ TEST",
+          "delta_text": "CQ TEST",
+          "delta_words": [
+            {
+              "text": "CQ",
+              "start_sample": 453600,
+              "end_sample": 531456,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            },
+            {
+              "text": "TEST",
+              "start_sample": 551520,
+              "end_sample": 612096,
+              "patterns": "- . ... -",
+              "token_count": 4
+            }
+          ],
+          "assembled_text": "CQ TEST CQ TEST",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 38.46
+        },
+        {
+          "start_sample": 576000,
+          "end_sample": 960000,
+          "window_grade": "coherent-unverified",
+          "window_text": "HT CQ TEST",
+          "delta_text": "CQ",
+          "delta_words": [
+            {
+              "text": "CQ",
+              "start_sample": 650304,
+              "end_sample": 728256,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            }
+          ],
+          "assembled_text": "CQ TEST CQ TEST CQ",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 38.24
+        }
+      ],
+      "noise_events": [
+        {
+          "start_sample": 1152000,
+          "end_sample": 1536000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 40.81
+        },
+        {
+          "start_sample": 1296000,
+          "end_sample": 1680000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 41.65
+        },
+        {
+          "start_sample": 1440000,
+          "end_sample": 1824000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 41.01
+        },
+        {
+          "start_sample": 1584000,
+          "end_sample": 1968000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.31
+        },
+        {
+          "start_sample": 1728000,
+          "end_sample": 2112000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.69
+        }
+      ],
+      "not_on_air_validation": true
+    },
+    {
+      "seed": 71066,
+      "snr_db": 10.0,
+      "sample_rate": 48000,
+      "mono_sha256": "3b9737137dfa3d3089738131d23fc7241314c98437beaeed8cf6c5de4ba9b215",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "reference_bandwidth_hz": 2500,
+      "expected_text": "CQ TEST",
+      "emitted_text": "TEST CQ TEST CQ",
+      "contains_exact_phrase": true,
+      "emitted_words": 4,
+      "incorrect_emitted_words": 0,
+      "duplicate_absolute_sample_intervals": 0,
+      "noise_only_emitted_words": 0,
+      "cpu_ms_total": 402.84,
+      "positive_events": [
+        {
+          "start_sample": 0,
+          "end_sample": 384000,
+          "window_grade": "coherent-unverified",
+          "window_text": "E CQ TEST CQ TEE",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 42.97
+        },
+        {
+          "start_sample": 144000,
+          "end_sample": 528000,
+          "window_grade": "coherent-unverified",
+          "window_text": "TEST CQ TEST CZ",
+          "delta_text": "TEST CQ",
+          "delta_words": [
+            {
+              "text": "TEST",
+              "start_sample": 157920,
+              "end_sample": 218496,
+              "patterns": "- . ... -",
+              "token_count": 4
+            },
+            {
+              "text": "CQ",
+              "start_sample": 256800,
+              "end_sample": 334656,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            }
+          ],
+          "assembled_text": "TEST CQ",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 38.3
+        },
+        {
+          "start_sample": 288000,
+          "end_sample": 672000,
+          "window_grade": "coherent-unverified",
+          "window_text": "EQ TEST D",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "TEST CQ",
+          "reason": "duplicate-or-no-new-words",
+          "worker_cpu_ms": 41.48
+        },
+        {
+          "start_sample": 432000,
+          "end_sample": 816000,
+          "window_grade": "coherent-unverified",
+          "window_text": "CQ TEST CQ TEST",
+          "delta_text": "TEST",
+          "delta_words": [
+            {
+              "text": "TEST",
+              "start_sample": 551520,
+              "end_sample": 612096,
+              "patterns": "- . ... -",
+              "token_count": 4
+            }
+          ],
+          "assembled_text": "TEST CQ TEST",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 41.72
+        },
+        {
+          "start_sample": 576000,
+          "end_sample": 960000,
+          "window_grade": "coherent-unverified",
+          "window_text": "ST CQ TEST",
+          "delta_text": "CQ",
+          "delta_words": [
+            {
+              "text": "CQ",
+              "start_sample": 650304,
+              "end_sample": 728256,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            }
+          ],
+          "assembled_text": "TEST CQ TEST CQ",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 38.37
+        }
+      ],
+      "noise_events": [
+        {
+          "start_sample": 1152000,
+          "end_sample": 1536000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.3
+        },
+        {
+          "start_sample": 1296000,
+          "end_sample": 1680000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 40.94
+        },
+        {
+          "start_sample": 1440000,
+          "end_sample": 1824000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.45
+        },
+        {
+          "start_sample": 1584000,
+          "end_sample": 1968000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 41.47
+        },
+        {
+          "start_sample": 1728000,
+          "end_sample": 2112000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.84
+        }
+      ],
+      "not_on_air_validation": true
+    },
+    {
+      "seed": 71066,
+      "snr_db": 25.0,
+      "sample_rate": 48000,
+      "mono_sha256": "ac81e26585d50a7deae5daa63d794c5773efb662d0dbf74e80f7bdd435d01b88",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "reference_bandwidth_hz": 2500,
+      "expected_text": "CQ TEST",
+      "emitted_text": "TEST CQ TEST CQ",
+      "contains_exact_phrase": true,
+      "emitted_words": 4,
+      "incorrect_emitted_words": 0,
+      "duplicate_absolute_sample_intervals": 0,
+      "noise_only_emitted_words": 0,
+      "cpu_ms_total": 458.91,
+      "positive_events": [
+        {
+          "start_sample": 0,
+          "end_sample": 384000,
+          "window_grade": "coherent-unverified",
+          "window_text": "CQ TEST CQ TEE",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 44.6
+        },
+        {
+          "start_sample": 144000,
+          "end_sample": 528000,
+          "window_grade": "coherent-unverified",
+          "window_text": "TEST CQ TEST CZ",
+          "delta_text": "TEST CQ",
+          "delta_words": [
+            {
+              "text": "TEST",
+              "start_sample": 157920,
+              "end_sample": 218496,
+              "patterns": "- . ... -",
+              "token_count": 4
+            },
+            {
+              "text": "CQ",
+              "start_sample": 256800,
+              "end_sample": 334656,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            }
+          ],
+          "assembled_text": "TEST CQ",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 37.93
+        },
+        {
+          "start_sample": 288000,
+          "end_sample": 672000,
+          "window_grade": "coherent-unverified",
+          "window_text": "EQ TEST D",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "TEST CQ",
+          "reason": "duplicate-or-no-new-words",
+          "worker_cpu_ms": 38.09
+        },
+        {
+          "start_sample": 432000,
+          "end_sample": 816000,
+          "window_grade": "coherent-unverified",
+          "window_text": "CQ TEST CQ TEST",
+          "delta_text": "TEST",
+          "delta_words": [
+            {
+              "text": "TEST",
+              "start_sample": 551520,
+              "end_sample": 612096,
+              "patterns": "- . ... -",
+              "token_count": 4
+            }
+          ],
+          "assembled_text": "TEST CQ TEST",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 51.32
+        },
+        {
+          "start_sample": 576000,
+          "end_sample": 960000,
+          "window_grade": "coherent-unverified",
+          "window_text": "ST CQ TEST",
+          "delta_text": "CQ",
+          "delta_words": [
+            {
+              "text": "CQ",
+              "start_sample": 650400,
+              "end_sample": 728256,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            }
+          ],
+          "assembled_text": "TEST CQ TEST CQ",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 42.48
+        }
+      ],
+      "noise_events": [
+        {
+          "start_sample": 1152000,
+          "end_sample": 1536000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 40.84
+        },
+        {
+          "start_sample": 1296000,
+          "end_sample": 1680000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 45.41
+        },
+        {
+          "start_sample": 1440000,
+          "end_sample": 1824000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 41.97
+        },
+        {
+          "start_sample": 1584000,
+          "end_sample": 1968000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 56.65
+        },
+        {
+          "start_sample": 1728000,
+          "end_sample": 2112000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 59.62
+        }
+      ],
+      "not_on_air_validation": true
+    },
+    {
+      "seed": 71067,
+      "snr_db": -10.0,
+      "sample_rate": 48000,
+      "mono_sha256": "1da518998052aa9f6d7d74dd412c726391d44aff29fbeb36db12cbaa0f84b0e5",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "reference_bandwidth_hz": 2500,
+      "expected_text": "CQ TEST",
+      "emitted_text": "",
+      "contains_exact_phrase": false,
+      "emitted_words": 0,
+      "incorrect_emitted_words": 0,
+      "duplicate_absolute_sample_intervals": 0,
+      "noise_only_emitted_words": 0,
+      "cpu_ms_total": 433.36,
+      "positive_events": [
+        {
+          "start_sample": 0,
+          "end_sample": 384000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 50.33
+        },
+        {
+          "start_sample": 144000,
+          "end_sample": 528000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.93
+        },
+        {
+          "start_sample": 288000,
+          "end_sample": 672000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 40.47
+        },
+        {
+          "start_sample": 432000,
+          "end_sample": 816000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 42.08
+        },
+        {
+          "start_sample": 576000,
+          "end_sample": 960000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 45.12
+        }
+      ],
+      "noise_events": [
+        {
+          "start_sample": 1152000,
+          "end_sample": 1536000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 45.64
+        },
+        {
+          "start_sample": 1296000,
+          "end_sample": 1680000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 43.02
+        },
+        {
+          "start_sample": 1440000,
+          "end_sample": 1824000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 43.9
+        },
+        {
+          "start_sample": 1584000,
+          "end_sample": 1968000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 42.78
+        },
+        {
+          "start_sample": 1728000,
+          "end_sample": 2112000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 40.09
+        }
+      ],
+      "not_on_air_validation": true
+    },
+    {
+      "seed": 71067,
+      "snr_db": -5.0,
+      "sample_rate": 48000,
+      "mono_sha256": "5357bc17b6bec2f82b407b5ffaa3918f4a88bdc9d52a98304aebbd5603d5876b",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "reference_bandwidth_hz": 2500,
+      "expected_text": "CQ TEST",
+      "emitted_text": "",
+      "contains_exact_phrase": false,
+      "emitted_words": 0,
+      "incorrect_emitted_words": 0,
+      "duplicate_absolute_sample_intervals": 0,
+      "noise_only_emitted_words": 0,
+      "cpu_ms_total": 425.43,
+      "positive_events": [
+        {
+          "start_sample": 0,
+          "end_sample": 384000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 42.56
+        },
+        {
+          "start_sample": 144000,
+          "end_sample": 528000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 41.62
+        },
+        {
+          "start_sample": 288000,
+          "end_sample": 672000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.14
+        },
+        {
+          "start_sample": 432000,
+          "end_sample": 816000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 41.0
+        },
+        {
+          "start_sample": 576000,
+          "end_sample": 960000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 42.3
+        }
+      ],
+      "noise_events": [
+        {
+          "start_sample": 1152000,
+          "end_sample": 1536000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 43.21
+        },
+        {
+          "start_sample": 1296000,
+          "end_sample": 1680000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 46.13
+        },
+        {
+          "start_sample": 1440000,
+          "end_sample": 1824000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.77
+        },
+        {
+          "start_sample": 1584000,
+          "end_sample": 1968000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.44
+        },
+        {
+          "start_sample": 1728000,
+          "end_sample": 2112000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 50.26
+        }
+      ],
+      "not_on_air_validation": true
+    },
+    {
+      "seed": 71067,
+      "snr_db": 0.0,
+      "sample_rate": 48000,
+      "mono_sha256": "d76a010172e457ebb9addeb75d604c00fde8bc8fb347ba75b02080d00a723eed",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "reference_bandwidth_hz": 2500,
+      "expected_text": "CQ TEST",
+      "emitted_text": "CQ TEST CQ TEST CQ",
+      "contains_exact_phrase": true,
+      "emitted_words": 5,
+      "incorrect_emitted_words": 0,
+      "duplicate_absolute_sample_intervals": 0,
+      "noise_only_emitted_words": 0,
+      "cpu_ms_total": 406.74,
+      "positive_events": [
+        {
+          "start_sample": 0,
+          "end_sample": 384000,
+          "window_grade": "coherent-unverified",
+          "window_text": "IT CQ TEE",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 51.7
+        },
+        {
+          "start_sample": 144000,
+          "end_sample": 528000,
+          "window_grade": "coherent-unverified",
+          "window_text": "ETEST CQ TEST CZ",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.32
+        },
+        {
+          "start_sample": 288000,
+          "end_sample": 672000,
+          "window_grade": "coherent-unverified",
+          "window_text": "EQ TEST CQ TEST D",
+          "delta_text": "CQ TEST",
+          "delta_words": [
+            {
+              "text": "CQ",
+              "start_sample": 256704,
+              "end_sample": 334560,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            },
+            {
+              "text": "TEST",
+              "start_sample": 354720,
+              "end_sample": 415296,
+              "patterns": "- . ... -",
+              "token_count": 4
+            }
+          ],
+          "assembled_text": "CQ TEST",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 39.43
+        },
+        {
+          "start_sample": 432000,
+          "end_sample": 816000,
+          "window_grade": "coherent-unverified",
+          "window_text": "E CQ TEST CQ TEST",
+          "delta_text": "CQ TEST",
+          "delta_words": [
+            {
+              "text": "CQ",
+              "start_sample": 453600,
+              "end_sample": 531456,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            },
+            {
+              "text": "TEST",
+              "start_sample": 551520,
+              "end_sample": 612192,
+              "patterns": "- . ... -",
+              "token_count": 4
+            }
+          ],
+          "assembled_text": "CQ TEST CQ TEST",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 39.82
+        },
+        {
+          "start_sample": 576000,
+          "end_sample": 960000,
+          "window_grade": "coherent-unverified",
+          "window_text": "HT CQ TEST",
+          "delta_text": "CQ",
+          "delta_words": [
+            {
+              "text": "CQ",
+              "start_sample": 650496,
+              "end_sample": 728256,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            }
+          ],
+          "assembled_text": "CQ TEST CQ TEST CQ",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 42.2
+        }
+      ],
+      "noise_events": [
+        {
+          "start_sample": 1152000,
+          "end_sample": 1536000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.98
+        },
+        {
+          "start_sample": 1296000,
+          "end_sample": 1680000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.61
+        },
+        {
+          "start_sample": 1440000,
+          "end_sample": 1824000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.83
+        },
+        {
+          "start_sample": 1584000,
+          "end_sample": 1968000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.12
+        },
+        {
+          "start_sample": 1728000,
+          "end_sample": 2112000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.73
+        }
+      ],
+      "not_on_air_validation": true
+    },
+    {
+      "seed": 71067,
+      "snr_db": 10.0,
+      "sample_rate": 48000,
+      "mono_sha256": "c66bdd18f16207dedaa39c689c79d0211484afa86d06aad8e8da68e25445a5b1",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "reference_bandwidth_hz": 2500,
+      "expected_text": "CQ TEST",
+      "emitted_text": "CQ TEST CQ",
+      "contains_exact_phrase": true,
+      "emitted_words": 3,
+      "incorrect_emitted_words": 0,
+      "duplicate_absolute_sample_intervals": 0,
+      "noise_only_emitted_words": 0,
+      "cpu_ms_total": 399.66,
+      "positive_events": [
+        {
+          "start_sample": 0,
+          "end_sample": 384000,
+          "window_grade": "coherent-unverified",
+          "window_text": "IT CQ TEE",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 40.69
+        },
+        {
+          "start_sample": 144000,
+          "end_sample": 528000,
+          "window_grade": "coherent-unverified",
+          "window_text": "ETEST CQ TEST CZ",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 37.94
+        },
+        {
+          "start_sample": 288000,
+          "end_sample": 672000,
+          "window_grade": "coherent-unverified",
+          "window_text": "EQ TEST CQ TEST D",
+          "delta_text": "CQ TEST",
+          "delta_words": [
+            {
+              "text": "CQ",
+              "start_sample": 256704,
+              "end_sample": 334656,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            },
+            {
+              "text": "TEST",
+              "start_sample": 354720,
+              "end_sample": 415296,
+              "patterns": "- . ... -",
+              "token_count": 4
+            }
+          ],
+          "assembled_text": "CQ TEST",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 38.26
+        },
+        {
+          "start_sample": 432000,
+          "end_sample": 816000,
+          "window_grade": "coherent-unverified",
+          "window_text": "CQ TEST",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "CQ TEST",
+          "reason": "duplicate-or-no-new-words",
+          "worker_cpu_ms": 38.68
+        },
+        {
+          "start_sample": 576000,
+          "end_sample": 960000,
+          "window_grade": "coherent-unverified",
+          "window_text": "ST CQ TEST",
+          "delta_text": "CQ",
+          "delta_words": [
+            {
+              "text": "CQ",
+              "start_sample": 650400,
+              "end_sample": 728256,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            }
+          ],
+          "assembled_text": "CQ TEST CQ",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 40.02
+        }
+      ],
+      "noise_events": [
+        {
+          "start_sample": 1152000,
+          "end_sample": 1536000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 42.88
+        },
+        {
+          "start_sample": 1296000,
+          "end_sample": 1680000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.48
+        },
+        {
+          "start_sample": 1440000,
+          "end_sample": 1824000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 42.39
+        },
+        {
+          "start_sample": 1584000,
+          "end_sample": 1968000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.49
+        },
+        {
+          "start_sample": 1728000,
+          "end_sample": 2112000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.83
+        }
+      ],
+      "not_on_air_validation": true
+    },
+    {
+      "seed": 71067,
+      "snr_db": 25.0,
+      "sample_rate": 48000,
+      "mono_sha256": "faa661e5e85ce996066ffd2c2188ef1d99e92ecb848dcd98bba099c8e22c23cf",
+      "fixture_sha256": "fa286c530ac33a1cd96663caa1f074a28c73f793ca97e93a1cfaf8ab0de48cea",
+      "reference_bandwidth_hz": 2500,
+      "expected_text": "CQ TEST",
+      "emitted_text": "TEST CQ TEST CQ",
+      "contains_exact_phrase": true,
+      "emitted_words": 4,
+      "incorrect_emitted_words": 0,
+      "duplicate_absolute_sample_intervals": 0,
+      "noise_only_emitted_words": 0,
+      "cpu_ms_total": 405.06,
+      "positive_events": [
+        {
+          "start_sample": 0,
+          "end_sample": 384000,
+          "window_grade": "coherent-unverified",
+          "window_text": "CQ TEST CQ TEE",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 41.64
+        },
+        {
+          "start_sample": 144000,
+          "end_sample": 528000,
+          "window_grade": "coherent-unverified",
+          "window_text": "TEST CQ TEST CZ",
+          "delta_text": "TEST CQ",
+          "delta_words": [
+            {
+              "text": "TEST",
+              "start_sample": 157920,
+              "end_sample": 218496,
+              "patterns": "- . ... -",
+              "token_count": 4
+            },
+            {
+              "text": "CQ",
+              "start_sample": 256800,
+              "end_sample": 334656,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            }
+          ],
+          "assembled_text": "TEST CQ",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 38.02
+        },
+        {
+          "start_sample": 288000,
+          "end_sample": 672000,
+          "window_grade": "coherent-unverified",
+          "window_text": "EQ TEST D",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "TEST CQ",
+          "reason": "duplicate-or-no-new-words",
+          "worker_cpu_ms": 38.56
+        },
+        {
+          "start_sample": 432000,
+          "end_sample": 816000,
+          "window_grade": "coherent-unverified",
+          "window_text": "CQ TEST CQ TEST",
+          "delta_text": "TEST",
+          "delta_words": [
+            {
+              "text": "TEST",
+              "start_sample": 551520,
+              "end_sample": 612096,
+              "patterns": "- . ... -",
+              "token_count": 4
+            }
+          ],
+          "assembled_text": "TEST CQ TEST",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 50.01
+        },
+        {
+          "start_sample": 576000,
+          "end_sample": 960000,
+          "window_grade": "coherent-unverified",
+          "window_text": "ST CQ TEST",
+          "delta_text": "CQ",
+          "delta_words": [
+            {
+              "text": "CQ",
+              "start_sample": 650400,
+              "end_sample": 728256,
+              "patterns": "-.-. --.-",
+              "token_count": 2
+            }
+          ],
+          "assembled_text": "TEST CQ TEST CQ",
+          "reason": "new-unverified-words",
+          "worker_cpu_ms": 38.68
+        }
+      ],
+      "noise_events": [
+        {
+          "start_sample": 1152000,
+          "end_sample": 1536000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 38.3
+        },
+        {
+          "start_sample": 1296000,
+          "end_sample": 1680000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.91
+        },
+        {
+          "start_sample": 1440000,
+          "end_sample": 1824000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 40.61
+        },
+        {
+          "start_sample": 1584000,
+          "end_sample": 1968000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.8
+        },
+        {
+          "start_sample": 1728000,
+          "end_sample": 2112000,
+          "window_grade": "none",
+          "window_text": "",
+          "delta_text": "",
+          "delta_words": [],
+          "assembled_text": "",
+          "reason": "awaiting-corroborated-words",
+          "worker_cpu_ms": 39.53
+        }
+      ],
+      "not_on_air_validation": true
+    }
+  ]
+}
