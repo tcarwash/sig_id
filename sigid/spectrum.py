@@ -102,23 +102,42 @@ def waterfall(
     window = np.hanning(fft_size)
     rows: list[list[float]] = []
     starts: list[int] = []
-    sample_buffer = np.empty(0, dtype=np.float64)
-    frame_index = 0
+    # Reading every PCM sample is O(recording duration), even though only
+    # max_rows FFT frames are displayed. Seek directly to the sampled frames
+    # instead: cost is bounded by max_rows * fft_size regardless of WAV length.
+    # This also avoids decoding all preceding samples for focused windows.
+    import wave
 
-    for block in source.blocks():
-        joined = np.concatenate((sample_buffer, np.asarray(block.samples, dtype=np.float64)))
-        offset = 0
-        while offset + fft_size <= joined.size:
-            local_frame_index = frame_index - first_frame
-            if first_frame <= frame_index < end_frame and local_frame_index % row_stride == 0:
-                spectrum = np.fft.rfft(joined[offset : offset + fft_size] * window)
-                magnitude = np.abs(spectrum) / max(window.sum(), 1.0)
-                db = 20.0 * np.log10(np.maximum(magnitude, 1e-10))
-                rows.append(db.astype(np.float32).tolist())
-                starts.append(block.first_sample + offset - sample_buffer.size)
-            offset += hop_size
-            frame_index += 1
-        sample_buffer = joined[offset:]
+    with wave.open(str(path), "rb") as audio:
+        if audio.getcomptype() != "NONE":
+            raise ValueError("compressed WAV is unsupported")
+        channels = audio.getnchannels()
+        sample_width = audio.getsampwidth()
+        for frame_index in range(first_frame, end_frame, row_stride):
+            absolute_start = frame_index * hop_size
+            audio.setpos(absolute_start)
+            raw = audio.readframes(fft_size)
+            if len(raw) != fft_size * channels * sample_width:
+                raise ValueError("recording contains incomplete PCM frame")
+            if sample_width == 1:
+                samples = (np.frombuffer(raw, dtype=np.uint8).astype(np.float64) - 128.0) / 128.0
+            elif sample_width == 2:
+                samples = np.frombuffer(raw, dtype="<i2").astype(np.float64) / 32768.0
+            elif sample_width == 3:
+                triples = np.frombuffer(raw, dtype=np.uint8).reshape(-1, 3).astype(np.int32)
+                signed = triples[:, 0] | (triples[:, 1] << 8) | (triples[:, 2] << 16)
+                signed = (signed ^ 0x800000) - 0x800000
+                samples = signed.astype(np.float64) / 8388608.0
+            elif sample_width == 4:
+                samples = np.frombuffer(raw, dtype="<i4").astype(np.float64) / 2147483648.0
+            else:
+                raise ValueError(f"unsupported PCM sample width: {sample_width} bytes")
+            mono = samples.reshape(fft_size, channels).mean(axis=1)
+            spectrum = np.fft.rfft(mono * window)
+            magnitude = np.abs(spectrum) / max(window.sum(), 1.0)
+            db = 20.0 * np.log10(np.maximum(magnitude, 1e-10))
+            rows.append(db.astype(np.float32).tolist())
+            starts.append(absolute_start)
 
     return {
         "sample_rate": sample_rate,

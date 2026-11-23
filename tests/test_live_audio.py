@@ -144,7 +144,7 @@ def test_live_capture_rejects_invalid_or_duplicate_start(tmp_path):
 def test_live_capture_api_flow(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "sigid.api.detect_tracks",
-        lambda spectrum, threshold_db: [{
+        lambda spectrum, threshold_db, **_kwargs: [{
             "id": "track-001",
             "sample_start": 0,
             "sample_count": spectrum["sample_count"],
@@ -320,7 +320,7 @@ def test_live_mode_sweep_uses_isolated_audio_in_candidate_order(tmp_path):
 
 def test_accepted_persistent_model_candidate_starts_isolated_sweep(tmp_path, monkeypatch):
     replay = FakeSweepReplay()
-    monkeypatch.setattr("sigid.api.detect_tracks", lambda spectrum, threshold_db: [{
+    monkeypatch.setattr("sigid.api.detect_tracks", lambda spectrum, threshold_db, **_kwargs: [{
         "id": "track-001", "sample_start": 0, "sample_count": spectrum["sample_count"],
         "center_hz": 1000.0, "bandwidth_hz": 200.0, "peak_snr_db": 20.0, "protocol": None,
     }])

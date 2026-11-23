@@ -3298,6 +3298,7 @@ function attachLiveCapture(started, {resumed = false} = {}) {
     renderCvDismissedProposals();
     updateCvButton();
     state.liveView = true;
+    state.liveCaptureTerminal = false;
     state.liveSessionId = started.session_id;
     updateLiveReviewControls();
     state.liveSampleRate = started.sample_rate;
@@ -3408,14 +3409,30 @@ function attachLiveCapture(started, {resumed = false} = {}) {
       try {
         const status = await request("/api/live");
         if (generation !== state.liveGeneration || !state.liveMonitoring) return;
+        const terminalCapture = ["overrun", "error", "limit_reached"].includes(status.state);
+        if (terminalCapture) {
+          state.liveCaptureTerminal = true;
+          const reason = status.state === "overrun"
+            ? "Audio buffer overrun — input has stopped"
+            : status.state === "limit_reached"
+              ? "Recording time limit reached"
+              : "Audio capture failed";
+          el("live-status").textContent = `${reason} · ${(status.frames_written || 0).toLocaleString()} samples preserved · Stop & save to finalize the recording`;
+          el("waterfall-state").textContent = `Capture halted · ${status.truncated_reason || status.state} · no new samples`;
+          return; // Avoid reprocessing the same stale audio every second.
+        }
         if (status.active) {
           const modeLabel = state.captureMode === "record" ? "Recording" : state.captureMode === "scan_only" ? "Live scan only · no audio saved" : `Unattended · ${status.saved_review_clips || 0} clips queued`;
           const hopLabel = status.band_hop_count
             ? ` · band ${Number(status.band_hop_index || 0) + 1}/${status.band_hop_count} ${formatRigFrequency(status.current_frequency_hz || 0)} · next in ${status.band_hop_seconds_remaining ?? "?"}s`
               + (status.band_hop_error ? ` · tune failed: ${status.band_hop_error}` : "")
             : "";
+          const reviewLatency = status.capture_mode === "record"
+            ? ` · review saves ${status.review_save_last_ms || 0}ms / max ${status.review_save_max_ms || 0}ms`
+              + (status.review_windows_dropped ? ` · ${status.review_windows_dropped} review clips skipped (full audio kept)` : "")
+            : "";
           el("live-status").textContent = state.liveView
-            ? (state.frozen ? `${modeLabel}${hopLabel} · view frozen` : `${modeLabel}${hopLabel} · ${status.frames_written.toLocaleString()} samples analyzed`)
+            ? (state.frozen ? `${modeLabel}${hopLabel} · view frozen` : `${modeLabel}${hopLabel} · ${status.frames_written.toLocaleString()} samples analyzed${reviewLatency}`)
             : `Monitoring continues${hopLabel} · ${status.frames_written.toLocaleString()} samples analyzed · reviewing a saved clip`;
         }
         const cvEnabled = el("live-cv-enabled").checked;
@@ -9078,6 +9095,7 @@ function applyLiveDisplay() {
 function startSpectrumStream(generation,sessionId) {
   if (spectrumPoll) clearTimeout(spectrumPoll);
   const update=async()=>{
+    if (state.liveCaptureTerminal) return;
     let delay=200;
     try {
       const after=liveDisplay?.lastSample ?? -1;
@@ -9092,7 +9110,7 @@ function startSpectrumStream(generation,sessionId) {
       delay=1000;
       if (generation===state.liveGeneration && state.liveMonitoring) el("waterfall-state").textContent=`Spectrum update delayed · ${error.message}`;
     } finally {
-      if(generation===state.liveGeneration && state.liveMonitoring) spectrumPoll=setTimeout(update,delay);
+      if(generation===state.liveGeneration && state.liveMonitoring && !state.liveCaptureTerminal) spectrumPoll=setTimeout(update,delay);
     }
   };
   update();

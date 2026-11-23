@@ -20,6 +20,7 @@ from .dataset import CaptureStore
 QUEUE_BLOCKS = 32
 MAX_CAPTURE_SECONDS = 8 * 60 * 60
 LIVE_ANALYSIS_SECONDS = 10
+REVIEW_SAVE_QUEUE_WINDOWS = 4
 
 
 @dataclass(slots=True)
@@ -48,6 +49,14 @@ class _Session:
     recent_frames: int = 0
     review_queue_cursor: int = 0
     review_queue_buffer: bytearray = field(default_factory=bytearray)
+    review_windows: queue.Queue[tuple[int, bytes, int | None, int | None]] = field(
+        default_factory=lambda: queue.Queue(maxsize=REVIEW_SAVE_QUEUE_WINDOWS)
+    )
+    stop_reviewer: threading.Event = field(default_factory=threading.Event)
+    reviewer_thread: threading.Thread | None = None
+    review_windows_dropped: int = 0
+    review_save_last_ms: float = 0.0
+    review_save_max_ms: float = 0.0
     worker_error: str | None = None
     analysis_windows: queue.Queue[tuple[int, bytes, int | None, int | None]] = field(default_factory=lambda: queue.Queue(maxsize=4))
     stop_analyzer: threading.Event = field(default_factory=threading.Event)
@@ -131,6 +140,13 @@ class LiveCaptureManager:
                 "sample_rate": session.sample_rate,
                 "channels": session.channels,
                 "frames_written": session.frames_written,
+                "writer_queue_depth": session.blocks.qsize(),
+                "writer_queue_capacity": QUEUE_BLOCKS,
+                "review_queue_depth": session.review_windows.qsize() if session.capture_mode == "record" else None,
+                "review_queue_capacity": REVIEW_SAVE_QUEUE_WINDOWS if session.capture_mode == "record" else None,
+                "review_windows_dropped": session.review_windows_dropped,
+                "review_save_last_ms": round(session.review_save_last_ms, 2),
+                "review_save_max_ms": round(session.review_save_max_ms, 2),
                 "truncated_reason": session.truncated_reason,
                 "status_messages": list(session.status_messages),
             }
@@ -228,6 +244,12 @@ class LiveCaptureManager:
             target=self._write_blocks, args=(session,), name=f"sig-id-capture-{session_id[:8]}", daemon=True
         )
         session.writer_thread.start()
+        if capture_mode == "record":
+            session.reviewer_thread = threading.Thread(
+                target=self._persist_review_windows, args=(session,),
+                name=f"sig-id-reviews-{session_id[:8]}", daemon=True,
+            )
+            session.reviewer_thread.start()
         if capture_mode == "unattended":
             session.analyzer_thread = threading.Thread(
                 target=self._analyze_review_windows, args=(session,),
@@ -280,6 +302,9 @@ class LiveCaptureManager:
                     pass
             session.stop_worker.set()
             session.writer_thread.join(timeout=3)
+            session.stop_reviewer.set()
+            if session.reviewer_thread is not None:
+                session.reviewer_thread.join(timeout=3)
             session.stop_analyzer.set()
             if session.analyzer_thread is not None:
                 session.analyzer_thread.join(timeout=3)
@@ -354,16 +379,18 @@ class LiveCaptureManager:
                                 del session.review_queue_buffer[:window_bytes]
                                 session.review_queue_cursor += window_frames
                     if session.capture_mode == "record":
-                        for window_start, window_audio, frequency_hz, hop_index in review_windows:
+                        # Persist reviews on a separate worker; a slow SQLite
+                        # transaction must never block the continuous WAV writer.
+                        for window in review_windows:
                             try:
-                                self._save_review_window(
-                                    session, window_start, window_audio,
-                                    trigger_type="continuous_recording", frequency_hz=frequency_hz,
-                                    band_hop_index=hop_index,
-                                )
-                            except Exception as exc:
+                                session.review_windows.put_nowait(window)
+                            except queue.Full:
                                 with session.lock:
-                                    session.status_messages.append(f"Auto review sample at {window_start} failed: {exc}")
+                                    session.review_windows_dropped += 1
+                                    session.status_messages.append(
+                                        "Review persistence backlog full; skipped one review clip (full audio retained)"
+                                    )
+                                    del session.status_messages[:-64]
                     elif session.capture_mode == "unattended":
                         for window in review_windows:
                             try:
@@ -378,6 +405,31 @@ class LiveCaptureManager:
             session.worker_error = str(exc)
             with session.lock:
                 session.state = "error"
+
+    def _persist_review_windows(self, session: _Session) -> None:
+        """Write optional review clips without delaying the real-time writer."""
+        while not session.stop_reviewer.is_set() or not session.review_windows.empty():
+            try:
+                sample_start, audio, frequency_hz, hop_index = session.review_windows.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            started = time.monotonic()
+            try:
+                self._save_review_window(
+                    session, sample_start, audio,
+                    trigger_type="continuous_recording", frequency_hz=frequency_hz,
+                    band_hop_index=hop_index,
+                )
+            except Exception as exc:
+                with session.lock:
+                    session.status_messages.append(f"Auto review sample at {sample_start} failed: {exc}")
+                    del session.status_messages[:-64]
+            finally:
+                elapsed_ms = (time.monotonic() - started) * 1000
+                with session.lock:
+                    session.review_save_last_ms = elapsed_ms
+                    session.review_save_max_ms = max(session.review_save_max_ms, elapsed_ms)
+                session.review_windows.task_done()
 
     def _analyze_review_windows(self, session: _Session) -> None:
         while not session.stop_analyzer.is_set() or not session.analysis_windows.empty():
@@ -511,6 +563,17 @@ class LiveCaptureManager:
         session.writer_thread.join(timeout=5)
         if session.writer_thread.is_alive():
             raise RuntimeError("audio writer did not stop within five seconds")
+        if session.reviewer_thread is not None:
+            session.stop_reviewer.set()
+            session.reviewer_thread.join(timeout=30)
+            if session.reviewer_thread.is_alive():
+                # The primary WAV is flushed; optional review indexing may
+                # still be draining on its independent worker.
+                with session.lock:
+                    session.status_messages.append(
+                        "Review clip indexing still draining; primary WAV saved"
+                    )
+                    del session.status_messages[:-64]
         if session.analyzer_thread is not None:
             session.stop_analyzer.set()
             session.analyzer_thread.join(timeout=60)
