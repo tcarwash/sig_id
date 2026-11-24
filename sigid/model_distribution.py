@@ -110,7 +110,7 @@ def _checkpoint_private_path_markers(data: bytes) -> list[str]:
 
 def _approval_status(classifier: dict, detector: dict, report: dict | None) -> dict:
     if report is None:
-        return {"status": "development", "note": "Not eligible for publication or automatic install"}
+        return {"status": "development", "note": "Experimental manual-install bundle only; not an approved release or automatic install"}
     if not report.get("licensing_reviewed") or not report.get("corresponding_source_available"):
         raise ValueError("release approval requires verified Ultralytics redistribution/source licensing")
     if report.get("classifier_model_sha256") != classifier.get("model_sha256"):
