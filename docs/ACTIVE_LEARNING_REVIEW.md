@@ -85,6 +85,38 @@ session identifier. The `sigid_signal_lab.monitor` loopback source is
 excluded. Imported clips have **zero** accepted annotations or coverage and
 are not automatically eligible for training.
 
+## Exporting newly verified real labels into training
+
+After reviewing enough new recordings, export the newly reviewed captures
+**without** changing prior validation/test selections. Use the actual
+existing CV training dataset's `windows.jsonl` as the base manifest.
+The exporter checks that all real evaluation WAV hashes from the base are
+present in the local source index, protects their entire source sessions,
+protects the separately frozen real evaluation sessions, excludes **all**
+source WAVs already used by the base training set, and requires human-
+accepted region labels plus fresh complete detection coverage.
+
+```sh
+python -m sigid.cv_dataset \
+  --data-dir ~/.local/share/sig-id \
+  --output /path/to/fresh-real-train-only \
+  --train-only --reviewed-real-only \
+  --base-cv-manifest /path/to/existing-cv/windows.jsonl \
+  --frozen-exclusions /path/to/frozen-noise-exclusions.json
+
+python -m tools.compose_cv_training_dataset \
+  --base /path/to/existing-cv \
+  --supplement /path/to/fresh-real-train-only \
+  --output /path/to/next-cv-candidate
+```
+
+The composition tool rejects a real supplement that was exported against
+another base dataset, lacks frozen provenance, repeats a source WAV, or has
+missing human review IDs. If no novel verified 10-second windows exist,
+the export intentionally fails rather than hallucinating labels or
+producing an empty training release. The model proposal worklist cannot
+be passed to the trainer directly.
+
 ## Training: emphasizing verified real recordings
 
 `tools.compose_cv_training_dataset.py` now accepts
