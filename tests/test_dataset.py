@@ -59,7 +59,9 @@ def test_legacy_decoder_runs_schema_migrates_carrier_frequency(tmp_path):
         version = db.execute("PRAGMA user_version").fetchone()[0]
     assert "carrier_hz" in columns
     assert "scene_coverage_revisions" in tables
-    assert version == 16
+    # The current schema includes nullable decoder-trial provenance and
+    # additional scene review history. Legacy tables migrate to latest.
+    assert version == 22
 
 
 def test_geometry_migration_backfills_existing_region_bounds(indexed_capture):

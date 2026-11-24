@@ -71,9 +71,9 @@ def test_capture_history_returns_each_attempt_settings_and_result_in_order(tmp_p
         "frequency_high_hz": 1800.0,
     }
     assert all("created_utc" in attempt and "updated_utc" in attempt for attempt in attempts)
-    # The durable record does not store the original auto_identify toggle. A note
-    # is not an exact substitute, so consumers must not claim exact replayability.
-    assert all("auto_identify" not in attempt for attempt in attempts)
+    # The durable record now preserves nullable provenance. Earlier manual
+    # runs have no known toggle value; don't infer it from a freeform note.
+    assert all(attempt["auto_identify"] is None for attempt in attempts)
 
 
 def test_live_session_history_returns_attempts_after_the_live_buffer_is_gone(tmp_path):

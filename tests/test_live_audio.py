@@ -325,11 +325,14 @@ def test_accepted_persistent_model_candidate_starts_isolated_sweep(tmp_path, mon
         "center_hz": 1000.0, "bandwidth_hz": 200.0, "peak_snr_db": 20.0, "protocol": None,
     }])
     monkeypatch.setattr("sigid.api.extract_features", lambda *args, **kwargs: {})
-    monkeypatch.setattr("sigid.api.propose", lambda *args, **kwargs: {
+    # Live analysis now routes model results through the hierarchical
+    # proposer (not the removed generic propose() hook).
+    monkeypatch.setattr("sigid.api.propose_loaded", lambda *args, **kwargs: {
         "abstained": False, "family": "FSK", "method": "FSK", "confidence": 0.99,
     })
+    backend = FakeAudio()
     app = create_app(
-        tmp_path / "app-data", audio_backend=FakeAudio(), fldigi_client=FakeFldigi(),
+        tmp_path / "app-data", audio_backend=backend, fldigi_client=FakeFldigi(),
         fldigi_replay_backend=replay,
     )
     app.state.classifier = {
@@ -345,19 +348,46 @@ def test_accepted_persistent_model_candidate_starts_isolated_sweep(tmp_path, mon
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
             started = await client.post("/api/live/start", json={"device_id": 1, "sample_rate": 8000})
             session_id = started.json()["session_id"]
+            # Automatic Fldigi replay now waits for at least four seconds of
+            # observed track audio instead of consuming a startup 1024-sample
+            # fragment and preventing a later, meaningful attempt.
+            frames = 4 * 8000
+            backend.last_stream.kwargs["callback"](
+                struct.pack("<h", 1234) * frames, frames, None, None,
+            )
+            # Capture callbacks enqueue PCM; the writer thread populates the
+            # rolling analysis ring asynchronously. Wait for that invariant,
+            # instead of racing an HTTP analysis request against the writer.
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                snapshot = app.state.live_capture.analysis_audio()
+                if snapshot and snapshot["window_sample_count"] >= frames:
+                    break
+                await asyncio.sleep(0.01)
+            else:
+                raise AssertionError("live writer never produced the four-second acquisition window")
             app.state.live_track_registry = LiveTrackRegistry(session_id, confirmation_observations=1)
             analysis = await client.get("/api/live/analysis", params={
                 "fft_size": 64, "hop_size": 16, "auto_trial": "true", "include_spectrum": "false",
             })
             assert analysis.status_code == 200, analysis.text
             trial = analysis.json()["automatic_trial"]
+            assert trial is not None, {
+                "sample_count": analysis.json().get("sample_count"),
+                "window_sample_count": analysis.json().get("window_sample_count"),
+                "tracks": [
+                    (t.get("track_state"), t.get("sample_start"), t.get("sample_count"),
+                     t.get("model_proposal"))
+                    for t in analysis.json().get("tracks", [])
+                ],
+            }
             assert trial["trigger"] == "accepted_model_proposal"
             assert trial["run_id"]
             assert trial["output_scope"] == "isolated_live_mode_sweep"
             [run] = (await client.get(f"/api/live/sessions/{session_id}/decode-runs")).json()
             assert run["track_id"] == analysis.json()["tracks"][0]["track_id"]
             assert run["sample_start"] == 0
-            assert run["sample_count"] == 1024
+            assert 4 * 8000 <= run["sample_count"] <= (4 * 8000 + 1024)
             deadline = time.monotonic() + 2
             while time.monotonic() < deadline and run["status"] in {"queued", "running"}:
                 await asyncio.sleep(0.01)

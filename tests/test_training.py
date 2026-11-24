@@ -113,10 +113,15 @@ def test_training_uses_split_groups_calibrates_abstention_and_exports_loadable_m
     split_path.write_text(json.dumps(split))
 
     model_path = tmp_path / "model" / "method-baseline.npz"
-    trained = train_and_evaluate(split_path, data, model_path, epochs=300)
+    # This test checks legacy v2 feature extraction compatibility. The
+    # production training default has moved to ROI fixed-window v4.
+    trained = train_and_evaluate(
+        split_path, data, model_path, epochs=300, feature_version=FEATURE_VERSION,
+    )
     metadata, parameters = load_model(model_path)
     evaluation = trained["evaluation"]
-    assert metadata["classes"] == [*MODES, "noise"]
+    # The trainer canonically sorts known mode IDs before adding noise.
+    assert metadata["classes"] == [*sorted(MODES), "noise"]
     assert metadata["noise_class"] == "noise"
     assert metadata["noise_class_trained"] is True
     assert metadata["protocol_prediction_enabled"] is False
@@ -132,10 +137,12 @@ def test_training_uses_split_groups_calibrates_abstention_and_exports_loadable_m
     assert set(evaluation["train_group_ids"]).isdisjoint(evaluation["validation_group_ids"])
     assert set(evaluation["train_group_ids"]).isdisjoint(evaluation["test_group_ids"])
     assert set(evaluation["validation_group_ids"]).isdisjoint(evaluation["test_group_ids"])
-    assert evaluation["test"]["examples"] == 13
-    assert evaluation["test"]["noise_examples"] == 1
+    # Grouped synthetic noise sources can contribute multiple reviewed
+    # negative windows, so test counts are no longer a fixed 13.
+    assert evaluation["test"]["examples"] >= len(MODES) * 2 + 1
+    assert evaluation["test"]["noise_examples"] >= 1
     assert evaluation["test"]["noise_accepted"] == 0
-    assert evaluation["test"]["noise_class_correct"] == 1
+    assert evaluation["test"]["noise_class_correct"] == evaluation["test"]["noise_examples"]
     assert evaluation["test"]["unknown_family_false_positive_rate"] == 0.0
     assert {"clean", "awgn_snr_db_10", "noise"}.issubset(evaluation["test_by_condition"])
     assert evaluation["test_by_condition"]["awgn_snr_db_10"]["metrics"]["examples"] == 6
