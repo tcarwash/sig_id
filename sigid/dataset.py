@@ -2252,6 +2252,41 @@ class CaptureStore:
             )
         return self.capture(capture_id)
 
+    def set_live_review_queue_dismissed(
+        self, capture_ids: list[str], dismissed: bool,
+    ) -> int:
+        """Hide/restore review tasks without changing annotations or scene coverage.
+
+        The operation is atomic and applies only to auto-review-queue captures.
+        Dismissed is separate from reviewed: it must not imply verified noise,
+        complete coverage, or eligibility for training.
+        """
+        changed = 0
+        timestamp = datetime.now(timezone.utc).isoformat()
+        with self._connect() as db:
+            for capture_id in dict.fromkeys(capture_ids):
+                row = db.execute(
+                    "SELECT source_metadata_json FROM captures WHERE id = ?", (capture_id,),
+                ).fetchone()
+                if row is None:
+                    continue
+                metadata = json.loads(row["source_metadata_json"])
+                if metadata.get("auto_review_queue") is not True:
+                    continue
+                was_dismissed = bool(metadata.get("auto_review_queue_dismissed_utc"))
+                if was_dismissed == dismissed:
+                    continue
+                if dismissed:
+                    metadata["auto_review_queue_dismissed_utc"] = timestamp
+                else:
+                    metadata.pop("auto_review_queue_dismissed_utc", None)
+                db.execute(
+                    "UPDATE captures SET source_metadata_json = ? WHERE id = ?",
+                    (json.dumps(metadata, sort_keys=True, separators=(",", ":")), capture_id),
+                )
+                changed += 1
+        return changed
+
     def capture_by_sha256(self, digest: str) -> dict[str, Any] | None:
         """Find an exact previously imported waveform for derived-data lineage."""
         with self._connect() as db:

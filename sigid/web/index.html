@@ -15,8 +15,8 @@
       >
       <div class="transport">
         <select id="live-capture-mode" aria-label="Live capture mode" title="Choose whether to keep a full recording, scan without saving, or queue selected ten-second clips">
+          <option value="scan_only" selected>Listen live · no recording</option>
           <option value="record">Record + review windows</option>
-          <option value="scan_only">Scan only · don’t save</option>
           <option value="unattended">Unattended · save selected clips</option>
         </select>
         <label id="noise-interval-wrap" class="live-noise-interval" hidden>
@@ -26,7 +26,7 @@
             <option value="10">10 min</option><option value="15">15 min</option>
           </select>
         </label>
-        <button id="live-start" type="button">Start live capture</button
+        <button id="live-start" type="button">Start live · no recording</button
         ><button id="live-stop" type="button" disabled>Stop and review</button
         ><button id="freeze-view" type="button" disabled>Freeze view</button>
       </div>
@@ -57,7 +57,7 @@
             </p>
             <div class="empty-actions" aria-label="Get started">
               <button id="empty-settings" type="button">1. Choose audio input</button>
-              <button id="empty-live-start" class="primary" type="button">2. Start live capture</button>
+              <button id="empty-live-start" class="primary" type="button">2. Start live · no recording</button>
               <button id="empty-open-recording" type="button">Open a recording instead</button>
             </div>
             <p id="empty-model-readiness" class="empty-model-readiness" role="status">Checking CV detector and classifier…</p>
@@ -1064,7 +1064,13 @@ Decoded text will appear here.</pre>
           <button data-review-source="local" type="button" aria-pressed="true">Local dataset</button>
           <button data-review-source="hub" type="button" aria-pressed="false">Hub</button>
         </nav>
-        <div id="local-review-source"><div id="review-queue-list"><p class="subhead">Loading review queue…</p></div></div>
+        <div id="local-review-source">
+          <div class="review-queue-actions" aria-label="Manage local review queue">
+            <button id="clear-pending-review-queue" type="button" title="Dismiss pending tasks; keep recordings, annotations, and training examples">Clear pending queue</button>
+            <button id="restore-dismissed-review-queue" type="button" hidden>Restore dismissed</button>
+            <span id="review-queue-action-status" class="muted" role="status"></span>
+          </div>
+          <div id="review-queue-list"><p class="subhead">Loading review queue…</p></div></div>
         <div id="hub-review-source" hidden><p id="hub-review-status" class="subhead">Loading Hub review queue…</p><div id="hub-review-queue-list"></div></div>
         <details id="reviewed-queue-details" class="reviewed-queue-details" hidden>
           <summary id="reviewed-queue-summary">Reviewed samples</summary>
