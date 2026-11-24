@@ -16,7 +16,10 @@ from .wav import WavSource
 
 
 EMBEDDING_INDEX_SCHEMA_VERSION = 2
-EMBEDDING_PREPROCESSING_VERSION = "sig-id-cv-region-embedding-v2"
+# v3 fixes the RGB-to-BGR ordering at the Ultralytics embedding boundary.
+# Existing v2 indexes must be rebuilt; using them against v3 queries would
+# compare incompatible feature vectors.
+EMBEDDING_PREPROCESSING_VERSION = "sig-id-cv-region-embedding-v3"
 
 
 def read_audio_range(path: str | Path, start: int, count: int) -> tuple[int, np.ndarray]:

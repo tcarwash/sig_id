@@ -36,14 +36,22 @@ def waterfall_samples(
     frames = 1 + (values.size - fft_size) // hop_size
     row_stride = max(1, ceil(frames / max_rows))
     window = np.hanning(fft_size)
-    rows = []
-    starts = []
-    for frame_index in range(0, frames, row_stride):
-        offset = frame_index * hop_size
-        spectrum = np.fft.rfft(values[offset : offset + fft_size] * window)
-        magnitude = np.abs(spectrum) / max(window.sum(), 1.0)
-        rows.append((20.0 * np.log10(np.maximum(magnitude, 1e-10))).astype(np.float32).tolist())
-        starts.append(sample_offset + offset)
+    rows: list[list[float]] = []
+    starts: list[int] = []
+    frame_indices = np.arange(0, frames, row_stride, dtype=np.int64)
+    fft_offsets = np.arange(fft_size, dtype=np.int64)
+    window_scale = max(window.sum(), 1.0)
+    # Keep temporary FFT arrays bounded even when callers request thousands
+    # of rows. Vectorize per 64 frames rather than constructing all frames.
+    for first in range(0, len(frame_indices), 64):
+        chunk = frame_indices[first : first + 64]
+        offsets = chunk * hop_size
+        segment = values[offsets[:, None] + fft_offsets[None, :]]
+        spectrum = np.fft.rfft(segment * window, axis=1)
+        magnitude = np.abs(spectrum) / window_scale
+        db = 20.0 * np.log10(np.maximum(magnitude, 1e-10))
+        rows.extend(db.astype(np.float32).tolist())
+        starts.extend((sample_offset + offsets).tolist())
     capture_samples = total_sample_count if total_sample_count is not None else sample_offset + values.size
     if capture_samples < sample_offset + values.size:
         raise ValueError("total_sample_count cannot end before the supplied sample window")

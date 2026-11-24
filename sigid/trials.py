@@ -10,6 +10,20 @@ from typing import Any
 from .decoder_backend import TextReceiveBackend
 
 
+def plausible_receive_text(text: str) -> bool:
+    """Check only whether provisional text is worth interrupting a mode sweep.
+
+    This does NOT validate a protocol or confirm a mode. Short open-squelch
+    garbage must not prevent another candidate receiver from being tried.
+    """
+    visible = [char for char in text if char.isprintable()]
+    return (
+        len(visible) >= 6
+        and sum(char.isalnum() for char in visible) >= 4
+        and len(visible) >= 0.85 * max(1, len(text))
+    )
+
+
 VALIDATED_TRIAL_MODES = ("BPSK31", "RTTY", "THOR16")
 MODULATION_TRIAL_ORDER = {
     "FSK-like": ("RTTY", "THOR16", "BPSK31"),
@@ -114,12 +128,18 @@ class DecoderTrialRunner:
             offset = int(state["output_offset"])
             if end > offset:
                 raw = self.client.receive_text(start=offset, length=min(end - offset, 8192))
-                state["status"] = "tentative_output"
-                state["text"] = raw.decode("utf-8", errors="replace")
-                state["output_end"] = offset + len(raw)
-                state["note"] = "New Fldigi text observed. Review it; no protocol label was assigned."
-                self._persist(state)
-                return dict(state)
+                state["output_offset"] = offset + len(raw)
+                pending = (state.get("_pending_text", "") + raw.decode("utf-8", errors="replace"))[-256:]
+                state["_pending_text"] = pending
+                if plausible_receive_text(pending):
+                    state["status"] = "tentative_output"
+                    state["text"] = pending
+                    state["output_end"] = offset + len(raw)
+                    state["note"] = "Plausible Fldigi text observed. Review it; no protocol label was assigned."
+                    state.pop("_pending_text", None)
+                    self._persist(state)
+                    return dict(state)
+                state["note"] = "Too little or noisy receive text; continuing the bounded mode sweep."
 
             now = self.clock()
             if now - float(state["mode_started_at"]) < self.dwell_seconds:
@@ -140,6 +160,7 @@ class DecoderTrialRunner:
                 return dict(state)
             state["current_mode"] = selected
             state["attempted_modes"].append(selected)
+            state.pop("_pending_text", None)
             state["mode_started_at"] = now
             state["output_offset"] = int(self.client.receive_text_length())
             self._persist(state)

@@ -256,7 +256,9 @@ def test_live_candidate_gets_bounded_model_proposal_and_model_ranking(tmp_path, 
     )
     sample_rate = 12_000
     signal_path = tmp_path / "live.wav"
-    generate_bpsk_wav(signal_path, "00110101" * 32, sample_rate=sample_rate)
+    # The live sweep now waits for a meaningful >=4 s acquisition window,
+    # rather than consuming a one-shot replay on a short classifier crop.
+    generate_bpsk_wav(signal_path, "00110101" * 64, sample_rate=sample_rate)
     with wave.open(str(signal_path), "rb") as source:
         samples = np.frombuffer(source.readframes(source.getnframes()), dtype="<i2")
     snapshot = {
@@ -440,6 +442,10 @@ def test_live_cv_boxes_persist_and_enter_evidence_guided_receive_only_trials(tmp
             assert runs[0]["classifier_evidence"]["source"] == "live_cv_classifier"
             assert runs[0]["classifier_evidence"]["ranked_candidates"]
             assert runs[0]["association"] == "exact_live_track_window"
+            # Replay uses enough track audio for acquisition, not the
+            # classifier's 2-second model crop.
+            assert runs[0]["sample_count"] >= 4 * sample_rate
+            assert runs[0]["sample_count"] != 2 * sample_rate
 
             # Detection remains useful when the model is disabled.
             app.state.classifier = None

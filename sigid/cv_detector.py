@@ -53,14 +53,35 @@ def spectrogram_image(samples: Any, sample_rate: int) -> np.ndarray:
     db = np.asarray(spectrum["db"], dtype=np.float32)
     frequencies = np.asarray(spectrum["frequency_hz"], dtype=np.float64)
     target_frequency = np.linspace(0.0, MAX_FREQUENCY_HZ, IMAGE_WIDTH)
-    frequency_scaled = np.empty((db.shape[0], IMAGE_WIDTH), dtype=np.float32)
-    for row_index, row in enumerate(db):
-        frequency_scaled[row_index] = np.interp(target_frequency, frequencies, row)
+    # Interpolate all FFT rows at once. Keep the intermediate float32
+    # rounding point identical to the previous per-row np.interp code: model
+    # input pixels and the active v2 preprocessing schema must not change.
+    freq_upper = np.searchsorted(frequencies, target_frequency, side="right")
+    freq_lower = np.clip(freq_upper - 1, 0, len(frequencies) - 1)
+    freq_upper = np.clip(freq_upper, 0, len(frequencies) - 1)
+    freq_denominator = frequencies[freq_upper] - frequencies[freq_lower]
+    freq_weight = np.divide(
+        target_frequency - frequencies[freq_lower], freq_denominator,
+        out=np.zeros_like(target_frequency), where=freq_denominator != 0,
+    )
+    frequency_scaled = (
+        np.asarray(db[:, freq_lower], dtype=np.float64) * (1.0 - freq_weight)
+        + np.asarray(db[:, freq_upper], dtype=np.float64) * freq_weight
+    ).astype(np.float32)
     source_rows = np.arange(frequency_scaled.shape[0], dtype=np.float64)
     target_rows = np.linspace(max(0, len(source_rows) - 1), 0.0, IMAGE_HEIGHT)
-    time_scaled = np.empty((IMAGE_HEIGHT, IMAGE_WIDTH), dtype=np.float32)
-    for column in range(IMAGE_WIDTH):
-        time_scaled[:, column] = np.interp(target_rows, source_rows, frequency_scaled[:, column])
+    time_upper = np.searchsorted(source_rows, target_rows, side="right")
+    time_lower = np.clip(time_upper - 1, 0, len(source_rows) - 1)
+    time_upper = np.clip(time_upper, 0, len(source_rows) - 1)
+    time_denominator = source_rows[time_upper] - source_rows[time_lower]
+    time_weight = np.divide(
+        target_rows - source_rows[time_lower], time_denominator,
+        out=np.zeros_like(target_rows), where=time_denominator != 0,
+    )[:, None]
+    time_scaled = (
+        np.asarray(frequency_scaled[time_lower, :], dtype=np.float64) * (1.0 - time_weight)
+        + np.asarray(frequency_scaled[time_upper, :], dtype=np.float64) * time_weight
+    ).astype(np.float32)
     pixels = np.clip((time_scaled - DB_FLOOR) * (255.0 / (DB_CEILING - DB_FLOOR)), 0, 255)
     palette_position = pixels * (len(WATERFALL_COLORS) - 1) / 255.0
     palette_index = np.floor(palette_position).astype(np.int16)
@@ -96,6 +117,30 @@ def audio_windows(path: str | Path, seconds: int = WINDOW_SECONDS, *,
             buffered = buffered[stride_samples:]
             buffer_start += stride_samples
     # Ignore the short final tail: training and inference require full windows.
+
+
+def _partial_background_noise_rms(observed: np.ndarray, sample_rate: int) -> float:
+    """Estimate noise power independently of narrowband signal power.
+
+    Tail RMS is unsafe while a signal is keyed: it turns the unobserved
+    prefix into strong broadband noise. The median periodogram power of
+    passband bins is robust to one or a few occupied carrier frequencies.
+    Use a Hann-window Parseval normalization and the exponential median
+    correction for complex Gaussian spectral noise.
+    """
+    tail_count = min(len(observed), max(FFT_SIZE, sample_rate // 2))
+    tail = np.asarray(observed[-tail_count:], dtype=np.float64)
+    if tail.size < FFT_SIZE:
+        return 0.0
+    tapered = np.hanning(tail.size)
+    spectrum = np.fft.rfft(tail * tapered)
+    frequencies = np.fft.rfftfreq(tail.size, d=1.0 / sample_rate)
+    band = (frequencies >= 150.0) & (frequencies <= min(3000.0, sample_rate * 0.45))
+    if not np.any(band):
+        return 0.0
+    powers = np.abs(spectrum[band]) ** 2
+    mean_bin_power = np.median(powers) / np.log(2.0)
+    return float(np.sqrt(max(0.0, mean_bin_power) / np.sum(tapered ** 2)))
 
 
 class YoloSignalDetector:
@@ -212,8 +257,11 @@ class YoloSignalDetector:
 
     def embed_image(self, image: np.ndarray) -> np.ndarray:
         """Extract a normalized second-to-last-layer image embedding."""
+        # Ultralytics NumPy input is BGR; embedding must use exactly the
+        # same channel order as detection (which converts RGB at its boundary).
+        model_image = np.ascontiguousarray(image[..., ::-1])
         with self._lock:
-            extracted = self._model.embed(image, imgsz=MODEL_IMAGE_SIZE, verbose=False, rect=True)
+            extracted = self._model.embed(model_image, imgsz=MODEL_IMAGE_SIZE, verbose=False, rect=True)
         value = extracted[0] if isinstance(extracted, (list, tuple)) else extracted
         if hasattr(value, "detach"):
             vector = value.detach().cpu().numpy()
@@ -245,10 +293,9 @@ class YoloSignalDetector:
         observed_start = max(sample_start, total_sample_count - observed.size)
         padding = capacity - observed.size
         if padding:
-            # Match recent background energy so the empty area does not become
-            # a hard black/zero strip in the spectrogram.
-            tail = observed[-min(observed.size, sample_rate // 2):]
-            noise_rms = float(np.sqrt(np.mean(np.square(tail)))) if tail.size else 0.0
+            # Estimate unobserved background without mistaking an active
+            # carrier at the tail for high-power broadband noise.
+            noise_rms = _partial_background_noise_rms(observed, sample_rate)
             rng = np.random.default_rng(0)
             prefix = rng.normal(0.0, noise_rms, padding)
             full_window = np.concatenate((prefix, observed))

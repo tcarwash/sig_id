@@ -73,7 +73,7 @@ from .receive_products import ReceiveProductStore
 from .spectrum import waterfall, waterfall_samples
 from .synthetic_dataset import MAX_MANIFEST_BYTES, import_synthetic_wav
 from .tracking import LiveTrackRegistry
-from .trials import FldigiTrialRunner, MODULATION_TRIAL_ORDER, VALIDATED_TRIAL_MODES
+from .trials import FldigiTrialRunner, MODULATION_TRIAL_ORDER, VALIDATED_TRIAL_MODES, plausible_receive_text
 from .wav import WavSource
 
 
@@ -143,6 +143,41 @@ def _classify_signal_crop(
         ),
         "decoder_shortlist": decoder_shortlist(proposal),
     }
+
+
+def _bounded_live_trial_span(
+    track: dict[str, Any], snapshot: dict[str, Any], *,
+    min_seconds: float = 4.0, context_seconds: float = 0.5,
+    max_seconds: float = 10.0,
+) -> tuple[int, int] | None:
+    """Select observed track audio for replay, not the classifier's 2 s crop.
+
+    Preserve acquisition context, extend short CV boxes to a minimum sample
+    span, and stay entirely within the currently retained live audio ring.
+    Defer an early short window rather than consume its one replay attempt.
+    """
+    rate = int(snapshot["sample_rate"])
+    ring_start = int(snapshot["sample_offset"])
+    ring_end = ring_start + int(snapshot["window_sample_count"])
+    track_start = int(track["sample_start"])
+    track_end = track_start + int(track["sample_count"])
+    if rate <= 0 or ring_end <= ring_start or track_end <= track_start:
+        return None
+    start = max(ring_start, track_start - round(context_seconds * rate))
+    end = min(ring_end, track_end + round(context_seconds * rate))
+    if end <= start:
+        return None
+    minimum = round(min_seconds * rate)
+    if end - start < minimum:
+        start = max(ring_start, end - minimum)
+    if end - start < minimum:
+        end = min(ring_end, start + minimum)
+    if end - start < minimum:
+        return None
+    cap = round(max_seconds * rate)
+    if end - start > cap:
+        start = end - cap
+    return start, end - start
 
 
 def default_track_fft_size(sample_rate: int) -> int:
@@ -1151,6 +1186,7 @@ def create_app(
                 output.setframerate(sample_rate)
                 output.writeframes(pcm.tobytes())
 
+            noisy_output_modes = 0
             for mode in modes:
                 attempted.append(mode)
                 app.state.capture_store.update_decoder_run(run_id, {
@@ -1163,7 +1199,9 @@ def create_app(
                     temporary_audio, mode=mode, carrier_hz=settings.carrier_hz,
                 )
                 text = str(result.get("text", ""))
-                if text:
+                if text and not plausible_receive_text(text):
+                    noisy_output_modes += 1
+                if plausible_receive_text(text):
                     app.state.capture_store.update_decoder_run(run_id, {
                         "attempted_modes": attempted, "current_mode": mode,
                         "output_offset": 0, "output_end": len(text.encode("utf-8")), "text": text,
@@ -1175,7 +1213,10 @@ def create_app(
                 "attempted_modes": attempted, "current_mode": attempted[-1] if attempted else None,
                 "output_offset": 0, "output_end": 0, "text": "",
                 "status": "exhausted",
-                "note": "No text was recovered by the bounded isolated tested-mode sweep.",
+                "note": (
+                    "No plausible text was recovered by the bounded isolated tested-mode sweep."
+                    + (f" {noisy_output_modes} modes returned short/noisy text." if noisy_output_modes else "")
+                ),
             })
         except Exception as exc:
             logging.getLogger(__name__).exception("Isolated live track mode sweep failed")
@@ -1914,6 +1955,9 @@ def create_app(
                     "FSK": "FSK-like", "MFSK": "MFSK-like",
                     "PSK": "single-tone / unknown",
                 }.get(family, family)
+                trial_span = _bounded_live_trial_span(detection, snapshot)
+                if trial_span is None:
+                    continue
                 try:
                     automatic_trial = queue_live_mode_sweep(
                         session_id,
@@ -1921,8 +1965,8 @@ def create_app(
                             track_id=detection["track_id"],
                             modulation_hypothesis=hypothesis,
                             candidate_modes=proposal.get("decoder_shortlist", []),
-                            sample_start=int(proposal["sample_start"]),
-                            sample_count=int(proposal["sample_count"]),
+                            sample_start=trial_span[0],
+                            sample_count=trial_span[1],
                             carrier_hz=float(detection["center_hz"]),
                         ),
                         classifier_evidence={
@@ -2185,6 +2229,9 @@ def create_app(
                         or not proposal.get("family")
                     ):
                         continue
+                    trial_span = _bounded_live_trial_span(track, snapshot)
+                    if trial_span is None:
+                        continue
                     try:
                         hypothesis = {
                             "FSK": "FSK-like",
@@ -2197,8 +2244,8 @@ def create_app(
                             track_id=track["track_id"],
                                 modulation_hypothesis=hypothesis,
                                 candidate_modes=proposal.get("decoder_shortlist", []),
-                                sample_start=int(proposal.get("sample_start", track["sample_start"])),
-                                sample_count=int(proposal.get("sample_count", track["sample_count"])),
+                                sample_start=trial_span[0],
+                                sample_count=trial_span[1],
                                 carrier_hz=float(track["center_hz"]),
                             ),
                         )
