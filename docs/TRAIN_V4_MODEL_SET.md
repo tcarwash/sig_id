@@ -211,3 +211,50 @@ use `--real-train-repeat 4` for the detector composition and
 `--reviewed-real-repeat 4` for the hierarchical classifier. Both
 increase sampling weight, not independent examples. Compare against the
 unaltered validation and test sets before promotion.
+
+### November 24 real-weighted ablation — rejected, no model release
+
+The **10-epoch ROCm CV detector trained to completion** with the original
+1,207 training images plus 333 extra copies of previously human-reviewed real
+training images (4x repeat, 1,540 training images total). There were only
+111 unique real training sources. All original 159 validation and 161 frozen
+test images were unchanged.
+
+Using each model's own validation-selected threshold, the unchanged
+held-out test reported:
+
+| IoU 0.50 detector measure | Installed baseline | Real 4x candidate |
+| --- | ---: | ---: |
+| Overall precision | 85.7% (66 TP, 11 FP) | 74.0% (54 TP, 19 FP) |
+| Overall recall | 60.0% | 49.1% |
+| Live receiver recall | 25.0% (12/48) | 14.6% (7/48) |
+| Multiple-signal recall | 41.2% (28/68) | 30.9% (21/68) |
+| Test false detections per audio hour | 24.6 | 42.5 |
+
+The candidate **failed five of seven conservative release checks**:
+independent positive live test lineage count, live recall, overall recall,
+false detection rate, and multiple-signal recall. This test false-detection
+measure covers the reviewed test windows and should **not** be confused with
+a separately measured pure noise-only false-positive rate. The comparison
+still lacks five independent positive held-out live lineages.
+
+The companion 4x real-weighted hierarchical classifier likewise did not
+beat production on frozen real evidence: its crop-weighted top-1 was
+**46.2% vs 55.4%**, top-3 **73.8% vs 93.8%**, and calibrated acceptance was
+zero for both. Only six original sessions with CW/BPSK31 accepted regions
+were represented. Both experimental checkpoints remain local and are not
+promoted or published.
+
+**Consequence:** repeating the same verified real examples is not a
+substitute for new independent annotations or clean negatives. Retain the
+installed checkpoints and frozen splits. The next model fitting cycle must
+use newly confirmed examples, and must compare the same unchanged
+held-out real/negative tests without tuning thresholds on that test.
+
+The receiver review workbench was instead improved: an optional read-only
+production-CV-versus-spectral-track screen considered 120 eligible clips,
+with no failures and no accepted pseudo-labels. The 100 prioritized windows
+now comprise 10 track-only proposals, 20 CV-only, 6 spatial disagreements,
+8 agreements, and 56 possible (unverified) negative controls, across
+12 source sessions. Detailed scores remain local. See
+[ACTIVE_LEARNING_REVIEW.md](ACTIVE_LEARNING_REVIEW.md) for the procedure.
