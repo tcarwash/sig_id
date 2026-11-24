@@ -90,3 +90,27 @@ def test_composite_rejects_corrupted_source_bytes(tmp_path):
     with pytest.raises(ValueError, match="checksum mismatch"):
         compose(base, supplement, out)
     assert not out.exists()
+
+
+def test_real_repeat_only_resamples_existing_train_and_not_heldouts(tmp_path):
+    from tools.compose_cv_training_dataset import compose
+    import json
+    base = tmp_path / "base"
+    supplement = tmp_path / "extra"
+    _source(base, "old", extra=False)
+    _source(supplement, "new", extra=True)
+    rows = [json.loads(line) for line in (base / "windows.jsonl").read_text().splitlines()]
+    for row in rows:
+        row["source_kind"] = "live" if row["split"] == "train" else "synthetic"
+        row["review_ids"] = ["confirmed-detection-review"]
+    (base / "windows.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+    dest = tmp_path / "weighted"
+    report = compose(base, supplement, dest, real_train_repeat=4)
+    assert report["split_images"] == {"train": 6, "validation": 1, "test": 1}
+    assert report["composite_dataset"]["real_training_resampled_images"] == 3
+    assert report["composite_dataset"]["real_source_independent_count"] == 1
+    images = [json.loads(line) for line in (dest / "windows.jsonl").read_text().splitlines()]
+    assert len([row for row in images if row.get("sampling_repeat_index")]) == 3
+    assert all(row["split"] == "train" for row in images if row.get("sampling_repeat_index"))
+    assert len([row for row in images if row["split"] in ("test", "validation")]) == 2
+    assert all(row["image_sha256"] == rows[0]["image_sha256"] for row in images if row.get("sampling_repeat_index"))

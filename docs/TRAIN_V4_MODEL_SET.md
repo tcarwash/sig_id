@@ -198,3 +198,16 @@ claim of better generalization for this candidate, but do not prove that the
 new dataset is worse overall. Keep the candidate in staging and retain the
 existing default classifier until independent real-family calibration and
 performance improve.
+
+
+## Active review and new real-domain experiments
+
+Use [ACTIVE_LEARNING_REVIEW.md](ACTIVE_LEARNING_REVIEW.md) to stage a
+session-diverse, frozen-test-excluded review batch from existing real
+receiver captures. The ranked proposal worklist is **not a training
+corpus** until an operator accepts annotations and complete detection
+coverage. For ablation-only training on existing verified real examples,
+use `--real-train-repeat 4` for the detector composition and
+`--reviewed-real-repeat 4` for the hierarchical classifier. Both
+increase sampling weight, not independent examples. Compare against the
+unaltered validation and test sets before promotion.

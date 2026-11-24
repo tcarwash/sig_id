@@ -8097,7 +8097,7 @@ async function refreshLiveReviewQueue() {
     const badge = el("review-queue-badge");
     badge.textContent = String(result.pending_count);
     badge.hidden = result.pending_count === 0;
-    el("review-queue-title-count").textContent = `${result.pending_count} waiting · ${result.reviewed_count} reviewed · ${result.re_review_due_count || 0} due again`;
+    el("review-queue-title-count").textContent = `${result.pending_count} waiting · ${result.active_learning_prioritized_count || 0} prioritized for diverse review · ${result.reviewed_count} reviewed · ${result.re_review_due_count || 0} due again`;
     const list = el("review-queue-list");
     list.replaceChildren();
     for (const capture of result.pending) {
@@ -8121,7 +8121,9 @@ async function refreshLiveReviewQueue() {
       const detectorDetail = capture.source_metadata.unattended_capture
         ? ` · ${detection.cv_detection_count || 0} CV boxes${detection.classifier_methods?.length ? ` · ${[...new Set(detection.classifier_methods)].join(", ")}` : ""}`
         : "";
-      detail.textContent = `${capture.sample_rate.toLocaleString()} samples/s · ${capture.sample_count.toLocaleString()} samples${detectorDetail} · ${capture.id.slice(0, 8)}${capture.source_metadata.re_review_due ? ` · last reviewed ${new Date(capture.source_metadata.last_reviewed_utc).toLocaleDateString()}` : ""}`;
+      const activeRank = capture.source_metadata.active_learning_rank;
+      const activeReason = capture.source_metadata.active_learning_reason || [];
+      detail.textContent = `${activeRank ? `Priority #${activeRank} · ${activeReason.join(", ")} · ` : ""}${capture.sample_rate.toLocaleString()} samples/s · ${capture.sample_count.toLocaleString()} samples${detectorDetail} · ${capture.id.slice(0, 8)}${capture.source_metadata.re_review_due ? ` · last reviewed ${new Date(capture.source_metadata.last_reviewed_utc).toLocaleDateString()}` : ""}`;
       info.append(title, detail);
       const open = document.createElement("button");
       open.type = "button";

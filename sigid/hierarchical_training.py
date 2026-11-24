@@ -219,6 +219,7 @@ def train_hierarchical(
     fldigi_data_dirs: list[str | Path] | None = None,
     initial_model_path: str | Path | None = None,
     exclude_reviewed_sha_file: str | Path | None = None,
+    reviewed_real_repeat: int = 1,
     epochs: int = 1200,
     feature_version: str = DEFAULT_FEATURE_VERSION,
     classifier_window_seconds: float = CLASSIFIER_WINDOW_SECONDS,
@@ -229,6 +230,8 @@ def train_hierarchical(
     manifest_path = Path(output_manifest).expanduser().resolve()
     if feature_version not in FEATURE_COUNT_BY_VERSION or epochs < 1:
         raise ValueError("invalid feature version or training epoch count")
+    if not 1 <= reviewed_real_repeat <= 8:
+        raise ValueError("reviewed real repeat must be between 1 and 8")
     store = CaptureStore(data_dir / "dataset.sqlite3")
     register_mode_definitions(store.accepted_mode_definitions())
     split_manifest = json.loads(split_path.read_text(encoding="utf-8"))
@@ -258,7 +261,12 @@ def train_hierarchical(
     for row in real_rows:
         real_source_counts.setdefault(str(row["mode"]), set()).add(str(row["capture_id"]))
     supported_real_modes = {mode for mode, sources in real_source_counts.items() if len(sources) >= 3}
-    train_rows.extend(real_rows)
+    # Deterministic sample-weight equivalent: repeat verified real train
+    # crops only, while keeping the unique reviewed-source evidence and
+    # validation/unknown/OOD data untouched. This creates no new sources.
+    train_rows.extend(real_rows * reviewed_real_repeat)
+    real_summary["training_repeat_factor"] = reviewed_real_repeat
+    real_summary["effective_weighted_training_examples"] = len(real_rows) * reviewed_real_repeat
     # Fldigi exposes many selectable variants, but often only one recording
     # exists for each. Those one-shots are useful *family* examples, not
     # justification for adding a new individually supervised mode class.
@@ -494,6 +502,8 @@ def main() -> None:
     parser.add_argument("--initial-model-path", type=Path, help="compatible classifier to warm-start family and expert weights")
     parser.add_argument("--exclude-reviewed-sha-file", type=Path,
                         help="frozen real evaluation session SHA list, never used for classifier fitting")
+    parser.add_argument("--reviewed-real-repeat", type=int, default=1,
+                        help="training-only sample reweighting of human-reviewed real crops, 1-8; no new independent examples")
     parser.add_argument("--epochs", type=int, default=1200)
     parser.add_argument("--feature-version", choices=tuple(FEATURE_COUNT_BY_VERSION), default=DEFAULT_FEATURE_VERSION)
     parser.add_argument("--classifier-window-seconds", type=float, default=CLASSIFIER_WINDOW_SECONDS)
@@ -504,6 +514,7 @@ def main() -> None:
             reviewed_data_dirs=args.reviewed_data_dir, fldigi_data_dirs=args.fldigi_data_dir,
             initial_model_path=args.initial_model_path,
             exclude_reviewed_sha_file=args.exclude_reviewed_sha_file,
+            reviewed_real_repeat=args.reviewed_real_repeat,
             epochs=args.epochs, feature_version=args.feature_version,
             classifier_window_seconds=args.classifier_window_seconds,
         )
