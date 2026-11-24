@@ -42,7 +42,16 @@ def compose(base: Path, supplement: Path, destination: Path, *, real_train_repea
     if (report.get("preprocessing_version") != extra_report.get("preprocessing_version")
             or report.get("schema_version") != extra_report.get("schema_version")):
         raise ValueError("CV preprocessing / report schema mismatch")
-    if extra_report.get("train_only") is not True or not extra_report.get("scene_index_sha256"):
+    if extra_report.get("train_only") is not True:
+        raise ValueError("supplement must be train-only")
+    real_reviewed_supplement = extra_report.get("reviewed_real_train_only") is True
+    if real_reviewed_supplement:
+        provenance = extra_report.get("real_review_provenance") or {}
+        if not provenance.get("frozen_exclusions_sha256") or not provenance.get("base_cv_manifest_sha256"):
+            raise ValueError("reviewed real supplement lacks frozen-session provenance")
+        if provenance["base_cv_manifest_sha256"] != sha256(base / "windows.jsonl"):
+            raise ValueError("reviewed-real supplement was certified against a different base CV manifest")
+    elif not extra_report.get("scene_index_sha256"):
         raise ValueError("supplement is not v4 train-only with source-provenance index")
     if extra_report.get("split_images", {}).get("validation") or extra_report.get("split_images", {}).get("test"):
         raise ValueError("supplement must have no heldout images")
@@ -62,6 +71,14 @@ def compose(base: Path, supplement: Path, destination: Path, *, real_train_repea
         raise ValueError("input window manifest count mismatch")
     if any(not row.get("image_sha256") or not row.get("label_sha256") for row in base_rows + extra_rows):
         raise ValueError("missing image or label hashes")
+    if real_reviewed_supplement and any(
+            row.get("source_kind") not in ("live", "wav") or not row.get("review_ids")
+            or row.get("combined_provenance") == "base-real-resample"
+            for row in extra_rows):
+        raise ValueError("real reviewed supplement has unverified or synthetic rows")
+    if real_reviewed_supplement and any(row["capture_sha256"] in {
+            prior["capture_sha256"] for prior in base_rows} for row in extra_rows):
+        raise ValueError("reviewed real supplement repeats an existing source")
     destination.mkdir(parents=True)
     try:
         combined = []
@@ -140,6 +157,7 @@ def compose(base: Path, supplement: Path, destination: Path, *, real_train_repea
             "base_manifest_sha256": sha256(base / "windows.jsonl"),
             "v4_report_sha256": sha256(supplement / "export-report.json"),
             "v4_manifest_sha256": sha256(supplement / "windows.jsonl"),
+            "supplement_kind": "fresh_human_reviewed_real" if real_reviewed_supplement else "synthetic_v4",
             "source_train_added": len(extra_rows),
             "real_train_repeat": real_train_repeat,
             "real_training_resampled_images": sum(row["combined_provenance"] == "base-real-resample" for row in combined),

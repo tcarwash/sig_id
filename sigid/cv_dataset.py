@@ -420,6 +420,9 @@ def export_cv_dataset(
     additional_data_dirs: list[str | Path] | None = None,
     train_only: bool = False,
     scene_index: str | Path | None = None,
+    reviewed_real_only: bool = False,
+    base_cv_manifest: str | Path | None = None,
+    frozen_exclusions: str | Path | None = None,
 ) -> dict[str, Any]:
     """Export reviewed detection windows; optional v4 supplement is TRAIN ONLY."""
     try:
@@ -449,7 +452,44 @@ def export_cv_dataset(
     _export_progress(f"loading captures and review coverage from {len(roots)} dataset root(s)")
     store = _CaptureStoreSet(roots)
     captures = store.list_captures()
-    if train_only and any(capture["source_kind"] != "synthetic" for capture in captures):
+    real_review_provenance = None
+    if reviewed_real_only:
+        if (not train_only or scene_index is not None or additional_data_dirs
+                or base_cv_manifest is None or frozen_exclusions is None):
+            raise ValueError("reviewed-real supplement requires train-only, base CV manifest, and frozen exclusions")
+        from .active_learning import protected_source_sha
+        frozen_path = Path(frozen_exclusions).expanduser().resolve(strict=True)
+        frozen_sha = protected_source_sha(frozen_path)
+        base_path = Path(base_cv_manifest).expanduser().resolve(strict=True)
+        base_rows = [json.loads(line) for line in base_path.read_text().splitlines() if line.strip()]
+        if not base_rows or any(row.get("split") not in ("train", "test", "validation") for row in base_rows):
+            raise ValueError("base CV manifest is empty or has unrecognized split")
+        real_base = [row for row in base_rows if row.get("source_kind") in ("live", "wav")]
+        heldout_sha = {row["capture_sha256"] for row in real_base if row["split"] != "train"}
+        if not heldout_sha or not heldout_sha <= {capture["sha256"] for capture in captures}:
+            raise ValueError("cannot verify the base heldout real session sources in this capture database")
+        protected_sha = frozen_sha | heldout_sha
+        def source_session(capture: dict[str, Any]) -> str:
+            return str(capture["source_metadata"].get("auto_capture_session_id")
+                       or capture.get("parent_capture_id") or capture["sha256"])
+        blocked_sessions = {source_session(capture) for capture in captures
+                            if capture["sha256"] in protected_sha}
+        prior_sha = {row["capture_sha256"] for row in base_rows}
+        before = len(captures)
+        captures = [capture for capture in captures
+                    if capture["source_kind"] in ("live", "wav")
+                    and capture["sha256"] not in prior_sha
+                    and source_session(capture) not in blocked_sessions]
+        real_review_provenance = {
+            "base_cv_manifest_sha256": _sha256(base_path),
+            "frozen_exclusions_sha256": _sha256(frozen_path),
+            "excluded_source_sha_count": len(prior_sha),
+            "protected_session_count": len(blocked_sessions),
+            "candidate_captures_after_exclusion": len(captures),
+            "excluded_capture_count": before-len(captures),
+            "reviewed_real_only": True,
+        }
+    elif train_only and any(capture["source_kind"] != "synthetic" for capture in captures):
         raise ValueError("train-only supplement must use an isolated synthetic-only dataset root")
     verified_recorded_noise_policy = (
         "saved 10-second samples with fresh complete human review and no active annotations"
@@ -477,6 +517,10 @@ def export_cv_dataset(
             _export_progress(f"review scan: capture {capture_index}/{len(captures)}")
         capture_id = capture["id"]
         regions = store.regions(capture_id)
+        if reviewed_real_only and any(
+                region["review_state"] == "accepted" and region["source"] != "human"
+                for region in regions):
+            raise ValueError("reviewed-real supplement contains non-human accepted labels")
         if capture["source_kind"] == "synthetic" and any(
             region["frequency_low_hz"] is None for region in regions
             if region["review_state"] == "accepted"
@@ -682,6 +726,8 @@ def export_cv_dataset(
         "schema_version": 2,
         "train_only": bool(train_only),
         "scene_index_sha256": index_sha256,
+        "real_review_provenance": real_review_provenance,
+        "reviewed_real_train_only": bool(reviewed_real_only),
         "preprocessing_version": PREPROCESSING_VERSION,
         "image_width": IMAGE_WIDTH,
         "image_height": IMAGE_HEIGHT,
@@ -758,10 +804,19 @@ def main() -> None:
                         help="write all independent source groups to train; this is a supplement, NOT an evaluation dataset")
     parser.add_argument("--scene-index", type=Path,
                         help="v4 scene-index path to attach per-source SNR provenance (requires --train-only)")
+    parser.add_argument("--reviewed-real-only", action="store_true",
+                        help="export ONLY newly human-reviewed real sources to train, without disturbing base evaluation")
+    parser.add_argument("--base-cv-manifest", type=Path,
+                        help="original CV windows.jsonl; required for safe reviewed real train-only export")
+    parser.add_argument("--frozen-exclusions", type=Path,
+                        help="frozen real receiver sessions, excluded from reviewed training")
     args = parser.parse_args()
     print(json.dumps(export_cv_dataset(args.data_dir, args.output, seed=args.seed,
                                        additional_data_dirs=args.also_data_dir,
-                                       train_only=args.train_only, scene_index=args.scene_index),
+                                       train_only=args.train_only, scene_index=args.scene_index,
+                                       reviewed_real_only=args.reviewed_real_only,
+                                       base_cv_manifest=args.base_cv_manifest,
+                                       frozen_exclusions=args.frozen_exclusions),
                      indent=2, sort_keys=True))
 
 

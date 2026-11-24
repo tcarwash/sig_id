@@ -10,6 +10,8 @@ on:
       - "tests/test_classifier_v4_exclusions.py"
       - "tools/evaluate_classifier_real_holdout.py"
       - "sigid/active_learning.py"
+      - "sigid/cv_dataset.py"
+      - "tests/test_real_reviewed_export.py"
       - "tools/prepare_active_learning_queue.py"
       - "tools/import_review_sources.py"
       - "tests/test_active_learning.py"
@@ -40,6 +42,6 @@ jobs:
       - name: Install source and test dependencies
         run: python -m pip install --upgrade pip && python -m pip install ".[dev]"
       - name: Verify lineage, immutable heldouts and checksum failures
-        run: python -m pytest -q tests/test_cv_composite_v4.py tests/test_classifier_v4_exclusions.py tests/test_active_learning.py tests/test_review_source_import.py tests/test_active_learning_api.py
+        run: python -m pytest -q tests/test_cv_composite_v4.py tests/test_classifier_v4_exclusions.py tests/test_active_learning.py tests/test_review_source_import.py tests/test_active_learning_api.py tests/test_real_reviewed_export.py
       - name: Compile training modules
         run: python -m compileall -q tools/compose_cv_training_dataset.py sigid/cv_training.py sigid/hierarchical_training.py
