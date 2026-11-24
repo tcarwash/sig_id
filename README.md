@@ -31,7 +31,8 @@ Without models, recording, manual analysis and annotations still work.
 There is currently **no approved public model release**; see
 [model distribution and release gates](docs/MODEL_DISTRIBUTION.md).
 For optional experimental tester weights requiring manual opt-in, see
-[experimental model prerelease instructions](docs/EXPERIMENTAL_MODEL_RELEASE.md).
+[experimental model prerelease instructions](docs/EXPERIMENTAL_MODEL_RELEASE.md) and
+[download the tester model ZIP](https://github.com/tcarwash/sig_id/releases/tag/models-v2026.11.24.1).
 
 Signal ID is distributed under the [GNU AGPL version 3](LICENSE).
 The optional Ultralytics YOLO model dependency and derived weights also carry

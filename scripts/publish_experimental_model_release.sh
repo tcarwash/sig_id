@@ -20,7 +20,7 @@ checksum="${archive}.sha256"
   echo "AGPL-3.0 LICENSE and corresponding source are required for this Ultralytics release" >&2
   exit 2
 }
-[[ "$(git -C "$root" rev-parse --verify "refs/tags/$tag")" == "$(git -C "$root" rev-parse HEAD)" ]] || {
+[[ "$(git -C "$root" rev-parse --verify "refs/tags/$tag^{commit}")" == "$(git -C "$root" rev-parse HEAD)" ]] || {
   echo "Release tag must exist and refer to reviewed source HEAD" >&2; exit 2;
 }
 git -C "$root" ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null || {
