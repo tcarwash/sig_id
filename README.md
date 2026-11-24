@@ -16,6 +16,21 @@ docker compose up --build -d
 
 Open <http://127.0.0.1:8010>. If that port is in use, run `SIG_ID_PORT=8012 docker compose up --build -d` and open port 8012. Recordings and labels persist in a named volume. The default listener is local.
 
+## Pretrained models (optional)
+
+Automatic signal detection and classification use separately distributed model weights.
+Once a validated public model release is available, install it without training:
+
+```sh
+sig-id-models --install-latest
+```
+
+For Docker, set `SIG_ID_AUTO_INSTALL_MODELS=1` and `SIG_ID_INSTALL_CV=1`
+before `docker compose up --build -d` to opt into first-run model installation.
+Without models, recording, manual analysis and annotations still work.
+There is currently **no approved public model release**; see
+[model distribution and release gates](docs/MODEL_DISTRIBUTION.md).
+
 ## Use the workbench
 
 Open a recording or start live capture, then inspect the waterfall. Select a candidate or drag across a region to open its inspector. Classify and Annotate workflows keep identity, decode, raw-symbol, and box review actions together. Saving a label is explicit; selecting a candidate does not change decoder settings or save an annotation.
