@@ -293,7 +293,23 @@ def _signal_recipe(
         count = requested_sample_count
     if count > capture["sample_count"]:
         count = capture["sample_count"]
-    source_start = int(rng.integers(0, capture["sample_count"] - count + 1))
+    # Fldigi virtual-audio TX captures commonly begin with ~0.5 s of
+    # silence. Where v0.2.0 source manifests provide a measured active
+    # interval, sample the excerpt inside that interval instead of labeling
+    # all-zero lead-in as a signal. This is an activity hint, not a verified
+    # TX payload boundary or a substitute for exact symbol annotations.
+    source_max = int(capture["sample_count"]) - count
+    min_source_start = 0
+    params = capture["source_metadata"].get("parameters") or {}
+    activity = params.get("band_measurement") or {}
+    if (isinstance(activity.get("active_start_seconds"), (int, float))
+            and isinstance(activity.get("active_end_seconds"), (int, float))):
+        estimated_first = max(0, int(round(float(activity["active_start_seconds"]) * sample_rate)))
+        estimated_last = min(int(capture["sample_count"]), int(round(float(activity["active_end_seconds"]) * sample_rate)))
+        if estimated_last - estimated_first >= count:
+            min_source_start = min(source_max, estimated_first)
+            source_max = max(min_source_start, min(source_max, estimated_last - count))
+    source_start = int(rng.integers(min_source_start, source_max + 1))
     maximum_start = scene_sample_count - count
     if scene_start_sample is None:
         scene_start_sample = int(rng.integers(0, maximum_start + 1))
@@ -520,6 +536,7 @@ def build_cv_synthetic_scenes(
     noise_data_dirs: list[str | Path] | None = None,
     snr_profile: str = "balanced",
     frequency_layout: str = "mixed",
+    exclude_noise_sha_file: str | Path | None = None,
 ) -> dict[str, Any]:
     """Generate reviewed, source-held-out-ready signal bursts over known noise.
 
@@ -561,6 +578,22 @@ def build_cv_synthetic_scenes(
     noise_candidates = _recorded_noise_candidates(store, captures)
     for noise_store in noise_stores:
         noise_candidates.extend(_recorded_noise_candidates(noise_store, noise_store.list_captures()))
+    excluded_noise_hashes: set[str] = set()
+    if exclude_noise_sha_file is not None:
+        path = Path(exclude_noise_sha_file).expanduser().resolve(strict=True)
+        data = json.loads(path.read_text(encoding="utf-8"))
+        records = data.get("excluded_capture_sha256") if isinstance(data, dict) else data
+        if not isinstance(records, list) or any(
+            not isinstance(sha, str) or len(sha) != 64
+            or any(char not in "0123456789abcdef" for char in sha)
+            for sha in records
+        ):
+            raise ValueError("excluded noise SHA manifest must contain a list of SHA-256 digests")
+        excluded_noise_hashes = set(records)
+        noise_candidates = [
+            item for item in noise_candidates
+            if item["capture"]["sha256"] not in excluded_noise_hashes
+        ]
     noise_pool_sha256 = hashlib.sha256("|".join(sorted(
         f"{item['capture']['sha256']}:{item['sample_start']}:{item['sample_count']}"
         for item in noise_candidates
@@ -606,11 +639,17 @@ def build_cv_synthetic_scenes(
         "frequency_layout": frequency_layout,
         "scene_recipe_version": SCENE_RECIPE_VERSION,
         "two_signal_layout": "mixture-disjoint-and-simultaneous-v1",
+        "source_activity_sampling": "v0.2.0-active-extent-if-available",
         "window_seconds": WINDOW_SECONDS,
         "signal_generators": sorted(SIGNAL_GENERATORS),
         "source_pool_sha256": source_pool_sha256,
         "recorded_noise_pool_sha256": noise_pool_sha256,
         "recorded_noise_candidate_count": len(noise_candidates),
+        "excluded_noise_source_sha256": hashlib.sha256(
+            "|".join(sorted(excluded_noise_hashes)).encode()
+        ).hexdigest() if exclude_noise_sha_file is not None else None,
+        "excluded_noise_source_count": len(excluded_noise_hashes),
+        "holdout_noise_exclusion_applied": exclude_noise_sha_file is not None,
         "recorded_noise_data_dirs": [str(item) for item in noise_roots],
         "noise_background_policy": "recorded_two_second_signal_free_slices_when_available_else_seeded_uniform",
         "target_signal_snr_db_range": ([-40.0, -15.0] if snr_profile == "legacy_weak" else [MIN_SIGNAL_SNR_DB, MAX_SIGNAL_SNR_DB]),
@@ -722,7 +761,7 @@ def build_cv_synthetic_scenes(
         sample_rate = int(sources[0]["sample_rate"])
         scene_sample_count = sample_rate * WINDOW_SECONDS
         recipe_key = hashlib.sha256(
-            f"{SCENE_RECIPE_VERSION}:{seed}:{snr_profile}:{frequency_layout}:{simultaneous_rate:.6f}:{'|'.join(source_hashes)}".encode()
+            f"{SCENE_RECIPE_VERSION}:activity-v1:{seed}:{snr_profile}:{frequency_layout}:{simultaneous_rate:.6f}:{'|'.join(source_hashes)}".encode()
         ).hexdigest()
         rng = np.random.default_rng(_derived_seed(seed, recipe_key))
         signal_recipes: list[dict[str, Any]] = []
@@ -908,6 +947,8 @@ def main() -> None:
                         help="balanced clean-to-weak curriculum or historical -40..-15 dB only")
     parser.add_argument("--frequency-layout", choices=FREQUENCY_LAYOUTS, default="mixed",
                         help="control separated, adjacent, and co-channel placement in paired scenes")
+    parser.add_argument("--exclude-noise-sha-file", type=Path,
+                        help="JSON SHA-256 exclusion manifest for frozen held-out recording sessions")
     parser.add_argument(
         "--overlap-rate", type=float, default=0.25,
         help="fraction of scenes containing two signals; paired signals are placed in separate time intervals",
@@ -931,6 +972,7 @@ def main() -> None:
             simultaneous_rate=args.simultaneous_rate, noise_only_examples=args.noise_only_examples,
             noise_data_dirs=args.noise_data_dir,
             snr_profile=args.snr_profile, frequency_layout=args.frequency_layout,
+            exclude_noise_sha_file=args.exclude_noise_sha_file,
         )
     except (OSError, ValueError) as exc:
         parser.error(str(exc))

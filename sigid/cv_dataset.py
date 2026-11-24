@@ -418,18 +418,39 @@ def _window_conditions(
 def export_cv_dataset(
     data_dir: str | Path, output_dir: str | Path, *, seed: int = 1,
     additional_data_dirs: list[str | Path] | None = None,
+    train_only: bool = False,
+    scene_index: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Export fresh, complete reviewed detection windows into YOLO format."""
+    """Export reviewed detection windows; optional v4 supplement is TRAIN ONLY."""
     try:
         from PIL import Image
     except ImportError as exc:
         raise RuntimeError("CV dataset export requires the optional 'cv' install extra") from exc
     destination = Path(output_dir).expanduser().resolve()
+    index_data: dict[str, Any] = {}
+    index_sha256: str | None = None
+    if scene_index is not None:
+        index_path = Path(scene_index).expanduser().resolve(strict=True)
+        if index_path.stat().st_size > 128 * 1024 * 1024:
+            raise ValueError("scene index is too large")
+        index_sha256 = _sha256(index_path)
+        scene_manifest = json.loads(index_path.read_text(encoding="utf-8"))
+        if scene_manifest.get("config", {}).get("scene_recipe_version") != 4:
+            raise ValueError("scene-index provenance must be from recipe v4")
+        for record in scene_manifest.get("records", []):
+            cid = str(record["scene_capture_id"])
+            if cid in index_data:
+                raise ValueError("duplicate capture in supplied scene index")
+            index_data[cid] = record
+    if scene_index is not None and not train_only:
+        raise ValueError("v4 scene provenance can only be supplied to a train-only supplement")
     roots = list(dict.fromkeys([Path(data_dir).expanduser(), *(Path(item).expanduser() for item in (additional_data_dirs or []))]))
     started_at = time.monotonic()
     _export_progress(f"loading captures and review coverage from {len(roots)} dataset root(s)")
     store = _CaptureStoreSet(roots)
     captures = store.list_captures()
+    if train_only and any(capture["source_kind"] != "synthetic" for capture in captures):
+        raise ValueError("train-only supplement must use an isolated synthetic-only dataset root")
     verified_recorded_noise_policy = (
         "saved 10-second samples with fresh complete human review and no active annotations"
     )
@@ -493,10 +514,13 @@ def export_cv_dataset(
             group_strata.setdefault(group, set()).add("positive" if boxes else "negative")
             group_sizes[group] = group_sizes.get(group, 0) + 1
     # Unreviewed and partial captures cannot receive validation/test quota.
-    split_by_group = _splits(set(group_strata), seed, group_strata, group_sizes)
-    split_by_group = _ensure_reviewed_groups_in_each_split(
-        split_by_group, set(group_strata), seed,
-    )
+    if train_only:
+        split_by_group = {group: "train" for group in group_strata}
+    else:
+        split_by_group = _splits(set(group_strata), seed, group_strata, group_sizes)
+        split_by_group = _ensure_reviewed_groups_in_each_split(
+            split_by_group, set(group_strata), seed,
+        )
     _export_progress(
         "review scan complete: "
         f"{len(group_strata)} groups with usable coverage across "
@@ -588,6 +612,27 @@ def export_cv_dataset(
             group = groups[capture["id"]]
             split = split_by_group[group]
             conditions = _window_conditions(regions, capture, start, count)
+            if capture["id"] in index_data:
+                record = index_data[capture["id"]]
+                if record.get("scene_sha256") != capture["sha256"]:
+                    raise ValueError("scene index SHA differs from exported capture")
+                if record.get("snr_profile") != "balanced":
+                    raise ValueError("train-only scene index is not balanced SNR v4")
+                expected_ids = {item["capture_id"] for item in record["signal_snr_measurements"]}
+                actual_ids = set(capture["source_metadata"].get("signal_component_capture_ids", []))
+                if expected_ids != actual_ids:
+                    raise ValueError("scene index signal components differ from capture provenance")
+                conditions["synthetic_snr_profile"] = record["snr_profile"]
+                conditions["synthetic_frequency_layout"] = record["frequency_layout_requested"]
+                conditions["synthetic_components"] = [
+                    {
+                        "source_capture_id": item["capture_id"],
+                        "target_snr_db": item["target_snr_db"],
+                        "measured_snr_db": item["measured_snr_db"],
+                        "snr_profile_bin": item["snr_profile_bin"],
+                    }
+                    for item in record["signal_snr_measurements"]
+                ]
             stem = f"{capture['id']}-{start:012d}"
             image_path = destination / "images" / split / f"{stem}.png"
             label_path = destination / "labels" / split / f"{stem}.txt"
@@ -635,6 +680,8 @@ def export_cv_dataset(
             stream.write(json.dumps(row, sort_keys=True) + "\n")
     report = {
         "schema_version": 2,
+        "train_only": bool(train_only),
+        "scene_index_sha256": index_sha256,
         "preprocessing_version": PREPROCESSING_VERSION,
         "image_width": IMAGE_WIDTH,
         "image_height": IMAGE_HEIGHT,
@@ -707,9 +754,15 @@ def main() -> None:
                         help="include another dataset root; may be repeated")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument("--train-only", action="store_true",
+                        help="write all independent source groups to train; this is a supplement, NOT an evaluation dataset")
+    parser.add_argument("--scene-index", type=Path,
+                        help="v4 scene-index path to attach per-source SNR provenance (requires --train-only)")
     args = parser.parse_args()
     print(json.dumps(export_cv_dataset(args.data_dir, args.output, seed=args.seed,
-                                       additional_data_dirs=args.also_data_dir), indent=2, sort_keys=True))
+                                       additional_data_dirs=args.also_data_dir,
+                                       train_only=args.train_only, scene_index=args.scene_index),
+                     indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":

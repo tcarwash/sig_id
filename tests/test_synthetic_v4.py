@@ -147,9 +147,16 @@ def test_v4_scene_generation_provenance_and_frequency_layout(tmp_path: Path):
         imported = import_synthetic_wav(path, path.with_suffix(".wav.json"),
                                         store=store, capture_dir=root / "captures")
         assert imported["region"]["frequency_low_hz"] is not None
+    # An independent frozen-holdout SHA exclusion is part of the reproducible recipe.
+    excluded_file = tmp_path / "excluded-holdout.json"
+    excluded_file.write_text(json.dumps({
+        "excluded_capture_sha256": ["a" * 64],
+        "frozen_holdout_capture_sha256": ["a" * 64],
+    }))
     report = build_cv_synthetic_scenes(
         root, output, seed=501, overlap_rate=1.0, simultaneous_rate=1.0,
         noise_only_examples=1, snr_profile="balanced", frequency_layout="separated",
+        exclude_noise_sha_file=excluded_file,
     )
     assert report["scene_count"] == 2
     assert report["additional_noise_only_windows"] == 1
@@ -176,6 +183,7 @@ def test_v4_scene_generation_provenance_and_frequency_layout(tmp_path: Path):
     repeated = build_cv_synthetic_scenes(
         root, output, seed=501, overlap_rate=1.0, simultaneous_rate=1.0,
         noise_only_examples=1, snr_profile="balanced", frequency_layout="separated",
+        exclude_noise_sha_file=excluded_file,
     )
     assert repeated["scenes_created_this_run"] == 0
     quality = audit_scene_corpus(root, output / "cv-scenes.json")
@@ -183,6 +191,34 @@ def test_v4_scene_generation_provenance_and_frequency_layout(tmp_path: Path):
     assert quality["signal_components"] == 3
     assert quality["two_signal_scenes"] == 1
     assert quality["temporally_overlapping_pairs"] == 1
+    # The v4 supplement MUST NOT create held-out validation/test images.
+    from sigid.cv_dataset import export_cv_dataset
+    exported = tmp_path / "train-only-export"
+    report = export_cv_dataset(root, exported, train_only=True, scene_index=output / "cv-scenes.json")
+    assert report["train_only"] is True
+    assert report["split_images"]["test"] == report["split_images"]["validation"] == 0
+    rows = [json.loads(line) for line in (exported / "windows.jsonl").read_text().splitlines()]
+    assert rows and all(row["split"] == "train" for row in rows)
+    scene_rows = [row for row in rows if row["capture_id"] in {
+        record["scene_capture_id"] for record in index["records"]
+    }]
+    assert len(scene_rows) == len(index["records"])
+    assert all(row["conditions"]["synthetic_components"] for row in scene_rows)
+    assert all(row["conditions"]["synthetic_snr_profile"] == "balanced" for row in scene_rows)
+    from tools.verify_synthetic_train_release import audit_train_only_release
+    handoff = audit_train_only_release(root, output / "cv-scenes.json", exported, excluded_file)
+    assert handoff["valid_train_only_release"] is True
+    assert handoff["train_images"] == len(rows)
+    assert handoff["scene_count"] == len(index["records"])
+    assert handoff["validation_images"] == handoff["test_images"] == 0
+    first_image = exported / rows[0]["image"]
+    original_png = first_image.read_bytes()
+    first_image.write_bytes(original_png + b"\x00")
+    with pytest.raises(ValueError, match="train image hash changed"):
+        audit_train_only_release(root, output / "cv-scenes.json", exported, excluded_file)
+    first_image.write_bytes(original_png)
+    with pytest.raises(ValueError, match="train-only"):
+        export_cv_dataset(root, tmp_path / "invalid-export", scene_index=output / "cv-scenes.json")
 
 
 def test_migrate_old_fldigi_source_create_only_and_idempotent(tmp_path: Path):
@@ -272,3 +308,71 @@ def test_exported_scene_geometry_separates_box_count_from_true_collision():
     assert collided["temporal_overlap"] is True
     assert collided["frequency_overlap"] is True
     assert collided["time_frequency_collision"] is True
+
+
+def test_holdout_noise_excludes_every_capture_from_same_session(tmp_path: Path):
+    from tools.prepare_synthetic_holdout_exclusions import prepare_exclusions
+    root = tmp_path / "recorded"
+    store = CaptureStore(root / "dataset.sqlite3")
+    saved = []
+    for i, session in enumerate(("eval-session", "eval-session", "unrelated")):
+        wav = tmp_path / f"real-{i}.wav"
+        generate_bpsk_wav(wav, "01100110" * (35 + i), symbol_rate=100)
+        id_ = store.add_wav_capture(wav, source_kind="live", source_metadata={
+            "auto_capture_session_id": session,
+        })
+        saved.append(store.capture(id_))
+    heldout = tmp_path / "heldout.jsonl"
+    heldout.write_text(json.dumps({"split": "test", "capture_sha256": saved[0]["sha256"]}) + "\n")
+    result = prepare_exclusions(root, [heldout])
+    assert result["frozen_holdout_count"] == 1
+    assert result["frozen_capture_session_count"] == 1
+    assert set(result["excluded_capture_sha256"]) == {
+        saved[0]["sha256"], saved[1]["sha256"],
+    }
+    missing = tmp_path / "missing.jsonl"
+    missing.write_text(json.dumps({"split": "test", "capture_sha256": "0" * 64}) + "\n")
+    with pytest.raises(ValueError, match="unavailable"):
+        prepare_exclusions(root, [missing])
+
+
+def test_diverse_fldigi_payloads_are_deterministic_and_distinct():
+    from sigid.fldigi_synthetic import diverse_fldigi_payload
+    import re
+    for mode in ("fldigi-cw", "rtty", "bpsk31"):
+        messages = [diverse_fldigi_payload(seed=24, mode_id=mode, example_index=i) for i in range(16)]
+        assert messages == [diverse_fldigi_payload(seed=24, mode_id=mode, example_index=i) for i in range(16)]
+        assert len(set(messages)) == 16
+        assert all(re.fullmatch(r"[A-Z0-9 ]+", value) for value in messages)
+        assert all(16 <= len(value) <= 100 for value in messages)
+
+
+def test_scene_excerpt_avoids_declared_silent_tx_lead_in():
+    from sigid.cv_scene_corpus import _signal_recipe
+
+    rate = 12000
+    source = {
+        "id": "source-1", "sample_count": 20 * rate,
+        "source_metadata": {"parameters": {
+            "band_measurement": {"active_start_seconds": 2.0, "active_end_seconds": 18.0},
+        }},
+    }
+    region = {"frequency_low_hz": 1400.0, "frequency_high_hz": 1600.0}
+    for seed in range(35):
+        result = _signal_recipe(source, region, rng=np.random.default_rng(seed),
+                                sample_rate=rate, scene_sample_count=10 * rate)
+        assert result["source_start_sample"] >= 2 * rate
+        assert result["source_start_sample"] + result["sample_count"] <= 18 * rate
+        assert result["scene_start_sample"] + result["sample_count"] <= 10 * rate
+
+
+def test_train_only_export_rejects_real_source_audio(tmp_path: Path):
+    from sigid.cv_dataset import export_cv_dataset
+
+    root = tmp_path / "live-input"
+    store = CaptureStore(root / "dataset.sqlite3")
+    sample = tmp_path / "example.wav"
+    generate_bpsk_wav(sample, "01100110" * 40, sample_rate=12000)
+    store.add_wav_capture(sample, source_kind="live", source_metadata={})
+    with pytest.raises(ValueError, match="isolated synthetic-only dataset root"):
+        export_cv_dataset(root, tmp_path / "should-never-export", train_only=True)
