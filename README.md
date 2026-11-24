@@ -30,6 +30,12 @@ before `docker compose up --build -d` to opt into first-run model installation.
 Without models, recording, manual analysis and annotations still work.
 There is currently **no approved public model release**; see
 [model distribution and release gates](docs/MODEL_DISTRIBUTION.md).
+For optional experimental tester weights requiring manual opt-in, see
+[experimental model prerelease instructions](docs/EXPERIMENTAL_MODEL_RELEASE.md).
+
+Signal ID is distributed under the [GNU AGPL version 3](LICENSE).
+The optional Ultralytics YOLO model dependency and derived weights also carry
+AGPL-3.0 obligations; see the experimental model release notes.
 
 ## Use the workbench
 

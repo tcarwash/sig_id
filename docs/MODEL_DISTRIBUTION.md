@@ -4,9 +4,9 @@ Signal ID separates source code, training data, local checkpoints, and **approve
 
 ## Current status
 
-**November 24, 2026: distribution implementation exists, but there is no approved public model release.** The active October 26 classifier has an all-abstain/reject-all validation status and its detector only recovered 25% of the held-out live boxes in the last evaluated set. **Do not publish those weights as the default pretrained experience.**
+**November 24, 2026: distribution implementation exists, but there is no approved public model release.** An explicitly opt-in [experimental tester prerelease](EXPERIMENTAL_MODEL_RELEASE.md) is separately available; it is not suitable for automatic/default installation. The active October 26 classifier has an all-abstain/reject-all validation status and its detector only recovered 25% of the held-out live boxes in the last evaluated set. **Do not publish those weights as the default pretrained experience.**
 
-The source repository also needs an explicit project license and a review of the Ultralytics YOLO/AGPL-3.0 requirements (or proof of an appropriate separate license). The publishing script refuses to upload until the source LICENSE file and reviewed Git tag exist.
+The source repository includes an AGPL-3.0 project license to address Ultralytics YOLO's copyleft requirements; the publishing script also requires a reviewed source tag and passing evaluated checkpoints. Current experimental checkpoints do **not** satisfy the approved model accuracy gates.
 
 ## User installation (after an approved GitHub model release exists)
 
@@ -60,7 +60,7 @@ python -m sigid.model_distribution --install /tmp/sigid-release/sig-id-models.zi
   --data-dir /tmp/sig-id-test-install --allow-development
 ```
 
-**Never distribute development bundles as default models.** The bundle contains only required model files and sanitized JSON metadata; private recording paths, training capture UUIDs and dataset split manifests are intentionally excluded from JSON. **PyTorch checkpoints may still embed absolute training paths internally.** An approved public build is rejected if common private-path markers are detected in checkpoint metadata; the actual trained checkpoint must be separately sanitized and its hash updated before release. This scan is conservative, not proof that all private data has been removed.
+**Never distribute development bundles as default models.** Experimental prereleases may be distributed only with verified sanitization, source/licensing disclosure, clear limitations, and an explicit manual install flag. They must remain excluded from the approved GitHub auto-installer. The bundle contains only required model files and sanitized JSON metadata; private recording paths, training capture UUIDs and dataset split manifests are intentionally excluded from JSON. **PyTorch checkpoints may still embed absolute training paths internally.** An approved public build is rejected if common private-path markers are detected in checkpoint metadata; the actual trained checkpoint must be separately sanitized and its hash updated before release. This scan is conservative, not proof that all private data has been removed.
 
 ### Public approval gate
 
@@ -103,4 +103,4 @@ The currently installed October 26 detector checkpoint contains absolute trainin
 
 Only the hierarchical classifier metadata schema 1 and compatible `sig-id-live-waterfall-v2` detector are supported currently. New feature schemas and CV preprocessing versions require a new release and a matching client. Installing a new model switches an atomic pointer; previous release directories are retained, and the pointer can be rolled back to earlier verified models. The installer does not retrain models, upload user recordings, or edit the source repository.
 
-Ultralytics' public licensing documentation describes YOLO framework/model AGPL-3.0 obligations; code and model distribution should be reviewed by the project owner before pushing any trained detector weights publicly. The repository currently lacks a LICENSE file, which the publishing script deliberately treats as a hard blocker.
+Ultralytics' public licensing documentation describes YOLO framework/model AGPL-3.0 obligations; code and model distribution should be reviewed by the project owner before pushing any trained detector weights publicly. The source now provides an AGPL-3.0 LICENSE for Ultralytics-compatible source distribution; model release verification and checkpoint privacy checks remain independent mandatory safeguards.
