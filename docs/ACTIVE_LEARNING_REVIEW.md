@@ -36,6 +36,36 @@ The CLI writes the worklist atomically into the data directory and records
 SHA-256 provenance for the frozen exclusion manifest. Re-run after
 reviewing a batch to generate new priorities. You can operate offline.
 
+### Optional second-pass model disagreement scoring
+
+The metadata-only review queue is useful for session diversity but cannot
+distinguish strong CV misses from ordinary unannotated recordings. For a
+stronger **read-only** review ranking, screen the eligible (non-frozen) pool
+against the installed baseline CV detector and independent spectral-track
+heuristic. Score CV-only, track-only, spatially conflicting, agreeing, and
+neither-detected proposals. The last category is a **possible negative
+control**, never a verified noise-only label. Counts are hints; do not use
+them as supervision.
+
+
+```sh
+python -m tools.score_active_learning_queue \
+  --data-dir ~/.local/share/sig-id \
+  --frozen-exclusions /path/to/frozen-noise-exclusions.json \
+  --model /path/to/verified-cv-signal.pt \
+  --scan-limit 200 --limit 100 \
+  --evidence-output /path/to/local/active-review-proposal-evidence.json
+
+```
+
+The scanner must receive the frozen exclusion manifest and excludes
+entire held-out source sessions **before** reading audio or running either
+detector. It keeps the live DB, accepted regions, complete coverage, and
+training datasets unchanged. Proposal evidence is recorded by source-waveform
+SHA, and the worklist remains `training_eligible: false`.
+Both detectors can fail on weak RF or noisy inputs; even agreement is not
+a verified signal. Unscored clips remain eligible for ordinary review.
+
 ### Adding another recording source
 
 Use `tools/import_review_sources.py` to bring receiver audio from a
