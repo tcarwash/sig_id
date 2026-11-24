@@ -1,0 +1,39 @@
+name: Training dataset composition checks
+
+on:
+  pull_request:
+    paths:
+      - "tools/compose_cv_training_dataset.py"
+      - "sigid/cv_training.py"
+      - "sigid/hierarchical_training.py"
+      - "tests/test_cv_composite_v4.py"
+      - "tests/test_classifier_v4_exclusions.py"
+      - "tools/evaluate_classifier_real_holdout.py"
+      - "docs/TRAIN_V4_MODEL_SET.md"
+      - ".github/workflows/training-v4.yml"
+  push:
+    branches: [main]
+    paths:
+      - "tools/compose_cv_training_dataset.py"
+      - "sigid/cv_training.py"
+      - "sigid/hierarchical_training.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-composite-training-boundaries:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install source and test dependencies
+        run: python -m pip install --upgrade pip && python -m pip install ".[dev]"
+      - name: Verify lineage, immutable heldouts and checksum failures
+        run: python -m pytest -q tests/test_cv_composite_v4.py tests/test_classifier_v4_exclusions.py
+      - name: Compile training modules
+        run: python -m compileall -q tools/compose_cv_training_dataset.py sigid/cv_training.py sigid/hierarchical_training.py
