@@ -957,12 +957,28 @@ def create_app(
     native_live_runner = NativeLiveRunner()
     classifier_evidence_cache = LiveClassifierEvidenceCache()
     model_training_lock = Lock()
-    # The active pair belongs to the project model catalog, not the user's
-    # capture store. Keep direct `sig-id-serve` starts aligned with the
-    # canonical pointer written by the training pipeline and run_sig_id.sh.
+    # Local installs use a model catalog in the persistent data directory.
+    # Existing development machines may still carry a source-tree pointer;
+    # explicit SIGID_ACTIVE_MODELS_JSON always wins.
+    installed_pointer = root / "models" / "active-models.json"
+    project_pointer = Path(__file__).resolve().parents[1] / "data" / "models" / "active-models.json"
+    if (os.environ.get("SIG_ID_AUTO_INSTALL_MODELS") == "1"
+            and not installed_pointer.exists()
+            and not project_pointer.exists()
+            and not os.environ.get("SIGID_ACTIVE_MODELS_JSON")
+            and not classifier_model_path
+            and not os.environ.get("SIG_ID_MODEL_PATH")
+            and not os.environ.get("SIG_ID_CV_MODEL_PATH")):
+        try:
+            from .model_distribution import install_latest_from_github
+            install_latest_from_github(root)
+        except Exception as exc:
+            # Download is optional; manual capture/review must still work
+            # offline, without a published model release, or on errors.
+            logging.getLogger(__name__).warning("Pretrained model install unavailable: %s", exc)
     active_models_file = Path(os.environ.get(
         "SIGID_ACTIVE_MODELS_JSON",
-        Path(__file__).resolve().parents[1] / "data" / "models" / "active-models.json",
+        installed_pointer if installed_pointer.is_file() else project_pointer,
     )).expanduser()
     active_models: dict[str, Any] = {}
     try:

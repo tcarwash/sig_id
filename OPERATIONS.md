@@ -29,6 +29,13 @@ radio-device capture, use the native setup in README and the audio extra. Contai
 validation uses a separately mounted paced synthetic device; it does not establish
 host ALSA/PipeWire routing. Fldigi's existing host radio input remains externally routed.
 
+A pretrained model bundle can be installed after an approved public GitHub
+model release exists: run `sig-id-models --install-latest`. For automatic
+first-run installation with Docker use
+`SIG_ID_AUTO_INSTALL_MODELS=1 SIG_ID_INSTALL_CV=1 docker compose up --build -d`.
+See `docs/MODEL_DISTRIBUTION.md` for integrity checks, offline and manual
+installation, release approval gates, and rollback.
+
 An optional model must be readable inside the volume. For example, generate/train
 artifacts with the documented CLI commands through `docker compose exec workbench`,
 using `/data` for their output paths, then set `SIG_ID_MODEL_PATH=/data/models/method.npz`
