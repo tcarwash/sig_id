@@ -10,7 +10,7 @@ from collections import Counter, defaultdict, deque
 import hashlib
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 
 def protected_source_sha(path: str | Path) -> set[str]:
@@ -34,7 +34,8 @@ def _session(capture: dict[str, Any]) -> str:
     return str(meta.get("auto_capture_session_id") or capture.get("parent_capture_id") or capture["sha256"])
 
 
-def _priority(capture: dict[str, Any], regions: list[dict[str, Any]]) -> tuple[int, list[str]]:
+def _priority(capture: dict[str, Any], regions: list[dict[str, Any]],
+              proposal_evidence: Mapping[str, Any] | None = None) -> tuple[int, list[str]]:
     meta = capture["source_metadata"]
     score = 0
     reasons = []
@@ -68,6 +69,28 @@ def _priority(capture: dict[str, Any], regions: list[dict[str, Any]]) -> tuple[i
     if trigger == "continuous_recording":
         score += 1
         reasons.append("continuous-receiver")
+    # Independent detector and spectral-track proposals are only hints for
+    # prioritizing operator review. Neither a hit nor a non-hit is a label.
+    if proposal_evidence is not None:
+        cv = proposal_evidence.get("cv_count")
+        tracks = proposal_evidence.get("track_count")
+        matched = proposal_evidence.get("matched_track_count")
+        if all(type(value) is int and value >= 0 for value in (cv, tracks, matched)):
+            if tracks and not cv:
+                score += 8
+                reasons.append("spectral-track-only-proposal")
+            elif cv and not tracks:
+                score += 6
+                reasons.append("cv-only-proposal")
+            elif tracks and cv and not matched:
+                score += 7
+                reasons.append("proposals-disagree-on-location")
+            elif tracks and cv:
+                score += 3
+                reasons.append("cross-detector-proposals")
+            else:
+                score += 2
+                reasons.append("possible-negative-control-unverified")
     # Stable jitter avoids choosing identical temporal offsets from one session,
     # without depending on global random state or mutable server time.
     score += int(hashlib.sha256(capture["sha256"].encode()).hexdigest()[:2], 16) % 3
@@ -78,6 +101,7 @@ def rank_review_batch(
     captures: list[dict[str, Any]], store: Any, *,
     excluded_sha: set[str], limit: int = 100,
     include_reviewed: bool = False,
+    proposal_evidence_by_sha: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Deterministically balance candidates by independent source session.
 
@@ -134,7 +158,8 @@ def rank_review_batch(
             if meta.get("auto_review_queue_reviewed_utc"):
                 skipped["marked-reviewed-without-coverage"] += 1
                 continue
-        score, reasons = _priority(capture, regions)
+        evidence = (proposal_evidence_by_sha or {}).get(capture["sha256"])
+        score, reasons = _priority(capture, regions, evidence)
         sessions[session].append({
             "capture_id": capture["id"],
             "capture_sha256": capture["sha256"],
@@ -145,6 +170,7 @@ def rank_review_batch(
             "priority_reasons": reasons,
             "annotation_status": "unannotated" if not regions else "requires-review",
             "label_trust": "unverified",
+            **({"proposal_evidence": dict(evidence)} if evidence is not None else {}),
         })
     for items in sessions.values():
         items.sort(key=lambda item: (-item["priority_score"], item["capture_sha256"]))
