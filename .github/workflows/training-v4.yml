@@ -40,7 +40,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install source and test dependencies
-        run: python -m pip install --upgrade pip && python -m pip install ".[dev]"
+        run: python -m pip install --upgrade pip && python -m pip install ".[dev]" "Pillow>=10,<12"
       - name: Verify lineage, immutable heldouts and checksum failures
         run: python -m pytest -q tests/test_cv_composite_v4.py tests/test_classifier_v4_exclusions.py tests/test_active_learning.py tests/test_review_source_import.py tests/test_active_learning_api.py tests/test_real_reviewed_export.py
       - name: Compile training modules
