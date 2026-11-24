@@ -114,3 +114,32 @@ def test_real_repeat_only_resamples_existing_train_and_not_heldouts(tmp_path):
     assert all(row["split"] == "train" for row in images if row.get("sampling_repeat_index"))
     assert len([row for row in images if row["split"] in ("test", "validation")]) == 2
     assert all(row["image_sha256"] == rows[0]["image_sha256"] for row in images if row.get("sampling_repeat_index"))
+
+
+def test_composer_requires_human_coverage_and_matching_base_for_real_supplement(tmp_path):
+    from tools.compose_cv_training_dataset import compose, sha256
+    base, supplement = tmp_path / "base", tmp_path / "new-real"
+    _source(base, "base", extra=False)
+    _source(supplement, "new", extra=True)
+    report = json.loads((supplement / "export-report.json").read_text())
+    report["scene_index_sha256"] = None
+    report["reviewed_real_train_only"] = True
+    report["real_review_provenance"] = {
+        "base_cv_manifest_sha256": "a" * 64,
+        "frozen_exclusions_sha256": "b" * 64,
+    }
+    (supplement / "export-report.json").write_text(json.dumps(report))
+    with pytest.raises(ValueError, match="different base CV manifest"):
+        compose(base, supplement, tmp_path / "bad")
+    report["real_review_provenance"]["base_cv_manifest_sha256"] = sha256(base / "windows.jsonl")
+    (supplement / "export-report.json").write_text(json.dumps(report))
+    with pytest.raises(ValueError, match="unverified or synthetic"):
+        compose(base, supplement, tmp_path / "bad2")
+    rows = [json.loads(line) for line in (supplement / "windows.jsonl").read_text().splitlines()]
+    for row in rows:
+        row["source_kind"] = "live"
+        row["review_ids"] = ["human-full-detection-coverage"]
+    (supplement / "windows.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+    result = compose(base, supplement, tmp_path / "good")
+    assert result["composite_dataset"]["supplement_kind"] == "fresh_human_reviewed_real"
+    assert result["split_images"] == {"train": 3, "validation": 1, "test": 1}
