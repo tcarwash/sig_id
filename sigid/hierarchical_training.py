@@ -45,6 +45,7 @@ def _write_json(path: Path, payload: dict[str, Any]) -> str:
 
 def _reviewed_real_rows(
     data_dirs: list[str | Path], *, known_hashes: set[str],
+    excluded_capture_hashes: set[str] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Collect accepted signal crops only from fresh, complete 10-second reviews."""
     from .splits import FAMILY_BY_MODE, METHOD_BY_MODE, register_mode_definitions
@@ -63,7 +64,8 @@ def _reviewed_real_rows(
                 skipped["excluded"] += 1
                 continue
             digest = capture["sha256"]
-            if digest in known_hashes:
+            if digest in known_hashes or digest in (excluded_capture_hashes or set()):
+                skipped["excluded"] += int(digest in (excluded_capture_hashes or set()))
                 continue
             sample_rate = int(capture["sample_rate"])
             window_length = window_length_cache.setdefault(sample_rate, sample_rate * WINDOW_SECONDS)
@@ -216,6 +218,7 @@ def train_hierarchical(
     reviewed_data_dirs: list[str | Path] | None = None,
     fldigi_data_dirs: list[str | Path] | None = None,
     initial_model_path: str | Path | None = None,
+    exclude_reviewed_sha_file: str | Path | None = None,
     epochs: int = 1200,
     feature_version: str = DEFAULT_FEATURE_VERSION,
     classifier_window_seconds: float = CLASSIFIER_WINDOW_SECONDS,
@@ -233,7 +236,22 @@ def train_hierarchical(
     train_rows = [row for row in rows if row["split"] == "train"]
     validation_rows = [row for row in rows if row["split"] == "validation"]
     known_hashes = {row["sha256"] for row in rows}
-    real_rows, real_summary = _reviewed_real_rows(reviewed_data_dirs or [], known_hashes=known_hashes)
+    excluded_real_sha: set[str] = set()
+    if exclude_reviewed_sha_file is not None:
+        heldout = json.loads(Path(exclude_reviewed_sha_file).expanduser().resolve(strict=True).read_text())
+        if not isinstance(heldout, dict) or heldout.get("schema_version") != 1:
+            raise ValueError("invalid frozen evaluated-source exclusion manifest")
+        excluded_real_sha = set(heldout["excluded_capture_sha256"])
+        if not excluded_real_sha or not set(heldout["frozen_holdout_capture_sha256"]) <= excluded_real_sha:
+            raise ValueError("frozen evaluation source SHA-256 exclusions are empty or incomplete")
+    real_rows, real_summary = _reviewed_real_rows(
+        reviewed_data_dirs or [], known_hashes=known_hashes,
+        excluded_capture_hashes=excluded_real_sha,
+    )
+    if excluded_real_sha:
+        real_summary["frozen_holdout_sha_exclusion_count"] = len(excluded_real_sha)
+        if any(row["sha256"] in excluded_real_sha for row in real_rows):
+            raise AssertionError("frozen validation/test source included in classifier training")
     fldigi_rows, fldigi_summary = _fldigi_synthetic_rows(fldigi_data_dirs or [], known_hashes=known_hashes)
     core_mode_ids = {str(row["mode"]) for row in train_rows if row["mode"] != "noise"}
     real_source_counts: dict[str, set[str]] = {}
@@ -474,6 +492,8 @@ def main() -> None:
     parser.add_argument("--fldigi-data-dir", type=Path, action="append", default=[],
                         help="dataset containing imported native Fldigi synthetic samples; may be repeated")
     parser.add_argument("--initial-model-path", type=Path, help="compatible classifier to warm-start family and expert weights")
+    parser.add_argument("--exclude-reviewed-sha-file", type=Path,
+                        help="frozen real evaluation session SHA list, never used for classifier fitting")
     parser.add_argument("--epochs", type=int, default=1200)
     parser.add_argument("--feature-version", choices=tuple(FEATURE_COUNT_BY_VERSION), default=DEFAULT_FEATURE_VERSION)
     parser.add_argument("--classifier-window-seconds", type=float, default=CLASSIFIER_WINDOW_SECONDS)
@@ -483,6 +503,7 @@ def main() -> None:
             args.split, args.data_dir, args.output_manifest, ood_corpus=args.ood_corpus,
             reviewed_data_dirs=args.reviewed_data_dir, fldigi_data_dirs=args.fldigi_data_dir,
             initial_model_path=args.initial_model_path,
+            exclude_reviewed_sha_file=args.exclude_reviewed_sha_file,
             epochs=args.epochs, feature_version=args.feature_version,
             classifier_window_seconds=args.classifier_window_seconds,
         )

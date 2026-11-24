@@ -319,6 +319,7 @@ def train_cv_detector(
     seed: int = 1,
     device: str | None = None,
     workers: int = 4,
+    training_image_size: int | None = None,
     confidence: float | None = None,
     train_fraction: float = 1.0,
     progress_callback: Callable[[int, int], None] | None = None,
@@ -381,13 +382,16 @@ def train_cv_detector(
     ) or not isinstance(train_fraction, (int, float)) or not 0.0 < train_fraction <= 1.0:
         raise ValueError("epochs and batch must be positive, workers nonnegative, confidence in (0, 1), and training fraction in (0, 1]")
 
+    if training_image_size is not None and (training_image_size < 320 or training_image_size > 2048
+                                             or training_image_size % 32 != 0):
+        raise ValueError("training image size must be a multiple of 32 between 320 and 2048")
     destination.parent.mkdir(parents=True, exist_ok=True)
     run_root = destination.parent / f".{destination.stem}-training"
     model = YOLO(base_model)
     train_options: dict[str, Any] = {
         "data": str(data_yaml),
         "epochs": epochs,
-        "imgsz": max(IMAGE_HEIGHT, IMAGE_WIDTH),
+        "imgsz": training_image_size or max(IMAGE_HEIGHT, IMAGE_WIDTH),
         # The tall, narrow spectrogram should use its native rectangular batch
         # shape; square letterboxing wastes most of the input tensor.
         "rect": True,
@@ -479,6 +483,7 @@ def train_cv_detector(
         "image_shape": [IMAGE_HEIGHT, IMAGE_WIDTH, 3],
         "model_image_size": list(MODEL_IMAGE_SIZE),
         "rectangular_training": True,
+        "training_image_size": train_options["imgsz"],
         "epochs": epochs,
         "batch": batch,
         "train_fraction": float(train_fraction),
@@ -525,6 +530,8 @@ def main() -> None:
     parser.add_argument("--base-model", default="yolo26n.pt", help="Ultralytics checkpoint or model YAML")
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--batch", type=int, default=8)
+    parser.add_argument("--training-imgsz", type=int, default=None,
+                        help="optional training resolution for CPU/accelerator (multiple of 32); inference stays canonical")
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--device", default=None, help="Ultralytics device selector, for example cpu or 0")
     parser.add_argument("--workers", type=int, default=4)
@@ -536,6 +543,7 @@ def main() -> None:
                                        base_model=args.base_model, epochs=args.epochs,
                                        batch=args.batch, seed=args.seed,
                                        device=args.device, workers=args.workers,
+                                       training_image_size=args.training_imgsz,
                                        confidence=args.confidence, train_fraction=args.train_fraction), indent=2))
 
 
