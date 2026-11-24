@@ -253,6 +253,10 @@ function setRegionSaveDisabled(disabled) {
 }
 
 function syncLiveAnnotationSaveButton() {
+  if (!state.liveView) {
+    updateAnnotationSaveAvailability();
+    return;
+  }
   const selection = state.selection;
   const windowStart = state.liveWindowStartSample;
   const windowEnd = state.liveWindowEndSample;
