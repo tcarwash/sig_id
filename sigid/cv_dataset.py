@@ -382,11 +382,28 @@ def _window_conditions(
         if "drift_hz_per_second" in evidence
     ]
     truncated = sum(region_start < start or region_end > end for _, _, region_start, region_end in active)
+    # A window can contain two sequential QSOs without containing two
+    # simultaneously active signals. Keep the legacy signal_overlap field
+    # (number of signal boxes) and add independent scene geometry fields.
+    temporal_overlap = frequency_overlap = time_frequency_collision = False
+    for index, (left, _, left_start, left_end) in enumerate(active):
+        for right, _, right_start, right_end in active[index + 1:]:
+            intersects_time = max(left_start, right_start) < min(left_end, right_end)
+            intersects_frequency = max(float(left["frequency_low_hz"]), float(right["frequency_low_hz"])) < min(
+                float(left["frequency_high_hz"]), float(right["frequency_high_hz"])
+            )
+            temporal_overlap |= intersects_time
+            frequency_overlap |= intersects_frequency
+            time_frequency_collision |= intersects_time and intersects_frequency
     return {
         "source_kind": capture["source_kind"],
         "source_generator": generator,
         "signal_types": labels,
         "signal_overlap": "none" if not active else "multiple" if len(active) > 1 else "single",
+        "signal_count": len(active),
+        "temporal_overlap": temporal_overlap,
+        "frequency_overlap": frequency_overlap,
+        "time_frequency_collision": time_frequency_collision,
         "noise_condition": noise_condition,
         "snr_db": float(snr_db) if isinstance(snr_db, (int, float)) and not isinstance(snr_db, bool) and np.isfinite(snr_db) else None,
         "drift_condition": (

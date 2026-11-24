@@ -25,6 +25,7 @@ from .fldigi import FldigiClient
 from .fldigi_replay import DISABLE_TAGS
 from .modes import MODE_REGISTRY
 from .synthetic_dataset import import_synthetic_wav
+from .synthetic_quality import measure_occupied_band
 from .dataset import CaptureStore
 
 
@@ -341,6 +342,12 @@ def build_fldigi_corpus(
                         carrier_hz=carrier_hz, timeout_seconds=timeout_seconds,
                     ))
                     waveform_digest = hashlib.sha256(wav_path.read_bytes()).hexdigest()
+                    # The old fixed +/-750 Hz fallback taught a narrowband
+                    # detector to predict ~1500 Hz boxes for CW, RTTY and PSK31.
+                    # Measure this *actual generated waveform*; keep v1 source
+                    # manifests intact, and version new source annotations.
+                    occupied = measure_occupied_band(wav_path)
+                    low, high = occupied["frequency_low_hz"], occupied["frequency_high_hz"]
                     labels = {
                         "modulation_family": mode["family"],
                         "modulation_method": mode["method"],
@@ -351,6 +358,7 @@ def build_fldigi_corpus(
                         "fldigi_version": result.version, "transmit_payload": payload,
                         "carrier_hz": carrier_hz, "estimated_bandwidth_hz": band,
                         "frequency_low_hz": low, "frequency_high_hz": high,
+                        "band_measurement": occupied,
                         "waveform_sha256": waveform_digest, "seed": seed,
                         "example_index": example_index,
                         "capture_sample_rate": 48_000, "capture_channels": 2,
@@ -358,7 +366,7 @@ def build_fldigi_corpus(
                     }
                     manifest = {
                         "schema_version": 1, "source_kind": "synthetic",
-                        "generator": "sig-id-fldigi", "generator_version": "0.1.0",
+                        "generator": "sig-id-fldigi", "generator_version": "0.2.0",
                         "deterministic": True, "mode_id": mode_id,
                         "reference_text": payload, "sample_rate": result.sample_rate,
                         "sample_count": result.sample_count, "channels": 1,
