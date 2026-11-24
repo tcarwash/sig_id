@@ -27,12 +27,22 @@ SIGNAL_GENERATORS = {
     "sig-id-2fsk", "sig-id-mfsk", "sig-id-bpsk", "sig-id-qpsk",
     "sig-id-ook", "sig-id-ask", "sig-id-ppm", "sig-id-fldigi",
 }
-SCHEMA_VERSION = 4
-SCENE_RECIPE_VERSION = 3
+SCHEMA_VERSION = 5
+SCENE_RECIPE_VERSION = 4
 MAX_NOISE_ONLY_EXAMPLES = 5000
 RECORDED_NOISE_SEGMENT_SECONDS = 2
 MIN_SIGNAL_SNR_DB = -40.0
-MAX_SIGNAL_SNR_DB = -15.0
+MAX_SIGNAL_SNR_DB = 25.0
+# These represent in-band power ratios, not total 48-kHz passband SNR.
+SNR_CURRICULUM = (
+    ("clear", 10.0, 25.0, 0.15),
+    ("moderate", 0.0, 10.0, 0.20),
+    ("borderline", -10.0, 0.0, 0.25),
+    ("weak", -20.0, -10.0, 0.25),
+    ("extreme", -40.0, -20.0, 0.15),
+)
+SNR_PROFILES = ("balanced", "legacy_weak")
+FREQUENCY_LAYOUTS = ("mixed", "separated", "adjacent", "cochannel")
 
 
 def _progress(message: str) -> None:
@@ -134,7 +144,7 @@ def _set_signal_gains_for_snr(
             raise ValueError("cannot target scene SNR for a silent signal or noise interval")
         target_snr_db = float(recipe.get("target_snr_db", -10.0))
         if not MIN_SIGNAL_SNR_DB <= target_snr_db <= MAX_SIGNAL_SNR_DB:
-            raise ValueError("scene signal SNR must be between -40 and -15 dB")
+            raise ValueError("scene signal SNR must be between -40 and +25 dB")
         target_ratio = 10.0 ** (target_snr_db / 20.0)
         intervals.append((recipe, signal_rms, background_rms, noise_low, noise_high, target_ratio, target_snr_db))
 
@@ -166,6 +176,7 @@ def _set_signal_gains_for_snr(
             "signal_rms": signal_rms * gain,
             "noise_rms": background_rms,
             "target_snr_db": target_snr_db,
+            "snr_profile_bin": recipe.get("snr_profile_bin", "unclassified"),
             "measured_snr_db": float(20.0 * np.log10(signal_rms * gain / background_rms)),
             "snr_band_hz": [noise_low, noise_high],
         })
@@ -175,6 +186,78 @@ def _set_signal_gains_for_snr(
 def _derived_seed(seed: int, key: str) -> int:
     digest = hashlib.sha256(f"{seed}:{key}".encode()).digest()
     return int.from_bytes(digest[:4], "little")
+
+
+def _source_snr_target(seed: int, source_digest: str, profile: str) -> tuple[str, float]:
+    """Stable per-source requested in-band SNR, independent of scene ordering."""
+    if profile not in SNR_PROFILES:
+        raise ValueError(f"unsupported SNR profile: {profile}")
+    rng = np.random.default_rng(_derived_seed(seed, f"snr:{profile}:{source_digest}"))
+    if profile == "legacy_weak":
+        return "legacy_weak", float(rng.uniform(-40.0, -15.0))
+    weights = np.asarray([item[3] for item in SNR_CURRICULUM], dtype=np.float64)
+    selected = SNR_CURRICULUM[int(rng.choice(len(weights), p=weights / weights.sum()))]
+    return selected[0], float(rng.uniform(selected[1], selected[2]))
+
+
+def _choose_pair_center(
+    first: dict[str, Any], first_region: dict[str, Any],
+    second_region: dict[str, Any], *, sample_rate: int,
+    layout: str, rng: np.random.Generator,
+) -> tuple[float | None, str]:
+    """Choose a realizable separated, adjacent, or co-channel second signal."""
+    if layout not in FREQUENCY_LAYOUTS:
+        raise ValueError(f"unsupported frequency layout: {layout}")
+    requested = layout
+    if requested == "mixed":
+        requested = str(rng.choice(("separated", "adjacent", "cochannel"), p=(0.5, 0.25, 0.25)))
+    first_low = float(first_region["frequency_low_hz"]) + first["frequency_offset_hz"]
+    first_high = float(first_region["frequency_high_hz"]) + first["frequency_offset_hz"]
+    half = (float(second_region["frequency_high_hz"]) - float(second_region["frequency_low_hz"])) / 2.0
+    minimum = half + 140.0
+    maximum = min(MAX_FREQUENCY_HZ - 100.0, sample_rate / 2.0 - 100.0) - half
+    if maximum < minimum:
+        return None, "unplaceable"
+    first_center = (first_low + first_high) / 2.0
+    if requested == "cochannel":
+        center = first_center + float(rng.uniform(-min(35.0, half * 0.25), min(35.0, half * 0.25)))
+        return (float(np.clip(center, minimum, maximum)), requested)
+    if requested == "adjacent":
+        guard = float(rng.uniform(15.0, 65.0))
+        centers = (first_low - half - guard, first_high + half + guard)
+        feasible = [c for c in centers if minimum <= c <= maximum]
+        return (float(rng.choice(feasible)), requested) if feasible else (None, "unavailable_adjacent")
+    guard = float(rng.uniform(90.0, 160.0))
+    intervals = []
+    left_end = min(maximum, first_low - half - guard)
+    right_start = max(minimum, first_high + half + guard)
+    if left_end > minimum:
+        intervals.append((minimum, left_end))
+    if right_start < maximum:
+        intervals.append((right_start, maximum))
+    if not intervals:
+        return None, "unavailable_separated"
+    weights = np.asarray([b - a for a, b in intervals], dtype=np.float64)
+    lower, upper = intervals[int(rng.choice(len(intervals), p=weights / weights.sum()))]
+    return float(rng.uniform(lower, upper)), requested
+
+
+def _apply_receiver_variation(
+    recipe: dict[str, Any], source_region: dict[str, Any], *,
+    sample_rate: int, scene_sample_count: int, rng: np.random.Generator,
+) -> None:
+    """Use existing mixer impairments without moving signals outside the scene."""
+    ppm = float(rng.choice((0, 0, 0, -250, -100, 100, 250)))
+    recipe["clock_error_ppm"] = ppm
+    rendered = max(1, int(round(recipe["sample_count"] / (1.0 + ppm * 1e-6))))
+    if recipe["scene_start_sample"] + rendered > scene_sample_count:
+        recipe["scene_start_sample"] = scene_sample_count - rendered
+    if recipe["scene_start_sample"] < 0:
+        raise ValueError("clock variation would exceed the 10-second scene")
+    shifted_high = float(source_region["frequency_high_hz"]) + recipe["frequency_offset_hz"]
+    if shifted_high < min(2600.0, sample_rate / 2 - 200.0) and rng.random() < 0.30:
+        recipe["lowpass_hz"] = round(max(100.0, shifted_high + float(rng.uniform(80.0, 200.0))), 3)
+    # Do not filter out any annotated signal band just to create an impairment.
 
 
 def _scene_groups(captures: list[dict[str, Any]], seed: int, overlap_rate: float) -> list[list[dict[str, Any]]]:
@@ -210,15 +293,37 @@ def _signal_recipe(
         count = requested_sample_count
     if count > capture["sample_count"]:
         count = capture["sample_count"]
-    source_start = int(rng.integers(0, capture["sample_count"] - count + 1))
+    # Fldigi virtual-audio TX captures commonly begin with ~0.5 s of
+    # silence. Where v0.2.0 source manifests provide a measured active
+    # interval, sample the excerpt inside that interval instead of labeling
+    # all-zero lead-in as a signal. This is an activity hint, not a verified
+    # TX payload boundary or a substitute for exact symbol annotations.
+    source_max = int(capture["sample_count"]) - count
+    min_source_start = 0
+    params = capture["source_metadata"].get("parameters") or {}
+    activity = params.get("band_measurement") or {}
+    if (isinstance(activity.get("active_start_seconds"), (int, float))
+            and isinstance(activity.get("active_end_seconds"), (int, float))):
+        estimated_first = max(0, int(round(float(activity["active_start_seconds"]) * sample_rate)))
+        estimated_last = min(int(capture["sample_count"]), int(round(float(activity["active_end_seconds"]) * sample_rate)))
+        if estimated_last - estimated_first >= count:
+            min_source_start = min(source_max, estimated_first)
+            source_max = max(min_source_start, min(source_max, estimated_last - count))
+    source_start = int(rng.integers(min_source_start, source_max + 1))
     maximum_start = scene_sample_count - count
     if scene_start_sample is None:
         scene_start_sample = int(rng.integers(0, maximum_start + 1))
 
     low, high = region["frequency_low_hz"], region["frequency_high_hz"]
-    offsets = [offset for offset in (-200.0, -100.0, 0.0, 100.0, 200.0)
-               if low + offset >= 0 and high + offset <= sample_rate / 2]
-    offset = float(rng.choice(offsets or [0.0]))
+    # Avoid training a model that remembers the five original carrier shifts.
+    half_width = (float(high) - float(low)) / 2.0
+    original_center = (float(high) + float(low)) / 2.0
+    minimum_center = half_width + 140.0
+    maximum_center = min(MAX_FREQUENCY_HZ - 100.0, sample_rate / 2.0 - 100.0) - half_width
+    if minimum_center > maximum_center:
+        raise ValueError("source occupied band exceeds usable audio passband")
+    center = float(rng.uniform(minimum_center, maximum_center))
+    offset = center - original_center
     return {
         "capture_id": capture["id"],
         "source_start_sample": source_start,
@@ -429,6 +534,9 @@ def build_cv_synthetic_scenes(
     simultaneous_rate: float = 0.0,
     noise_only_examples: int = 0,
     noise_data_dirs: list[str | Path] | None = None,
+    snr_profile: str = "balanced",
+    frequency_layout: str = "mixed",
+    exclude_noise_sha_file: str | Path | None = None,
 ) -> dict[str, Any]:
     """Generate reviewed, source-held-out-ready signal bursts over known noise.
 
@@ -439,6 +547,10 @@ def build_cv_synthetic_scenes(
     """
     if not isinstance(seed, int) or isinstance(seed, bool) or not 0 <= seed <= 2**32 - 1:
         raise ValueError("seed must be an unsigned 32-bit integer")
+    if snr_profile not in SNR_PROFILES:
+        raise ValueError(f"snr_profile must be one of {SNR_PROFILES}")
+    if frequency_layout not in FREQUENCY_LAYOUTS:
+        raise ValueError(f"frequency_layout must be one of {FREQUENCY_LAYOUTS}")
     if not isinstance(overlap_rate, (int, float)) or isinstance(overlap_rate, bool) or not 0 <= overlap_rate <= 1:
         raise ValueError("overlap_rate must be between 0 and 1")
     if not isinstance(simultaneous_rate, (int, float)) or isinstance(simultaneous_rate, bool) or not 0 <= simultaneous_rate <= 1:
@@ -466,6 +578,22 @@ def build_cv_synthetic_scenes(
     noise_candidates = _recorded_noise_candidates(store, captures)
     for noise_store in noise_stores:
         noise_candidates.extend(_recorded_noise_candidates(noise_store, noise_store.list_captures()))
+    excluded_noise_hashes: set[str] = set()
+    if exclude_noise_sha_file is not None:
+        path = Path(exclude_noise_sha_file).expanduser().resolve(strict=True)
+        data = json.loads(path.read_text(encoding="utf-8"))
+        records = data.get("excluded_capture_sha256") if isinstance(data, dict) else data
+        if not isinstance(records, list) or any(
+            not isinstance(sha, str) or len(sha) != 64
+            or any(char not in "0123456789abcdef" for char in sha)
+            for sha in records
+        ):
+            raise ValueError("excluded noise SHA manifest must contain a list of SHA-256 digests")
+        excluded_noise_hashes = set(records)
+        noise_candidates = [
+            item for item in noise_candidates
+            if item["capture"]["sha256"] not in excluded_noise_hashes
+        ]
     noise_pool_sha256 = hashlib.sha256("|".join(sorted(
         f"{item['capture']['sha256']}:{item['sample_start']}:{item['sample_count']}"
         for item in noise_candidates
@@ -506,16 +634,25 @@ def build_cv_synthetic_scenes(
         "seed": seed,
         "overlap_rate": float(overlap_rate),
         "simultaneous_rate": float(simultaneous_rate),
+        "snr_profile": snr_profile,
+        "snr_curriculum": [list(item) for item in SNR_CURRICULUM] if snr_profile == "balanced" else None,
+        "frequency_layout": frequency_layout,
         "scene_recipe_version": SCENE_RECIPE_VERSION,
         "two_signal_layout": "mixture-disjoint-and-simultaneous-v1",
+        "source_activity_sampling": "v0.2.0-active-extent-if-available",
         "window_seconds": WINDOW_SECONDS,
         "signal_generators": sorted(SIGNAL_GENERATORS),
         "source_pool_sha256": source_pool_sha256,
         "recorded_noise_pool_sha256": noise_pool_sha256,
         "recorded_noise_candidate_count": len(noise_candidates),
+        "excluded_noise_source_sha256": hashlib.sha256(
+            "|".join(sorted(excluded_noise_hashes)).encode()
+        ).hexdigest() if exclude_noise_sha_file is not None else None,
+        "excluded_noise_source_count": len(excluded_noise_hashes),
+        "holdout_noise_exclusion_applied": exclude_noise_sha_file is not None,
         "recorded_noise_data_dirs": [str(item) for item in noise_roots],
         "noise_background_policy": "recorded_two_second_signal_free_slices_when_available_else_seeded_uniform",
-        "target_signal_snr_db_range": [MIN_SIGNAL_SNR_DB, MAX_SIGNAL_SNR_DB],
+        "target_signal_snr_db_range": ([-40.0, -15.0] if snr_profile == "legacy_weak" else [MIN_SIGNAL_SNR_DB, MAX_SIGNAL_SNR_DB]),
         "snr_convention": "per-signal active-interval in-band mean-square power relative to aligned noise power",
     }
     if noise_only_examples:
@@ -624,10 +761,11 @@ def build_cv_synthetic_scenes(
         sample_rate = int(sources[0]["sample_rate"])
         scene_sample_count = sample_rate * WINDOW_SECONDS
         recipe_key = hashlib.sha256(
-            f"{SCENE_RECIPE_VERSION}:{seed}:{simultaneous_rate:.6f}:{'|'.join(source_hashes)}".encode()
+            f"{SCENE_RECIPE_VERSION}:activity-v1:{seed}:{snr_profile}:{frequency_layout}:{simultaneous_rate:.6f}:{'|'.join(source_hashes)}".encode()
         ).hexdigest()
         rng = np.random.default_rng(_derived_seed(seed, recipe_key))
         signal_recipes: list[dict[str, Any]] = []
+        requested_pair_layout = "single"
         first = _signal_recipe(
             sources[0], source_regions[sources[0]["id"]], rng=rng,
             scene_sample_count=scene_sample_count, sample_rate=sample_rate,
@@ -660,7 +798,21 @@ def build_cv_synthetic_scenes(
                 sample_rate=sample_rate, scene_start_sample=second_start,
                 requested_sample_count=second_count,
             )
+            center, requested_pair_layout = _choose_pair_center(
+                first, source_regions[sources[0]["id"]], second_region,
+                sample_rate=sample_rate, layout=frequency_layout, rng=rng,
+            )
+            if center is not None:
+                second_source_center = (float(second_region["frequency_low_hz"]) + float(second_region["frequency_high_hz"])) / 2.0
+                second["frequency_offset_hz"] = center - second_source_center
             signal_recipes.append(second)
+
+        for recipe in signal_recipes:
+            source = next(item for item in sources if item["id"] == recipe["capture_id"])
+            _apply_receiver_variation(
+                recipe, source_regions[source["id"]], sample_rate=sample_rate,
+                scene_sample_count=scene_sample_count, rng=rng,
+            )
 
         noise_seed = _derived_seed(seed, f"noise:{recipe_key}")
         noise_waveform = output / "noise" / f"{recipe_key}.wav"
@@ -712,7 +864,10 @@ def build_cv_synthetic_scenes(
         )
         noise_gain = float(rng.uniform(0.25, 0.55))
         for recipe in signal_recipes:
-            recipe["target_snr_db"] = float(rng.uniform(MIN_SIGNAL_SNR_DB, MAX_SIGNAL_SNR_DB))
+            source = next(item for item in sources if item["id"] == recipe["capture_id"])
+            band, snr = _source_snr_target(seed, source["sha256"], snr_profile)
+            recipe["snr_profile_bin"] = band
+            recipe["target_snr_db"] = snr
         noise_gain, signal_snr = _set_signal_gains_for_snr(
             signal_recipes, noise_capture=noise_capture, noise_gain=noise_gain, store=store,
         )
@@ -745,6 +900,11 @@ def build_cv_synthetic_scenes(
             "noise_source": noise_source,
             "target_signal_snr_db_range": [MIN_SIGNAL_SNR_DB, MAX_SIGNAL_SNR_DB],
             "signal_snr_measurements": signal_snr,
+            "snr_profile": snr_profile,
+            "frequency_layout_requested": requested_pair_layout,
+            "frequency_offsets_hz": [recipe["frequency_offset_hz"] for recipe in signal_recipes],
+            "clock_errors_ppm": [recipe["clock_error_ppm"] for recipe in signal_recipes],
+            "lowpass_hz": [recipe.get("lowpass_hz") for recipe in signal_recipes],
             "scene_capture_id": scene_capture["id"],
             "scene_sha256": scene_capture["sha256"],
             "component_count": len(signal_recipes) + 1,
@@ -783,6 +943,12 @@ def main() -> None:
     parser.add_argument("--data-dir", type=Path, default=Path("~/.local/share/sig-id").expanduser())
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument("--snr-profile", choices=SNR_PROFILES, default="balanced",
+                        help="balanced clean-to-weak curriculum or historical -40..-15 dB only")
+    parser.add_argument("--frequency-layout", choices=FREQUENCY_LAYOUTS, default="mixed",
+                        help="control separated, adjacent, and co-channel placement in paired scenes")
+    parser.add_argument("--exclude-noise-sha-file", type=Path,
+                        help="JSON SHA-256 exclusion manifest for frozen held-out recording sessions")
     parser.add_argument(
         "--overlap-rate", type=float, default=0.25,
         help="fraction of scenes containing two signals; paired signals are placed in separate time intervals",
@@ -805,6 +971,8 @@ def main() -> None:
             args.data_dir, args.output_dir, seed=args.seed, overlap_rate=args.overlap_rate,
             simultaneous_rate=args.simultaneous_rate, noise_only_examples=args.noise_only_examples,
             noise_data_dirs=args.noise_data_dir,
+            snr_profile=args.snr_profile, frequency_layout=args.frequency_layout,
+            exclude_noise_sha_file=args.exclude_noise_sha_file,
         )
     except (OSError, ValueError) as exc:
         parser.error(str(exc))

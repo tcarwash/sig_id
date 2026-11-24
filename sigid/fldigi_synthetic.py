@@ -25,6 +25,7 @@ from .fldigi import FldigiClient
 from .fldigi_replay import DISABLE_TAGS
 from .modes import MODE_REGISTRY
 from .synthetic_dataset import import_synthetic_wav
+from .synthetic_quality import measure_occupied_band
 from .dataset import CaptureStore
 
 
@@ -254,6 +255,33 @@ def _mode_bandwidth(mode: dict[str, Any]) -> float:
     return 1_000.0
 
 
+def diverse_fldigi_payload(*, seed: int, mode_id: str, example_index: int) -> str:
+    """Deterministic, varied receiver-test messages (not on-air traffic).
+
+    Same seed + mode + index produces byte-identical payloads; changes of
+    index produce independent message text, not cloned audio with new noise.
+    Limit characters to the common Morse/ITA2/PSK31 uppercase subset.
+    """
+    import random
+
+    if example_index < 0:
+        raise ValueError("example index must be nonnegative")
+    rng = random.Random(f"diverse-message-v1:{seed}:{mode_id}:{example_index}")
+    token = "".join(rng.choice("ABCDEFGHJKLMNPQRSTUVWXYZ23456789") for _ in range(8))
+    call = f"TEST{token[:4]}"
+    sequences = (
+        f"CQ CQ DE {call} TEST {token}",
+        f"VVV VVV DE {call} {token} {rng.randint(1,99):02d}",
+        f"DE {call} REPORT {rng.randint(1,99):02d} {token}",
+        f"TEST SIGNAL {token} DE {call}",
+        f"HELLO TEST {token} {rng.randint(101,999)}",
+        f"CHECK {token} QTH TEST GRID {rng.choice(('AA00','CC12','FN20','ZZ99'))}",
+        f"DE {call} RST {rng.choice(('459','559','579','599'))} {token}",
+        f"QRZ TEST {token} DE {call}",
+    )
+    return sequences[example_index % len(sequences)]
+
+
 def build_fldigi_corpus(
     data_dir: str | Path,
     output_dir: str | Path,
@@ -329,9 +357,7 @@ def build_fldigi_corpus(
                     f"{mode_id} example {example_number}/{examples_per_mode}: transmitting",
                     file=sys.stderr, flush=True,
                 )
-                rng = random.Random(f"{seed}:{mode_id}:{example_index}")
-                suffix = "".join(rng.choice("ABCDEFGHJKLMNPQRSTUVWXYZ23456789") for _ in range(8))
-                payload = f"SIGID {mode_id.upper().replace('-', ' ')} {example_index + 1:03d} {suffix}"
+                payload = diverse_fldigi_payload(seed=seed, mode_id=mode_id, example_index=example_index)
                 wav_path = audio_dir / mode_id / f"{example_index:04d}.wav"
                 manifest_path = wav_path.with_suffix(".wav.json")
                 try:
@@ -341,6 +367,12 @@ def build_fldigi_corpus(
                         carrier_hz=carrier_hz, timeout_seconds=timeout_seconds,
                     ))
                     waveform_digest = hashlib.sha256(wav_path.read_bytes()).hexdigest()
+                    # The old fixed +/-750 Hz fallback taught a narrowband
+                    # detector to predict ~1500 Hz boxes for CW, RTTY and PSK31.
+                    # Measure this *actual generated waveform*; keep v1 source
+                    # manifests intact, and version new source annotations.
+                    occupied = measure_occupied_band(wav_path)
+                    low, high = occupied["frequency_low_hz"], occupied["frequency_high_hz"]
                     labels = {
                         "modulation_family": mode["family"],
                         "modulation_method": mode["method"],
@@ -351,14 +383,17 @@ def build_fldigi_corpus(
                         "fldigi_version": result.version, "transmit_payload": payload,
                         "carrier_hz": carrier_hz, "estimated_bandwidth_hz": band,
                         "frequency_low_hz": low, "frequency_high_hz": high,
+                        "band_measurement": occupied,
                         "waveform_sha256": waveform_digest, "seed": seed,
                         "example_index": example_index,
+                        "payload_recipe_version": "diverse-operator-messages-v1",
+                        "payload_confirmation": "requested_text_not_independently_decoded",
                         "capture_sample_rate": 48_000, "capture_channels": 2,
                         "audio_path": "isolated virtual null sink",
                     }
                     manifest = {
                         "schema_version": 1, "source_kind": "synthetic",
-                        "generator": "sig-id-fldigi", "generator_version": "0.1.0",
+                        "generator": "sig-id-fldigi", "generator_version": "0.2.0",
                         "deterministic": True, "mode_id": mode_id,
                         "reference_text": payload, "sample_rate": result.sample_rate,
                         "sample_count": result.sample_count, "channels": 1,
@@ -418,3 +453,7 @@ def main() -> None:
         examples_per_mode=args.examples_per_mode, seed=args.seed,
         carrier_hz=args.carrier_hz, timeout_seconds=args.timeout_seconds,
     ), indent=2))
+
+
+if __name__ == "__main__":
+    main()

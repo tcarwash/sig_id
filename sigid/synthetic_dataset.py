@@ -47,7 +47,7 @@ def _validate_manifest(manifest: dict[str, Any], wav_path: Path) -> None:
         mode_id = manifest.get("mode_id")
         mode = MODE_REGISTRY.get(str(mode_id).casefold()) if isinstance(mode_id, str) else None
         if (
-            manifest.get("generator_version") != "0.1.0"
+            manifest.get("generator_version") not in {"0.1.0", "0.2.0"}
             or not mode or not mode.get("backend_selectable")
             or not str(mode.get("catalog_source", "")).startswith("Fldigi ")
             or parameters.get("native_mode") != mode.get("backend_name")
@@ -62,6 +62,19 @@ def _validate_manifest(manifest: dict[str, Any], wav_path: Path) -> None:
         }
         if manifest.get("labels") != labels:
             raise ValueError("Fldigi mode labels do not match the canonical mode registry")
+        if manifest.get("generator_version") == "0.2.0":
+            from .synthetic_quality import measure_occupied_band
+            measured = measure_occupied_band(wav_path)
+            declared = parameters.get("band_measurement")
+            if not isinstance(declared, dict) or any(
+                declared.get(name) != actual for name, actual in measured.items()
+            ):
+                raise ValueError("Fldigi v0.2.0 occupied-band measurement disagrees with waveform")
+            if (
+                parameters.get("frequency_low_hz") != measured["frequency_low_hz"]
+                or parameters.get("frequency_high_hz") != measured["frequency_high_hz"]
+            ):
+                raise ValueError("Fldigi v0.2.0 labeled frequency bounds disagree with waveform")
         digest = hashlib.sha256(wav_path.read_bytes()).hexdigest()
         if parameters.get("waveform_sha256") != digest:
             raise ValueError("Fldigi waveform hash does not match its manifest")
