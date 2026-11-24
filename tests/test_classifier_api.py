@@ -232,7 +232,10 @@ def test_classifier_api_returns_novelty_abstention_for_out_of_support_audio(tmp_
     asyncio.run(exercise())
 
 
-def test_classifier_api_fails_open_when_model_is_not_configured(tmp_path):
+def test_classifier_api_fails_open_when_model_is_not_configured(tmp_path, monkeypatch):
+    # Keep this test hermetic even when the developer's main checkout has an
+    # active-models.json pointing to a real installed classifier.
+    monkeypatch.setenv("SIGID_ACTIVE_MODELS_JSON", str(tmp_path / "no-active-models.json"))
     app = create_app(tmp_path / "data")
 
     async def exercise():
