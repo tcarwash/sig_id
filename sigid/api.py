@@ -2521,9 +2521,13 @@ def create_app(
         manually_reviewed = []
         coverage_reviewed = 0
         re_review_due = 0
+        dismissed_count = 0
         now = datetime.now(timezone.utc)
         for capture in store.list_captures():
             if not capture["source_metadata"].get("auto_review_queue"):
+                continue
+            if capture["source_metadata"].get("auto_review_queue_dismissed_utc"):
+                dismissed_count += 1
                 continue
             manual_reviewed_at = capture["source_metadata"].get("auto_review_queue_reviewed_utc")
             review_start = capture["source_metadata"].get("review_window_start_sample", 0)
@@ -2604,10 +2608,30 @@ def create_app(
             "pending_count": len(pending),
             "active_learning_prioritized_count": prioritized_review_count,
             "reviewed_count": coverage_reviewed + len(manually_reviewed),
+            "dismissed_count": dismissed_count,
             "re_review_due_count": re_review_due,
             "re_review_interval_days": RE_REVIEW_INTERVAL.days,
             "manually_reviewed": manually_reviewed,
         }
+
+    @app.post("/api/live/review-queue/clear")
+    def clear_pending_review_queue() -> dict[str, Any]:
+        """Dismiss currently pending local tasks; preserve WAVs and annotations."""
+        pending = live_review_queue()["pending"]
+        changed = store.set_live_review_queue_dismissed(
+            [capture["id"] for capture in pending], True,
+        )
+        return {"dismissed": changed, "deleted": 0, "annotations_changed": 0}
+
+    @app.post("/api/live/review-queue/restore-dismissed")
+    def restore_dismissed_review_queue() -> dict[str, Any]:
+        dismissed_ids = [
+            capture["id"] for capture in store.list_captures()
+            if capture["source_metadata"].get("auto_review_queue") is True
+            and capture["source_metadata"].get("auto_review_queue_dismissed_utc")
+        ]
+        changed = store.set_live_review_queue_dismissed(dismissed_ids, False)
+        return {"restored": changed, "deleted": 0, "annotations_changed": 0}
 
     def hub_request(path: str, *, method: str = "GET", payload: dict[str, Any] | None = None) -> tuple[bytes, str]:
         base_url = os.environ.get("SIG_ID_HUB_URL", "").rstrip("/")

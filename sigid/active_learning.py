@@ -158,6 +158,9 @@ def rank_review_batch(
             if meta.get("auto_review_queue_reviewed_utc"):
                 skipped["marked-reviewed-without-coverage"] += 1
                 continue
+        if meta.get("auto_review_queue_dismissed_utc"):
+            skipped["dismissed-review-task"] += 1
+            continue
         evidence = (proposal_evidence_by_sha or {}).get(capture["sha256"])
         score, reasons = _priority(capture, regions, evidence)
         sessions[session].append({

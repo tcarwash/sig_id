@@ -4,6 +4,25 @@
 examples without treating model suggestions as ground truth or contaminating
 frozen evaluation sessions.
 
+## Live listening and queue controls
+
+The live capture mode defaults to **Listen live · no recording** (the
+existing `scan_only` backend mode). It keeps a short memory ring for
+waterfall, detection, classification and on-demand manual snapshots,
+but saves no continuous WAV and generates no automatic review samples.
+Listen-only can run up to eight hours; full recording is a separate
+explicit choice, and unattended mode still saves selected clips.
+
+In **Review queue → Local dataset**, **Clear pending queue** dismisses the
+tasks currently awaiting review after a confirmation. It does not delete
+source WAVs, remove accepted regions, alter review coverage, count
+negative examples, or mark tasks as reviewed. Dismissed tasks remain
+hidden from ordinary pending/re-review views and future automated
+prioritization until **Restore dismissed** is selected. Newly saved review
+clips can still appear after clearing if recording or unattended
+collection remains active; choose listen-only to stop adding automatic
+review clips. Hub submissions are unaffected.
+
 ## What is implemented
 
 The local workbench review queue now reads an optional

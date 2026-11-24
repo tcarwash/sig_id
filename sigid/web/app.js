@@ -3292,7 +3292,7 @@ function attachLiveCapture(started, {resumed = false} = {}) {
     state.liveReviewReturn = null;
     el("live-start").disabled = true;
     el("live-stop").disabled = false;
-    el("live-stop").textContent = captureMode === "record" ? "Stop and review" : "Stop live scan";
+    el("live-stop").textContent = captureMode === "record" ? "Stop and review" : "Stop live";
     clearDemodExports();
     state.capture = null;
     state.cvDetections = [];
@@ -3530,7 +3530,7 @@ el("live-start").addEventListener("click", async () => {
       body: JSON.stringify({
         device_id: device === "" ? null : Number(device),
         sample_rate: Number(el("audio-rate").value), channels: 1,
-        max_duration_seconds: captureMode === "unattended" ? 28800 : 600,
+        max_duration_seconds: captureMode === "record" ? 600 : 28800,
         capture_mode: captureMode, noise_interval_seconds: noiseIntervalSeconds,
         band_hop_frequencies_hz: bandHopFrequencies,
         band_hop_dwell_seconds: bandHopSettings.dwellMinutes * 60,
@@ -3603,7 +3603,7 @@ el("live-stop").addEventListener("click", async () => {
     el("live-start").disabled = state.liveMonitoring;
     el("live-stop").disabled = !state.liveMonitoring;
     if (!state.liveMonitoring) {
-      el("live-stop").textContent = "Stop and review";
+      el("live-stop").textContent = "Stop live";
       state.captureMode = null;
       updateLiveCaptureModeControls();
     }
@@ -3637,8 +3637,8 @@ function updateLiveCaptureModeControls() {
   el("noise-interval-wrap").hidden = !unattended;
   const mode = el("live-capture-mode").value;
   el("live-start").textContent = mode === "scan_only"
-    ? "Start scan without saving"
-    : mode === "unattended" ? (bandHopAvailable && el("band-hop-enabled").checked ? "Start unattended band hop" : "Start unattended monitor") : "Start live capture";
+    ? "Start live · no recording"
+    : mode === "unattended" ? (bandHopAvailable && el("band-hop-enabled").checked ? "Start unattended band hop" : "Start unattended monitor") : "Start recording";
 }
 el("live-capture-mode").addEventListener("change", updateLiveCaptureModeControls);
 updateLiveCaptureModeControls();
@@ -8097,7 +8097,10 @@ async function refreshLiveReviewQueue() {
     const badge = el("review-queue-badge");
     badge.textContent = String(result.pending_count);
     badge.hidden = result.pending_count === 0;
-    el("review-queue-title-count").textContent = `${result.pending_count} waiting · ${result.active_learning_prioritized_count || 0} prioritized for diverse review · ${result.reviewed_count} reviewed · ${result.re_review_due_count || 0} due again`;
+    el("review-queue-title-count").textContent = `${result.pending_count} waiting · ${result.active_learning_prioritized_count || 0} prioritized · ${result.reviewed_count} reviewed · ${result.dismissed_count || 0} dismissed`;
+    el("clear-pending-review-queue").disabled = result.pending_count === 0;
+    el("restore-dismissed-review-queue").hidden = !(result.dismissed_count > 0);
+    el("restore-dismissed-review-queue").textContent = `Restore dismissed (${result.dismissed_count || 0})`;
     const list = el("review-queue-list");
     list.replaceChildren();
     for (const capture of result.pending) {
@@ -8209,6 +8212,34 @@ async function refreshLiveReviewQueue() {
     el("review-queue-list").textContent = `Could not load review queue · ${error.message}`;
   }
 }
+
+el("clear-pending-review-queue").addEventListener("click", async () => {
+  const count = Number(el("review-queue-badge").textContent) || 0;
+  if (!count || !window.confirm(`Clear ${count} pending local review tasks? Saved WAVs, signal annotations and training data will be kept. You can restore the dismissed tasks later.`)) return;
+  const clear = el("clear-pending-review-queue");
+  clear.disabled = true;
+  try {
+    const result = await request("/api/live/review-queue/clear", {method: "POST"});
+    el("review-queue-action-status").textContent = `Dismissed ${result.dismissed} tasks · no recordings deleted`;
+    await refreshLiveReviewQueue();
+  } catch (error) {
+    showError(`Could not clear review queue · ${error.message}`);
+    clear.disabled = false;
+  }
+});
+el("restore-dismissed-review-queue").addEventListener("click", async () => {
+  const restore = el("restore-dismissed-review-queue");
+  restore.disabled = true;
+  try {
+    const result = await request("/api/live/review-queue/restore-dismissed", {method: "POST"});
+    el("review-queue-action-status").textContent = `Restored ${result.restored} tasks`;
+    await refreshLiveReviewQueue();
+  } catch (error) {
+    showError(`Could not restore queue · ${error.message}`);
+  } finally {
+    restore.disabled = false;
+  }
+});
 
 async function refreshHubReviewQueue() {
   const list = el("hub-review-queue-list");
