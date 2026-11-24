@@ -25,6 +25,22 @@ def concise(metrics: dict) -> dict:
     }
 
 
+def release_preconditions(dataset: Path, candidate: Path) -> dict[str, bool]:
+    """Never approve a pilot or an evaluation with too few real lineages."""
+    rows = [json.loads(line) for line in (dataset / "windows.jsonl").read_text().splitlines() if line.strip()]
+    test_live = [row for row in rows if row.get("split") == "test"
+                 and row.get("source_kind") == "live" and int(row.get("box_count") or 0) > 0]
+    lineages = {row.get("lineage_group") for row in test_live if row.get("lineage_group")}
+    metadata = json.loads(candidate.with_suffix(candidate.suffix + ".json").read_text())
+    return {
+        "at_least_five_independent_heldout_live_lineages": len(lineages) >= 5,
+        "candidate_trained_on_full_training_split": (
+            float(metadata.get("train_fraction", 1.0)) == 1.0
+            and not metadata.get("pilot_partial_training", False)
+        ),
+    }
+
+
 def compare_detectors(
     dataset: Path, baseline: Path, candidate: Path, *, device: str = "0",
 ) -> dict:
@@ -56,6 +72,7 @@ def compare_detectors(
     baseline_fp = float(old.get("false_detections_per_audio_hour") or 0)
     candidate_fp = float(new.get("false_detections_per_audio_hour") or 0)
     tests = {
+        **release_preconditions(dataset, candidate),
         "enough_held_out_live_boxes": live_boxes >= 10,
         "live_recall_not_worse": float(new_live.get("recall") or 0) >= float(old_live.get("recall") or 0),
         "overall_recall_not_worse_by_more_than_0.03":
@@ -68,7 +85,7 @@ def compare_detectors(
         "schema_version": 1, "test_dataset": str(dataset),
         "baseline": results["baseline"], "candidate": results["candidate"],
         "gate_checks": tests, "candidate_eligible": all(tests.values()),
-        "note": "Performance gates are conservative, not a statistical significance test. Holdout sources are group-split.",
+        "note": "Conservative gates, not a statistical significance test. A pilot is not release eligible; real test also requires at least five independent positive lineages.",
     }
 
 

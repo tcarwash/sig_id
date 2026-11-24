@@ -320,6 +320,7 @@ def train_cv_detector(
     device: str | None = None,
     workers: int = 4,
     confidence: float | None = None,
+    train_fraction: float = 1.0,
     progress_callback: Callable[[int, int], None] | None = None,
 ) -> dict[str, Any]:
     dataset = Path(dataset_dir).expanduser().resolve()
@@ -377,8 +378,8 @@ def train_cv_detector(
         )
     if epochs <= 0 or batch <= 0 or workers < 0 or (
         confidence is not None and not 0.0 < confidence < 1.0
-    ):
-        raise ValueError("epochs and batch must be positive, workers cannot be negative, and confidence must be within (0, 1)")
+    ) or not isinstance(train_fraction, (int, float)) or not 0.0 < train_fraction <= 1.0:
+        raise ValueError("epochs and batch must be positive, workers nonnegative, confidence in (0, 1), and training fraction in (0, 1]")
 
     destination.parent.mkdir(parents=True, exist_ok=True)
     run_root = destination.parent / f".{destination.stem}-training"
@@ -394,6 +395,7 @@ def train_cv_detector(
         "seed": seed,
         "deterministic": True,
         "workers": workers,
+        "fraction": float(train_fraction),
         "project": str(run_root),
         "name": "run",
         "exist_ok": True,
@@ -403,6 +405,16 @@ def train_cv_detector(
         "flipud": 0.0,
         "degrees": 0.0,
         "scale": 0.0,
+        # Nonphysical image jitter and spatial transforms are disabled.
+        # Realistic HF/receiver impairments belong in labeled audio scenes.
+        "hsv_h": 0.0,
+        "hsv_s": 0.0,
+        "hsv_v": 0.0,
+        "erasing": 0.0,
+        "translate": 0.0,
+        "shear": 0.0,
+        "perspective": 0.0,
+        "copy_paste": 0.0,
         "plots": True,
         "verbose": True,
     }
@@ -469,6 +481,8 @@ def train_cv_detector(
         "rectangular_training": True,
         "epochs": epochs,
         "batch": batch,
+        "train_fraction": float(train_fraction),
+        "pilot_partial_training": bool(train_fraction < 1.0),
         "seed": seed,
         "device": device or "auto",
         "confidence_threshold": confidence,
@@ -514,13 +528,15 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--device", default=None, help="Ultralytics device selector, for example cpu or 0")
     parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--train-fraction", type=float, default=1.0,
+                        help="fraction of training split (pilot only if below 1; never release a partial-training model)")
     parser.add_argument("--confidence", type=float, default=None, help="override the confidence threshold selected by validation IoU 0.50 F1")
     args = parser.parse_args()
     print(json.dumps(train_cv_detector(args.dataset, output_model=args.output_model,
                                        base_model=args.base_model, epochs=args.epochs,
                                        batch=args.batch, seed=args.seed,
                                        device=args.device, workers=args.workers,
-                                       confidence=args.confidence), indent=2))
+                                       confidence=args.confidence, train_fraction=args.train_fraction), indent=2))
 
 
 if __name__ == "__main__":
