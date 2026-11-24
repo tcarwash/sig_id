@@ -2566,10 +2566,43 @@ def create_app(
             else:
                 pending.append(capture)
         pending.sort(key=lambda item: item["created_utc"])
+        # A staged active-learning batch only changes review order. It does
+        # not create annotations or turn model guesses into training labels.
+        # The batch is generated from the frozen-SHA exclusion CLI and
+        # installed in the user's data directory, never in the repo.
+        prioritized_review_count = 0
+        active_batch = root / "active-learning-review-batch.json"
+        if active_batch.is_file():
+            try:
+                manifest = json.loads(active_batch.read_text(encoding="utf-8"))
+                if (manifest.get("schema_version") != 1 or
+                        manifest.get("training_eligible") is not False or
+                        not isinstance(manifest.get("frozen_exclusion_manifest_sha256"), str)):
+                    raise ValueError("invalid active-learning review manifest")
+                priority = {
+                    item["capture_id"]: (index, item)
+                    for index, item in enumerate(manifest["selected"])
+                }
+                for item in pending:
+                    pair = priority.get(item["id"])
+                    if pair and pair[1]["capture_sha256"] == item["sha256"]:
+                        item["source_metadata"] = {
+                            **item["source_metadata"],
+                            "active_learning_rank": pair[0] + 1,
+                            "active_learning_reason": pair[1]["priority_reasons"],
+                        }
+                        prioritized_review_count += 1
+                pending.sort(key=lambda item: (
+                    item["source_metadata"].get("active_learning_rank", 10**9),
+                    item["created_utc"],
+                ))
+            except (ValueError, TypeError, KeyError, json.JSONDecodeError, OSError) as exc:
+                logging.getLogger(__name__).warning("Ignoring malformed active learning batch: %s", exc)
         manually_reviewed.sort(key=lambda item: item["source_metadata"].get("auto_review_queue_reviewed_utc", ""), reverse=True)
         return {
             "pending": pending,
             "pending_count": len(pending),
+            "active_learning_prioritized_count": prioritized_review_count,
             "reviewed_count": coverage_reviewed + len(manually_reviewed),
             "re_review_due_count": re_review_due,
             "re_review_interval_days": RE_REVIEW_INTERVAL.days,

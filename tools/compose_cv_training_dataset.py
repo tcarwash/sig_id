@@ -29,7 +29,9 @@ def load_rows(root: Path) -> list[dict]:
     return [json.loads(line) for line in (root / "windows.jsonl").read_text().splitlines() if line.strip()]
 
 
-def compose(base: Path, supplement: Path, destination: Path) -> dict:
+def compose(base: Path, supplement: Path, destination: Path, *, real_train_repeat: int = 1) -> dict:
+    if not 1 <= real_train_repeat <= 8:
+        raise ValueError("real_train_repeat must be between 1 and 8")
     base = base.expanduser().resolve(strict=True)
     supplement = supplement.expanduser().resolve(strict=True)
     destination = destination.expanduser().resolve()
@@ -91,6 +93,23 @@ def compose(base: Path, supplement: Path, destination: Path) -> dict:
                 copy["image"] = image_dst.relative_to(destination).as_posix()
                 copy["combined_provenance"] = prefix
                 combined.append(copy)
+                # Repeat only individually human-reviewed real training images.
+                # These are *sampling weights*, not new independent examples.
+                # Frozen validation/test is never oversampled or touched.
+                if prefix == "base" and split == "train" and row.get("source_kind") in ("live", "wav"):
+                    if not row.get("review_ids"):
+                        raise ValueError("real training image requires completed review provenance")
+                    for repeat in range(1, real_train_repeat):
+                        image_repeat = image_dst.with_name(f"{new_stem}-realrepeat-{repeat}.png")
+                        label_repeat = label_dst.with_name(f"{new_stem}-realrepeat-{repeat}.txt")
+                        os.link(image_dst, image_repeat)
+                        os.link(label_dst, label_repeat)
+                        repeated = dict(copy)
+                        repeated["image"] = image_repeat.relative_to(destination).as_posix()
+                        repeated["sampling_repeat_index"] = repeat
+                        repeated["independent_source"] = False
+                        repeated["combined_provenance"] = "base-real-resample"
+                        combined.append(repeated)
         for split in ("train", "validation", "test"):
             (destination / "images" / split).mkdir(parents=True, exist_ok=True)
             (destination / "labels" / split).mkdir(parents=True, exist_ok=True)
@@ -122,6 +141,9 @@ def compose(base: Path, supplement: Path, destination: Path) -> dict:
             "v4_report_sha256": sha256(supplement / "export-report.json"),
             "v4_manifest_sha256": sha256(supplement / "windows.jsonl"),
             "source_train_added": len(extra_rows),
+            "real_train_repeat": real_train_repeat,
+            "real_training_resampled_images": sum(row["combined_provenance"] == "base-real-resample" for row in combined),
+            "real_source_independent_count": len({row["capture_sha256"] for row in combined if row.get("source_kind") in ("live", "wav") and row["split"] == "train"}),
             "source_training_only": True,
             "heldout_image_sha256_unchanged": True,
             "dataset_input_preprocessing": report["preprocessing_version"],
@@ -141,8 +163,10 @@ def main() -> None:
     parser.add_argument("--base", type=Path, required=True)
     parser.add_argument("--supplement", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--real-train-repeat", type=int, default=1,
+                        help="deterministically resample human-reviewed real TRAIN images only (1-8); not independent examples")
     args = parser.parse_args()
-    result = compose(args.base, args.supplement, args.output)
+    result = compose(args.base, args.supplement, args.output, real_train_repeat=args.real_train_repeat)
     print(json.dumps({"split_images": result["split_images"],
                       "positive": result["positive_images_by_split"],
                       "negative": result["negative_images_by_split"],
