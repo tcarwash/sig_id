@@ -1839,3 +1839,11 @@ textarea {
   width: auto;
   margin: 0;
 }
+
+
+/* Online receiver source controls. */
+.websdr-controls { gap: 10px; }
+.websdr-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.websdr-actions .primary { background: #1c3a38; border-color: #397b6d; color: #b7f6e4; }
+#websdr-status { margin: 0; min-height: 1.5em; }
+#websdr-panel a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }

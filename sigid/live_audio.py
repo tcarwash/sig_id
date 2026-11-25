@@ -33,6 +33,7 @@ class _Session:
     channels: int
     max_duration_seconds: int
     audio_backend: Any
+    source_metadata: dict[str, Any] = field(default_factory=dict)
     capture_mode: str = "record"
     noise_interval_seconds: int = 300
     window_analyzer: Any = None
@@ -115,6 +116,19 @@ class LiveCaptureManager:
             )
         return result
 
+    def refresh_devices(self) -> list[dict[str, Any]]:
+        """Refresh PortAudio's cached device list after creating/removing a virtual source."""
+        backend = self._backend()
+        with self._lock:
+            if self._session is not None:
+                raise RuntimeError("cannot refresh audio devices while a live capture is active")
+        terminate = getattr(backend, "_terminate", None)
+        initialize = getattr(backend, "_initialize", None)
+        if callable(terminate) and callable(initialize):
+            terminate()
+            initialize()
+        return self.devices()
+
     def status(self) -> dict[str, Any]:
         with self._lock:
             session = self._session
@@ -183,6 +197,7 @@ class LiveCaptureManager:
         initial_frequency_hz: int | None = None,
         band_hop_count: int = 0,
         band_hop_dwell_seconds: int | None = None,
+        source_metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if sample_rate < 4000 or sample_rate > 192000:
             raise ValueError("sample_rate must be between 4000 and 192000 Hz")
@@ -222,6 +237,7 @@ class LiveCaptureManager:
                 device_id=device_id,
                 device_name=str(device_info.get("name", "Default input")),
                 sample_rate=sample_rate,
+                source_metadata=dict(source_metadata or {}),
                 channels=channels,
                 max_duration_seconds=max_duration_seconds,
                 audio_backend=backend,
@@ -491,6 +507,7 @@ class LiveCaptureManager:
                     "review_trigger": trigger_type,
                     "detection_summary": analysis or {},
                     "receiver_frequency_hz": frequency_hz,
+                    **({"receiver": dict(session.source_metadata)} if session.source_metadata else {}),
                     "band_hop_index": band_hop_index,
                     "band_hop_count": session.band_hop_count or None,
                     "band_hop_dwell_seconds": session.band_hop_dwell_seconds,
@@ -617,6 +634,7 @@ class LiveCaptureManager:
                     "auto_capture_session_id": session.id,
                     "truncated_reason": session.truncated_reason,
                     "status_messages": list(session.status_messages[-64:]),
+                    **({"receiver": dict(session.source_metadata)} if session.source_metadata else {}),
                 },
             )
         except Exception as exc:
