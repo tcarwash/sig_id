@@ -3221,20 +3221,27 @@ async function updateDecoderRecommendations(result, selection) {
 
 const AUDIO_INPUT_NAME_KEY = "sig-id-audio-input-device-name";
 function isSignalLabInput(name) { return name === "sigid_signal_lab.monitor"; }
+function isWebSDRInput(name) {
+  const value = String(name || "");
+  return value.startsWith("sigid_websdr_") || value.startsWith("Signal-ID-WebSDR-RX-");
+}
 function updateAudioInputHint() {
   const selected = el("audio-device").selectedOptions[0];
   const name = selected?.dataset.deviceName || "";
   const hint = el("audio-input-hint");
   const synthetic = isSignalLabInput(name);
-  const outputMonitor = !synthetic && /(?:\.monitor\b|output.*monitor)/i.test(name);
-  if (synthetic) {
+  const websdr = isWebSDRInput(name);
+  const outputMonitor = !synthetic && !websdr && (name.includes(".monitor") || /output.*monitor/i.test(name));
+  if (websdr) {
+    hint.textContent = "WebSDR browser audio selected. Signal ID captures only the isolated receiver browser window; tune frequency and mode in that window. Receive-only.";
+  } else if (synthetic) {
     hint.textContent = "Signal Lab synthetic test input selected. This monitor carries simulated audio, not your radio receiver or physical speaker output.";
   } else if (outputMonitor) {
     hint.textContent = "Playback/output monitor selected! This records what the computer sends TO the device, not the radio's receiver audio. Choose the USB Audio CODEC input instead.";
-  } else if (/USB Audio CODEC.*\(hw:/i.test(name)) {
+  } else if (name.includes("USB Audio CODEC") && name.includes("(hw:")) {
     hint.textContent = "Direct USB Audio CODEC recording input selected. If it is busy, stop other applications recording from this interface.";
   } else if (name) {
-    hint.textContent = `Selected recording input: ${name}. Check that it carries your receiver's audio.`;
+    hint.textContent = "Selected recording input: " + name + ". Check that it carries your receiver's audio.";
   } else {
     hint.textContent = "Default input may be a microphone or playback monitor. For a USB-connected radio, explicitly choose its recording input.";
   }
@@ -3249,14 +3256,16 @@ async function refreshAudioDevices() {
     try { savedName = localStorage.getItem(AUDIO_INPUT_NAME_KEY) || ""; } catch {}
     const requestedName = state.liveDeviceName || previousName || savedName;
     select.replaceChildren(new Option("Default input (may be microphone)", ""));
-    // Put the receive-only synthetic lab at the top, not after hardware
-    // inputs. It is a null-sink monitor, not a physical speaker monitor.
-    const orderedDevices = [...devices].sort((a, b) => Number(isSignalLabInput(b.name)) - Number(isSignalLabInput(a.name)));
+    const orderedDevices = [...devices].sort((a, b) =>
+      Number(isWebSDRInput(b.name)) - Number(isWebSDRInput(a.name)) ||
+      Number(isSignalLabInput(b.name)) - Number(isSignalLabInput(a.name)));
     for (const device of orderedDevices) {
       const synthetic = isSignalLabInput(device.name);
-      const outputMonitor = !synthetic && /(?:\.monitor\b|output.*monitor)/i.test(device.name);
-      const title = synthetic ? `Signal Lab — synthetic test input · ${device.max_input_channels} ch`
-        : `${outputMonitor ? "⚠ Output monitor — " : ""}${device.name} · ${device.max_input_channels} ch`;
+      const websdr = isWebSDRInput(device.name);
+      const outputMonitor = !synthetic && !websdr && (device.name.includes(".monitor") || /output.*monitor/i.test(device.name));
+      const title = websdr ? "WebSDR browser audio · " + device.max_input_channels + " ch"
+        : synthetic ? "Signal Lab — synthetic test input · " + device.max_input_channels + " ch"
+        : (outputMonitor ? "⚠ Output monitor — " : "") + device.name + " · " + device.max_input_channels + " ch";
       const option = new Option(title, String(device.id));
       option.dataset.deviceName = device.name;
       select.add(option);
@@ -3265,7 +3274,9 @@ async function refreshAudioDevices() {
     if (match) select.value = match.value;
     updateAudioInputHint();
     if (!state.liveMonitoring) {
-      el("live-status").textContent = devices.length ? `${devices.length} input device${devices.length === 1 ? "" : "s"} available` : "No audio inputs found";
+      el("live-status").textContent = devices.length
+        ? devices.length + " input device" + (devices.length === 1 ? "" : "s") + " available"
+        : "No audio inputs found";
     }
   } catch (error) {
     if (!state.liveMonitoring) el("live-status").textContent = error.message;
@@ -3273,10 +3284,10 @@ async function refreshAudioDevices() {
 }
 el("audio-device").addEventListener("change", () => {
   const name = el("audio-device").selectedOptions[0]?.dataset.deviceName || "";
+  if (!state.liveMonitoring) state.liveDeviceName = name;
   try { localStorage.setItem(AUDIO_INPUT_NAME_KEY, name); } catch {}
   updateAudioInputHint();
 });
-
 function attachLiveCapture(started, {resumed = false} = {}) {
   // A reload must rejoin the server-owned capture rather than creating
   // another device stream (which can already hold the USB audio interface).
@@ -3512,23 +3523,26 @@ function attachLiveCapture(started, {resumed = false} = {}) {
   }
 }
 
-el("live-start").addEventListener("click", async () => {
+async function startLiveCapture({deviceIdOverride = null, receiverFrequencyHz = null} = {}) {
   stopSelectedAudioPlayback(null);
   clearError();
   if ((state.batchBoxes.length || state.windowRegionEdits.size || state.windowRegionDeletes.size || state.windowMerges.length || state.windowIdentityLinks.length)
-    && !await resolveWindowDraftsBeforeSwitch("starting live capture")) return;
+    && !await resolveWindowDraftsBeforeSwitch("starting live capture")) return false;
   try {
-    const device = el("audio-device").value;
+    const device = deviceIdOverride === null ? el("audio-device").value : String(deviceIdOverride);
     const captureMode = el("live-capture-mode").value;
     const noiseIntervalSeconds = Number(el("noise-interval-minutes").value) * 60;
     const bandHopSettings = saveBandHopSettings();
-    const bandHopFrequencies = bandHopAvailable && captureMode === "unattended" && bandHopSettings.enabled
+    const selectedInputName = el("audio-device").selectedOptions[0]?.dataset.deviceName || "";
+    const webSdrInput = isWebSDRInput(selectedInputName);
+    const bandHopFrequencies = !webSdrInput && bandHopAvailable && captureMode === "unattended" && bandHopSettings.enabled
       ? bandHopFrequenciesHz() : [];
     const rigctlSettings = saveRigctlSettings();
     const started = await request("/api/live/start", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         device_id: device === "" ? null : Number(device),
+        receiver_frequency_hz: receiverFrequencyHz,
         sample_rate: Number(el("audio-rate").value), channels: 1,
         max_duration_seconds: captureMode === "record" ? 600 : 28800,
         capture_mode: captureMode, noise_interval_seconds: noiseIntervalSeconds,
@@ -3539,9 +3553,14 @@ el("live-start").addEventListener("click", async () => {
       }),
     });
     attachLiveCapture(started);
-  } catch (error) { showError(error.message); }
-});
+    return true;
+  } catch (error) {
+    showError(error.message);
+    return false;
+  }
+}
 
+el("live-start").addEventListener("click", () => { startLiveCapture(); });
 el("live-stop").addEventListener("click", async () => {
   clearError();
   el("live-stop").disabled = true;
@@ -3609,6 +3628,141 @@ el("live-stop").addEventListener("click", async () => {
     }
   }
 });
+
+const WEBSDr_CUSTOM_ID = "custom";
+let webSdrReceivers = [];
+async function refreshWebSDRReceivers() {
+  try {
+    webSdrReceivers = await request("/api/websdr/receivers");
+    const select = el("websdr-preset");
+    const previous = select.value || "northern-utah";
+    select.replaceChildren();
+    for (const receiver of webSdrReceivers) {
+      select.add(new Option(receiver.name + " · " + receiver.kind, receiver.id));
+    }
+    select.add(new Option("Custom receiver URL…", WEBSDr_CUSTOM_ID));
+    select.value = webSdrReceivers.some(item => item.id === previous) ? previous : "northern-utah";
+    applyWebSDRPreset();
+  } catch (error) {
+    el("websdr-status").textContent = "Receiver presets unavailable · " + error.message;
+  }
+}
+
+function applyWebSDRPreset() {
+  const selected = el("websdr-preset").value;
+  if (selected === WEBSDr_CUSTOM_ID) {
+    el("websdr-url").value = "";
+    el("websdr-name").value = "Custom WebSDR";
+    el("websdr-url").focus();
+    return;
+  }
+  const receiver = webSdrReceivers.find(item => item.id === selected);
+  if (!receiver) return;
+  el("websdr-url").value = receiver.url;
+  el("websdr-name").value = receiver.name;
+}
+el("websdr-preset").addEventListener("change", applyWebSDRPreset);
+
+async function refreshWebSDRStatus({restoreInput = false} = {}) {
+  try {
+    const status = await request("/api/websdr/status");
+    const disconnect = el("websdr-disconnect");
+    if (status.active) {
+      state.websdrDeviceName = status.device_name || "";
+      if (restoreInput && !state.liveMonitoring) {
+        state.liveDeviceName = status.device_name || "";
+        await refreshAudioDevices();
+        if (status.device_id !== null && status.device_id !== undefined) {
+          el("audio-device").value = String(status.device_id);
+          updateAudioInputHint();
+        }
+      }
+      el("websdr-status").textContent = status.browser_running
+        ? "Connected to " + (status.name || "WebSDR") + " · tune in the receiver browser window · " + (status.routing_errors || 0) + " audio-routing errors"
+        : "Receiver browser closed · disconnect to release its virtual audio input";
+      disconnect.disabled = state.liveMonitoring;
+    } else {
+      state.websdrDeviceName = "";
+      el("websdr-status").textContent = "Not connected. The browser and audio bridge run on the Signal ID host.";
+      disconnect.disabled = true;
+    }
+  } catch (error) {
+    el("websdr-status").textContent = "WebSDR status unavailable · " + error.message;
+  }
+}
+
+el("websdr-connect").addEventListener("click", async () => {
+  clearError();
+  if (state.liveMonitoring) {
+    showError("Stop the current live capture before switching to a WebSDR.");
+    return;
+  }
+  const button = el("websdr-connect");
+  button.disabled = true;
+  const selectedBeforeConnect = el("audio-device").selectedOptions[0]?.dataset.deviceName || "";
+  state.websdrPreviousDeviceName = isWebSDRInput(selectedBeforeConnect) ? "" : selectedBeforeConnect;
+  el("websdr-status").textContent = "Creating an isolated browser audio input…";
+  try {
+    const connected = await request("/api/websdr/connect", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url: el("websdr-url").value.trim(),
+        name: el("websdr-name").value.trim() || "WebSDR receiver",
+      }),
+    });
+    state.liveDeviceName = connected.device_name;
+    state.websdrDeviceName = connected.device_name;
+    await refreshAudioDevices();
+    el("audio-device").value = String(connected.device_id);
+    updateAudioInputHint();
+    try { localStorage.setItem(AUDIO_INPUT_NAME_KEY, connected.device_name); } catch {}
+    const mhz = Number(el("websdr-frequency").value);
+    const receiverFrequencyHz = Number.isFinite(mhz) && mhz > 0 ? Math.round(mhz * 1000000) : null;
+    const started = await startLiveCapture({
+      deviceIdOverride: connected.device_id,
+      receiverFrequencyHz,
+    });
+    if (started) {
+      el("websdr-status").textContent = "Listening to " + (connected.name || "WebSDR") + " · tune the receiver browser window";
+    } else {
+      el("websdr-status").textContent = "WebSDR connected and selected as the audio input. Start live when ready.";
+    }
+    await refreshWebSDRStatus();
+  } catch (error) {
+    showError(error.message);
+    el("websdr-status").textContent = "Could not connect WebSDR · " + error.message;
+  } finally {
+    button.disabled = false;
+    await refreshWebSDRStatus();
+  }
+});
+
+el("websdr-disconnect").addEventListener("click", async () => {
+  clearError();
+  try {
+    await request("/api/websdr/disconnect", { method: "POST" });
+    const selectedName = el("audio-device").selectedOptions[0]?.dataset.deviceName || "";
+    state.websdrDeviceName = "";
+    if (isWebSDRInput(selectedName)) {
+      state.liveDeviceName = state.websdrPreviousDeviceName || "";
+      el("audio-device").value = "";
+      try {
+        if (state.liveDeviceName) localStorage.setItem(AUDIO_INPUT_NAME_KEY, state.liveDeviceName);
+        else localStorage.removeItem(AUDIO_INPUT_NAME_KEY);
+      } catch {}
+    }
+    state.websdrPreviousDeviceName = "";
+    await refreshAudioDevices();
+    await refreshWebSDRStatus();
+  } catch (error) {
+    showError(error.message);
+    await refreshWebSDRStatus();
+  }
+});
+
+refreshWebSDRReceivers();
+refreshWebSDRStatus({restoreInput: true});
+setInterval(() => refreshWebSDRStatus(), 5000);
 
 async function recoverLiveCapture() {
   try {

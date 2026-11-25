@@ -67,6 +67,7 @@ from .local_decoder_backend import LocalDecoderBackend
 from .native_live_decode import NativeLiveRunner
 from .live_classifier_cache import LiveClassifierEvidenceCache
 from .live_audio import LiveCaptureManager
+from .websdr import DEFAULT_RECEIVERS, WebSDRSessionManager
 from .live_spectrum import spectrum_packet
 from .modes import MODE_REGISTRY_VERSION, find_modes, resolve_mode_label
 from .receive_products import ReceiveProductStore
@@ -678,8 +679,14 @@ class ProtocolStencilCreate(BaseModel):
     source_capture_id: str | None = None
 
 
+class WebSDRConnectRequest(BaseModel):
+    url: str = Field(min_length=1, max_length=2048)
+    name: str = Field(default="WebSDR receiver", min_length=1, max_length=100)
+
+
 class LiveCaptureStart(BaseModel):
     device_id: int | None = None
+    receiver_frequency_hz: int | None = Field(default=None, ge=1000, le=6_000_000_000)
     sample_rate: int = Field(default=48_000, ge=4000, le=192000)
     channels: int = Field(default=1, ge=1, le=2)
     max_duration_seconds: int = Field(default=600, ge=1, le=28800)
@@ -904,6 +911,7 @@ class LayaClassifyRequest(BaseModel):
 def create_app(
     data_dir: str | Path | None = None,
     audio_backend: Any | None = None,
+    websdr_manager: Any | None = None,
     fldigi_client: Any | None = None,
     fldigi_replay_backend: Any | None = None,
     classifier_model_path: str | Path | None = None,
@@ -917,6 +925,7 @@ def create_app(
     # cannot be swept into live review or the normal training dataset.
     field_guide_store = CaptureStore(root / "field-guide" / "dataset.sqlite3")
     live_capture = LiveCaptureManager(store, capture_dir, audio_backend=audio_backend)
+    websdr = websdr_manager or WebSDRSessionManager(root / "websdr")
     receive_products = ReceiveProductStore(root / "receive-products")
     fldigi = fldigi_client or FldigiClient(
         url=os.environ.get("SIG_ID_FLDIGI_URL", "http://127.0.0.1:7362/RPC2"),
@@ -1043,12 +1052,17 @@ def create_app(
                     store.associate_decoder_runs(stopped["session_id"], stopped["capture"]["id"])
             except Exception:
                 logging.getLogger(__name__).exception("Could not finalize live capture during shutdown; inspect retained audio files")
+            try:
+                websdr.close()
+            except Exception:
+                logging.getLogger(__name__).exception("Could not release WebSDR browser/audio route during shutdown")
 
     app = FastAPI(title="Signal ID Workbench", version="0.1.0", lifespan=lifespan)
     app.state.data_dir = root
     app.state.capture_dir = capture_dir
     app.state.capture_store = store
     app.state.live_capture = live_capture
+    app.state.websdr = websdr
     app.state.receive_products = receive_products
     app.state.fldigi = fldigi
     app.state.fldigi_replay = fldigi_replay
@@ -1667,6 +1681,66 @@ def create_app(
             return live_capture.devices()
         except RuntimeError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    @app.get("/api/websdr/receivers")
+    def websdr_receivers() -> list[dict[str, str]]:
+        return DEFAULT_RECEIVERS
+
+    @app.get("/api/websdr/status")
+    def websdr_status() -> dict[str, Any]:
+        result = websdr.status()
+        if result.get("active") and result.get("device_name"):
+            try:
+                match = next((item for item in live_capture.devices()
+                              if item["name"] == result["device_name"]), None)
+                result["device_id"] = match["id"] if match else None
+            except Exception:
+                result["device_id"] = None
+        return result
+
+    @app.post("/api/websdr/connect")
+    def connect_websdr(data: WebSDRConnectRequest) -> dict[str, Any]:
+        if live_capture.status().get("active"):
+            raise HTTPException(status_code=409, detail="Stop the current live capture before connecting a WebSDR.")
+        existing = websdr.status()
+        if existing.get("active") and existing.get("browser_running"):
+            raise HTTPException(status_code=409, detail="A WebSDR receiver is already connected; disconnect it before switching.")
+        try:
+            result = websdr.connect(data.url, data.name)
+            if not result.get("browser_running"):
+                websdr.disconnect()
+                raise RuntimeError("The receiver browser did not remain open.")
+            devices = live_capture.refresh_devices()
+            match = next((item for item in devices if item["name"] == result.get("device_name")), None)
+            if match is None:
+                source_name = str(result.get("audio_source_name") or "")
+                match = next((item for item in devices if source_name and source_name in item["name"]), None)
+            if match is None:
+                websdr.disconnect()
+                raise RuntimeError("The WebSDR audio input was created but PortAudio could not see it. Check the desktop audio server.")
+            result["device_id"] = match["id"]
+            return result
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            websdr.disconnect()
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except Exception as exc:
+            websdr.disconnect()
+            raise HTTPException(status_code=503, detail=f"Could not connect WebSDR audio: {exc}") from exc
+
+    @app.post("/api/websdr/disconnect")
+    def disconnect_websdr() -> dict[str, Any]:
+        current = websdr.status()
+        live = live_capture.status()
+        if current.get("active") and live.get("active"):
+            raise HTTPException(status_code=409, detail="Stop the current live capture before disconnecting a WebSDR audio source.")
+        result = websdr.disconnect()
+        try:
+            live_capture.refresh_devices()
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=f"WebSDR disconnected but audio device refresh failed: {exc}") from exc
+        return result
 
     @app.get("/api/live")
     def live_status() -> dict[str, Any]:
@@ -2420,7 +2494,21 @@ def create_app(
             }
 
         try:
+            receiver = websdr.status()
+            selected_websdr_device = None
+            if (receiver.get("active") and data.device_id is not None
+                    and receiver.get("device_name")):
+                selected_websdr_device = next((item for item in live_capture.devices()
+                                               if item["id"] == data.device_id), None)
+            is_websdr_source = bool(
+                selected_websdr_device
+                and selected_websdr_device["name"] == receiver.get("device_name")
+            )
+            if is_websdr_source and not receiver.get("browser_running"):
+                raise HTTPException(status_code=409, detail="The WebSDR browser is closed; reconnect it before starting live capture.")
             frequencies = data.band_hop_frequencies_hz
+            if frequencies and is_websdr_source:
+                raise HTTPException(status_code=422, detail="WebSDR frequency changes must be made in the receiver browser; rigctl band hopping is disabled for this receive-only source.")
             if frequencies:
                 if live_capture.status().get("active"):
                     raise HTTPException(status_code=409, detail="a live capture is already active")
@@ -2428,6 +2516,16 @@ def create_app(
                     tune_rigctl_frequency(data.rigctl_host, data.rigctl_port, frequencies[0])
                 except RuntimeError as exc:
                     raise HTTPException(status_code=503, detail=f"Could not start band hopping: {exc}") from exc
+            receiver_metadata: dict[str, Any] = {}
+            receiver_frequency = data.receiver_frequency_hz if is_websdr_source else None
+            if is_websdr_source:
+                receiver_metadata = {
+                    "source_type": "websdr",
+                    "receiver_name": receiver.get("name"),
+                    "receiver_url": receiver.get("url"),
+                }
+                if receiver_frequency is not None:
+                    receiver_metadata["frequency_hz"] = receiver_frequency
             started = live_capture.start(
                 device_id=data.device_id,
                 sample_rate=data.sample_rate,
@@ -2436,7 +2534,8 @@ def create_app(
                 capture_mode=data.capture_mode,
                 noise_interval_seconds=data.noise_interval_seconds,
                 window_analyzer=analyze_unattended_window if data.capture_mode == "unattended" else None,
-                initial_frequency_hz=frequencies[0] if frequencies else None,
+                initial_frequency_hz=frequencies[0] if frequencies else receiver_frequency,
+                source_metadata=receiver_metadata,
                 band_hop_count=len(frequencies),
                 band_hop_dwell_seconds=data.band_hop_dwell_seconds if frequencies else None,
             )

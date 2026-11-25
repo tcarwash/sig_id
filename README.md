@@ -56,6 +56,7 @@ Then open <http://127.0.0.1:8010>. Local audio capture also requires the platfor
 ## Project guides
 
 - [Operations](OPERATIONS.md): updates, model setup, backup and restore.
+- [WebSDR / KiwiSDR / OpenWebRX input](docs/WEBSDR_INPUT.md): connect a browser-based remote receiver directly to live Signal ID capture.
 - [OnAir event adapter](docs/ONAIR_EVENT_BRIDGE.md): optional live fallback for modes not implemented natively; no saved-WAV replay, setup and limits.
 - [Independent decoder library](docs/LIBSIGDECODE.md): in-project CW, modular decoder contract and ham-mode roadmap; external backends are optional.
 - [Multi-mode Signal Lab](docs/SIGNAL_LAB.md): receive-only virtual loopback for CW/RTTY/BPSK31/AX.25, sparse one- or two-station bursts across widely spaced passband lanes, optional fully crowded stress mode and pinned decoded truth (never RF/PTT).

@@ -1133,6 +1133,36 @@ Decoded text will appear here.</pre>
           Input sample rate is independent of the fixed 0–3 kHz display.
         </p>
       </section>
+      <section class="panel" id="websdr-panel">
+        <h3>Online receiver · WebSDR / KiwiSDR / OpenWebRX</h3>
+        <p class="subhead">Open a receiver in a dedicated browser window and route only that window's audio into Signal ID. Tune frequency, mode, and filter in the receiver page. Receive-only: Signal ID does not control PTT or transmit.</p>
+        <div class="live-controls websdr-controls">
+          <label>Quick pick
+            <select id="websdr-preset">
+              <option value="northern-utah">Northern Utah WebSDR</option>
+              <option value="twente">University of Twente WebSDR</option>
+              <option value="websdr-directory">WebSDR.org directory</option>
+              <option value="kiwisdr-map">KiwiSDR receiver map</option>
+              <option value="custom">Custom receiver URL…</option>
+            </select>
+          </label>
+          <label>Receiver URL
+            <input id="websdr-url" type="url" value="https://www.sdrutah.org/" maxlength="2048" spellcheck="false" autocomplete="url" />
+          </label>
+          <label>Receiver label
+            <input id="websdr-name" type="text" value="Northern Utah WebSDR" maxlength="100" />
+          </label>
+          <label>Tuned frequency (MHz) · optional capture metadata
+            <input id="websdr-frequency" type="number" min="0.001" max="6000" step="any" placeholder="e.g. 7.074" />
+          </label>
+          <div class="websdr-actions">
+            <button id="websdr-connect" class="primary" type="button">Connect &amp; start live</button>
+            <button id="websdr-disconnect" type="button" disabled>Disconnect</button>
+          </div>
+          <p id="websdr-status" class="subhead" role="status" aria-live="polite">Not connected. The browser and audio bridge run on the Signal ID host.</p>
+        </div>
+        <p class="subhead">Directories: <a href="https://www.websdr.org/" target="_blank" rel="noopener noreferrer">WebSDR.org</a> · <a href="https://rx.linkfanel.net/" target="_blank" rel="noopener noreferrer">KiwiSDR map</a></p>
+      </section>
       <section class="panel">
         <h3>Radio frequency (Hamlib)</h3>
         <label class="auto-trial-toggle" title="Read the receiver's current tuned frequency when creating a report.">
